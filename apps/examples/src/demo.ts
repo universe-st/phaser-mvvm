@@ -18,6 +18,10 @@ function render(): void {
   if (!el) {
     return;
   }
+  // `key=value` pairs joined by a space: compact and easy to grep. A *value* containing a space is
+  // therefore ambiguous to a naive parser (`field.text=round seven` reads as two pairs), so a check that
+  // needs such a value must ask the scene directly (`window.<scene>.state()`) instead of parsing this
+  // node - the scenes that publish free text expose exactly that.
   el.textContent = Array.from(state.entries())
     .map(([key, value]) => `${key}=${String(value)}`)
     .join(' ');
