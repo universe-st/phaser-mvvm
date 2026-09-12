@@ -226,3 +226,87 @@ holder.C       x=74   width=60  visible=true    ← 左移 142-74 = 68 = 60 + 8 
 | `rects()`（页面坐标）                    | 340 / 220 都拿不到       | `trunc.lines` `@280,608 340x37`、`trunc.single` `@280,651 220x20` |
 
 两张标签的高度（37 / 20）与卡片其余部分**没有移动**：修的是标签自己的裁剪，不是布局。
+
+## 9. 第 106 轮：四个"看起来像渲染错"的问题（两个控件缺陷 + 两个 demo 问题）
+
+### 9.1 先判归属：引擎 / 控件 / demo，各是谁的错
+
+用户报的四个现象都落在这一页上，但**根因分属三层**，判据如下（顺序即结论）：
+
+| 现象                                                       | 归属            | 判据                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 鼠标在左侧菜单上滑动时菜单底色闪                           | **控件**（V76） | `Panel` 默认带 `blockPointer` 命中区，那是**拦截层**（V9 的语义），但路由把 hover/pressed 也交给了它；侧栏没有写过任何"菜单该亮"的东西，`panelSkinStyles` 里也没有"只有交互面板才画指针状态"的条件——所以是控件把"有命中区"当成了"是控件" |
+| 菜单是圆角矩形，但下面两个圆角看不到                       | **demo**（V77） | 菜单面板本身画得对（`radius: 10` + 高度 639）；它的**底边在 y=701**，而画布只有 687——它被主体行挤出了画布。`layout` 包的 `grow` 语义有文档、有单测，`fill`/`basis` 两条正路也都在指南里                                                  |
+| `Button · icon` 里图标比按钮还大                           | **控件**（V75） | `Button` 的 icon 尺寸没有任何上限，`measureContent` 与 `onRectChanged` 都直接用它；`#/compose` 的 16px 贴图 + 那句注释证明这个溢出**早就被发现了，只是被 demo 绕开**                                                                     |
+| `Panel & decor` 滚到底时最后一张卡片底部（两个圆角）看不到 | **demo**（V77） | 与菜单同一个根因：舞台视口底边 701 > 画布 687。实测把主体行修对之后，**11 个分区逐个滚到底，最后一张卡的底边与舞台底边都落在 634**（页底 675）                                                                                           |
+
+修的东西各就各位：`widgets/src/Button.ts` + `geometry.ts`（V75）、`phaser/src/input.ts`（V76）、`apps/examples/src/scenes/showcase.ts`（V77），两处纯逻辑各带单测。
+
+### 9.2 V76：指针状态属于控件（真实鼠标，三个坐标 A/B）
+
+`#/showcase` 的 `buttons` 分区，指针分别落在"菜单按钮上""两个按钮之间的 6px 缝隙上""菜单面板自己的内边距上"：
+
+| 指针位置           | `nav`（面板，拦截层） | `st.nav.buttons`（真控件） | 同区域截图 sha256（前 12 位） |
+| ------------------ | --------------------- | -------------------------- | ----------------------------- |
+| 舞台上（移开）     | `normal`              | `normal`                   | `2eb5b2a4a5f6`                |
+| 菜单按钮中心       | `normal`              | **`hover`**                | （按钮会变，故不采样）        |
+| 两个按钮之间的缝隙 | `normal`              | `normal`                   | `2eb5b2a4a5f6`                |
+| 菜单面板内边距     | `normal`              | `normal`                   | `2eb5b2a4a5f6`                |
+
+三张截图的哈希**完全相同**：菜单列一个像素都没重画，而按钮该亮的时候照旧亮。修前同一组读数是「按钮上 `nav=normal`、缝隙上 `nav=hover`、内边距上 `nav=hover`」——正是"抖动"。
+
+**回归（同轮复验）**：`#/states` 的 `panel.interactive`（显式 `interactive: true`）仍是 `normal → hover → pressed → hover`、`st.button.default` 仍是 `normal → hover → pressed → hover`；`#/hud` 点顶栏面板体 `world.clicks=0`（拦截层照样吞按下）而点世界 `world.clicks=1`、点 `score` 得 `clicks=1 focus=hud.scoreButton`；`#/modal` 点遮罩仍然 `reasons=[backdrop]` 且 `page.clicks`/`world.clicks` 不动；`#/lifecycle` 重启 10 次 11 项计数逐轮相同（`themeListeners 59 / widgets 57 / frameListeners 11`）。
+
+### 9.3 V75：图标封顶（`window.showcase.iconFit()`）
+
+`showAndReport('buttons')` 之后，三个具名图标按钮的读数（`glyph` 是图标**实际绘制盒**，`x/y` 是它在按钮自己的坐标系里的位置）：
+
+| 按钮              | 按钮盒   | 图标贴图 | `glyph`   | `x, y`   | `inside` |
+| ----------------- | -------- | -------- | --------- | -------- | -------- |
+| `iconTextButton`  | `127×36` | 64×64    | **28×28** | `12, 4`  | `true`   |
+| `iconOnlyButton`  | `58×36`  | 64×64    | **28×28** | `12, 4`  | `true`   |
+| `smallIconButton` | `119×36` | 16×16    | **16×16** | `12, 10` | `true`   |
+
+28 = 36（按钮高）− 2 × `spacing.xs`（4）——图标不贴边，按钮的圆角因此没有被方形的图标盖掉；`smallIconButton` 的 16px 图标**原样不动**（封顶只缩不放）。修前 `iconOnlyButton` 的盒子是 `94×36` 而图标是 64 见方、从 `y=0` 画到 `y=64`，四边都在外面。
+
+卡片本身也扩成了行为矩阵（`sm`/`md`/`lg` 三档、显式 `height: 20` 的按钮、16px 图标），所以"封顶按控件高度走""更大的按钮不放大图标"这两件事在页面上看得见。单测：`packages/widgets/test/color-geometry.test.ts` 的 `fitIcon`（保持比例、永不放大、没位置返回 0）。
+
+### 9.4 V77：主体行溢出的几何（修前 / 修后，同一个窗口 1408×687）
+
+| 读数                                                  | 修前                                      | 修后                                                                               |
+| ----------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------- |
+| `page`                                                | `@12,12 1384×663`                         | 不变（页底 675）                                                                   |
+| `nav` / `stage` 高度                                  | **639**（底边 701，画布 687）             | **571.5**（底边 633.5）                                                            |
+| 页脚行                                                | 在 `y=699`，**画布之外**                  | `y=687-…`，可见（`rows 0/200 · scroll 0 px`）                                      |
+| 菜单列表                                              | 直接放在面板里（572 > 551.5，**不裁剪**） | `Panel → Scroll(showcase.navScroll) → Column`，`maxOffset=3`（720 高的窗口下为 0） |
+| 11 个分区逐个 `scrollStage(1e6)` 后：最后一张卡的底边 | 全部 701（画布之外）                      | 全部 **634** = 舞台底边 < 页底 675 < 画布 687                                      |
+
+### 9.5 `churnSections` 与分区计数（第 106 轮复测）
+
+| 判据                                                             | 实测                                                                                                               |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `churnSections(3)`（十一个分区各走三遍再回起点）                 | before == after `{widgets 86, stageWidgets 47, themeListeners 87, pointerTargets 46, focusables 39, a11yNodes 40}` |
+| A/B：`repeat` 直接进入 vs 先 `showAll()`（853 个舞台控件）再进入 | 两者完全相同 `{146, 107, 147, 52, 24, 24}`；`showAll()` 时 `{892, 853, 893, 195, 67, 70}`、`repeat.rendered=10`    |
+| `Tab` 走查（真实按键，前 8 步）                                  | `showAll → next → themeButton → showcase.navScroll → nav.text → nav.buttons → nav.inputs → nav.decoration`         |
+
+计数比第 79 轮（`{79, 43, 80, 40, 33, 34}`）大，来自两处新增：菜单的滚动口（`ScrollView` + 持有者 + 内容列）与 `Button · icon` 卡的四个新按钮。
+
+各分区舞台控件数 / 内容高度（第 106 轮复测；第 79 轮的十区表见 §2）：
+
+| 分区         | 舞台控件数 | 内容高度 |
+| ------------ | ---------- | -------- |
+| `text`       | 43         | 621      |
+| `buttons`    | 47         | 646      |
+| `inputs`     | 35         | 600      |
+| `decoration` | 71         | 693      |
+| `box`        | 161        | 842      |
+| `grid`       | 98         | 947      |
+| `stack`      | 83         | 670      |
+| `params`     | 110        | 1513     |
+| `sizing`     | 79         | 625      |
+| `repeat`     | 107        | 468      |
+| `focus`      | 39         | 556      |
+
+### 9.6 本轮**未运行**的门禁
+
+`node scripts/visual-check.mjs` **没有跑成**：本机沙箱下 Chrome 的默认 profile 目录不可写（`touch ~/Library/Application Support/Google/Chrome/...` → `Operation not permitted`），脚本报 `timed out waiting for chrome devtools endpoint`（脚本不传 `--user-data-dir`，这是它既有的约定；见 AGENTS §6 与 [`PITFALLS.md`](./PITFALLS.md) §8.9）。因此本轮的几何/像素断言全部由 **Playwright MCP**（真实鼠标 + `#status`/`#demo-state`/`window.showcase.*`）完成，像素证据是上面那三张同区域截图的哈希比对与 §9.3 的 `iconFit()` 数字。`pnpm typecheck`（5/5）、`pnpm -r run test`（1321 passed）、`prettier --check .`、`pnpm docs:check` 均通过；`visual-check` 需要在能启动 Chrome 的机器上补跑一次（它对本页的门禁是 `sizing` 分区的四个采样点，本轮没有改动 `sizing` 的几何）。

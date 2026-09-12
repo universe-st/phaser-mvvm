@@ -474,3 +474,50 @@ Canvas 路径没有 DOM 的 `event.detail`，"这是第几次点击"只能由控
 **门禁与实测**：`#/options` 新增 `layout slots` 卡（`gap`/`padding` 在容器上、`width` 在叶子上），`window.optionsDemo.slots()` 同时读三样东西——`ref` 的值、**引擎真正持有的**容器选项/`layoutParams`、以及**排布出来的** `rowY`；再加 `sameRows`（行控件是否还是建树时那批实例）。实测翻 ref：`containerGap` 4 → 16、`boxWidth` 120 → 240、`rowY` `[6,34,62]` → `[18,58,98]`（正好是 padding + 行高 + gap），而 `sameRows` 始终 `true` —— **几何变了、子树没重建**；真鼠标点卡片自己的三个按钮得到同样的结果。像素门禁取"宿主列（宽 260 固定）的 90% 处"：roomy 时落在 240 宽的盒子里（`primary` 令牌 `#2f6feb` / 亮色 `#0969da`），默认 120 时同一点落在卡片底色上——所以它测的是**槽位真的生效**，而不是"盒子大致在那儿"。阳性对照（让 `layout` 那一类槽位永不绑定）如期 `2 check(s) failed`。
 
 **一条容易被误判成缺陷的边界**：`stretch` 会让子节点拿到整条交叉轴长度，**即使它写了自己的 `width`**（`box.ts` 的实现说明与指南 02 §6 都写明了这是有意的、与 CSS 不同）。所以"宽度槽位不生效"的第一嫌疑是宿主容器在 `stretch` —— 把宿主改成 `alignItems: 'start'`，槽位立刻可见（本轮就是这么踩了一次）。
+
+## 8.67 `hover`/`pressed` 属于**控件**，不属于"有命中区的层"（第 106 轮 V76）
+
+路由的语义是"指针下**最深**的那个目标"，而"是目标"这件事有**两个**理由：
+
+1. 它是个控件（可聚焦、有激活回调、显式 `interactive`）——`hover`/`pressed` 是它的**操作反馈**；
+2. 它的命中区是**拦截层**（`Panel` 的 `blockPointer` 默认 `true`）——为的是"落在 UI 上的按下不再穿透到 UI 之下的游戏对象"（V9）。
+
+第二类也进了路由的目标集合（`collectInteractive` 有意收集它们），于是它同样收到了 `hover`/`pressed`，而 `ProceduralSkin` 又照着画了：`#/showcase` 左边的菜单是一块 `variant: 'surface'` 的面板，鼠标从它的按钮上滑过时，只要有**一个像素**落在按钮之间的 6px 缝隙或面板内边距上，路由就把 hover 从按钮移回面板——面板底色的 `normal ⇄ hover` 于是随鼠标抖动（实测：指针在按钮上 `nav=normal`、在缝隙上 `nav=hover`）。同一族里更显眼的是整页背景：`variant: 'plain'` 的页面面板 hover 时用 `surfaceHover` 以 0.5 alpha 刷满全屏，指针滑过卡片之间的 10px 缝就会让整页闪一下。按下也有同一半问题：点菜单空白处，面板会整块变暗（`pressed`）。
+
+**判据**：`takesPointerStates(widget)`（`input.ts`，纯函数、有单测）= 可聚焦 / 有 `onActivate` / 显式 `interactive`。`syncPointerState()` 先用 `resolveTarget()` 拿到命中目标（拦截与激活的语义**不变**），再 `pointerStateTarget()` **向上**走到最近的那个控件去设 hover；`handlePointerDown()` 仍然把这次按下记在命中目标上（`pressedAt`，点击手势与激活判定的依据），但只在目标是控件时才 `setPressed(true)`。
+
+向上走这一步是有意的，不是补丁：一个 `interactive: true` 的卡片里放着一层普通面板时，指针落在那一层上，亮的应该是**卡片**（CSS `:hover` 的直觉），而不是那层什么都做不了的面板。
+
+**别把读数变化当回归**：改完之后"容器自己不会 hover"这句话仍然成立，只是现在多了一条——**不是控件的容器永远不会** hover/pressed。`#/showcase` 的 `st.nav`/`st.section.*` 这类探针本来就只提供几何；真正需要 hover 面板的是 `#/states` 的 `panel.interactive`（显式 `interactive: true`），实测仍是 `normal → hover → pressed → hover`。
+
+**怎么验**：三张同区域截图（指针移开 / 落在按钮缝隙 / 落在面板内边距）应当**逐字节相同**（`shasum` 一比即可）；再加一条真实鼠标的 A/B——同一个坐标在"控件"与"拦截层"上分别读到 `hover` 与 `normal`。
+
+## 8.68 自动高度的行里放 `fill` 子节点，会把整行撑到"父容器还能给的全部"（第 106 轮 V77）
+
+`fill` 的语义是"撑满**父容器的内容盒**"，而测量趟里父容器的内容盒只有一个上界（`loosen(constraint)`）——于是
+
+```ts
+Panel({ direction: 'vertical', height: 'fill', padding: 12 }, () => {
+  Row({ width: 'fill' }, () => { Text('标题'); });                 // 页头，auto 高
+  Row({ width: 'fill', grow: 1 }, () => {                          // 主体
+    Scroll({ width: 'fill', height: 'fill' }, () => { … });
+  });
+  Row({ width: 'fill' }, () => { Text('页脚'); });
+});
+```
+
+主体那一行会在测量时**报告自己等于整块内容盒**（因为 `Scroll` 的 `height: 'fill'` 解析成"父容器内容盒的高度"，而父容器就是这一行；行自己的高度还是 auto，只能拿到这个上界）。接着 `grow: 1` 保留的就是这个实测尺寸——它已经吃掉了页头与页脚的位置，`shrink` 默认又是 0，于是**页脚被推出页面**、主体底边落到画布之外。这一页历史上所有的"最后一个卡片的两个圆角看不见"都是这一个原因（不是裁剪算错、也不是 `ScrollView` 少算了几像素）。
+
+两条正确写法，语义不同但这里等价：
+
+| 写法                     | 主轴上发生了什么                                                          |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `height: 'fill'`（推荐） | 主轴 `fill` ⇒ 基准 0 + `grow: 1`（`flex: 1 1 0`）：拿到"剩下多少就要多少" |
+| `grow: 1, basis: 0`      | 同上，显式写出基准（想保留宽度实测值时用得上）                            |
+| `grow: 1`                | **保留实测尺寸**，空间不够时溢出（要配合 `shrink` 才有救）                |
+
+`guide/02-layout.md` §"主轴上的 `fill` 基准是 0"与 `box.test.ts` 的「treats `fill` as grow: 1 with a base size of 0」写的就是这条；**"行里有个 `fill` 子节点"是判断"这一行会不会撑满"的信号**。
+
+**顺带一条**：容器**不裁剪**自己的内容。一个装不下自己内容的 `Panel`（比如那 572px 的菜单列表放在 551.5px 的轨道里）不会把溢出的部分挡住——它会照画在面板的圆角外面。所以"这块内容可能装不下"就必须自己给一个 `Scroll` 口（`#/showcase` 的侧栏现在是 `Panel → Scroll → Column`），而不是指望面板兜住。
+
+**验收姿势**：`showAndReport(id)` 之后 `scrollStage(1e6)`，再把"分区最后一张卡片的底边"与"舞台底边"、"页底"、"画布高"四个数放在一起读——只看卡片自身永远看不出它被画到了画布外面（`#/showcase` §9.4 的表就是这么来的）。
