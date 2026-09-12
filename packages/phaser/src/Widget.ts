@@ -130,10 +130,25 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
    * `preventDefault()`). Return `false`/`undefined` to let the focus manager handle it as usual, which
    * is what keeps `Tab`/`Escape`/arrows working on every other widget.
    *
-   * This is how a value control owns the keys that mean something to it — a `Slider` moves its value
-   * with the arrows, while the same arrows still navigate focus between widgets (`docs/guide/07`).
+   * This hook is for the *keys* a widget owns beyond navigation — typing, `Home`/`End`,
+   * `PageUp`/`PageDown`. A direction that is a navigation action belongs in {@link Widget.onAction}
+   * instead, so the widget behaves the same on a gamepad.
    */
   onKeyDown: ((event: KeyboardEvent, action: NavAction | null) => boolean) | null = null;
+
+  /**
+   * First refusal on a navigation action, **whatever device produced it**.
+   *
+   * The plugin asks the focused widget before the focus manager moves or activates anything, for keys
+   * *and* for gamepad D-Pad/stick input, so a widget claims a direction once and gets it from both
+   * devices. A `Slider` moves its value with `left`/`right`; the same directions still navigate focus
+   * away from every other widget.
+   *
+   * Declining (`false`/`undefined`) is the default and means "this is navigation, not mine". A widget
+   * should decline the directions that are *not* its own axis: that is what keeps `up`/`down`
+   * available for leaving a horizontal slider with a D-Pad.
+   */
+  onAction: ((action: NavAction, source: ActivationSource) => boolean) | null = null;
 
   private _enabled = true;
   private _hovered = false;

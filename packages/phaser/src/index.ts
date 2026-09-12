@@ -111,6 +111,7 @@ export {
   type TargetNode,
 } from './input';
 export {
+  ARROW_KEY_OF_DIRECTION,
   NAV_DIRECTIONS,
   NAV_REPEAT_DEFAULTS,
   NavRepeat,

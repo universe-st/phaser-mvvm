@@ -118,6 +118,20 @@ function normalizeDelay(value: number | undefined, fallback: number): number {
 // ---------------------------------------------------------------------------- keyboard
 
 /**
+ * The arrow key a navigation direction stands for.
+ *
+ * A widget that handles navigation *actions* (see `Widget#onAction`) still has to run its key-based
+ * logic for the keyboard, and this is the one place that translation lives — the `Slider` and the
+ * `ScrollView` both use it, so "D-Pad right" and "ArrowRight" can never drift apart.
+ */
+export const ARROW_KEY_OF_DIRECTION: Record<NavDirection, string> = {
+  up: 'ArrowUp',
+  down: 'ArrowDown',
+  left: 'ArrowLeft',
+  right: 'ArrowRight',
+};
+
+/**
  * Maps a native keyboard event onto a navigation action.
  *
  * Phaser hands the *native* `KeyboardEvent` to `scene.input.keyboard.on('keydown', …)` listeners,

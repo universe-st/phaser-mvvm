@@ -18,7 +18,8 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import { Widget, colorOf, pointerInWidgetSpace } from '@phaser-mvvm/phaser';
+import { ARROW_KEY_OF_DIRECTION, Widget, colorOf, pointerInWidgetSpace } from '@phaser-mvvm/phaser';
+import type { NavAction } from '@phaser-mvvm/phaser';
 import { paintFocusRing } from './appearance';
 import {
   clampSliderValue,
@@ -69,6 +70,9 @@ export const SLIDER_EVENTS = {
 } as const;
 
 /** Default track length when the caller does not set one. */
+/** Keys the slider owns beyond navigation (`←`/`→` are navigation actions and go through `onAction`). */
+const EXTRA_KEYS = new Set(['Home', 'End', 'PageUp', 'PageDown']);
+
 const DEFAULT_WIDTH = 180;
 
 export class Slider extends Widget {
@@ -126,9 +130,13 @@ export class Slider extends Widget {
     this.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.beginDrag(pointer);
     });
-    // First refusal on the arrows/Home/End/PageUp/PageDown while focused; everything else (Tab, Enter,
-    // Escape) is declined so navigation keeps working (`Widget#onKeyDown`).
-    this.onKeyDown = (_event, _action) => this.handleKey(_event);
+    // `←`/`→` are *navigation actions*, so they are claimed through `onAction`: the same call serves the
+    // keyboard and the gamepad, which is what makes a D-Pad adjust the value instead of walking focus
+    // away from it (V28). `↑`/`↓` are declined on purpose — they are the way out of a horizontal
+    // slider with a D-Pad, exactly like any other widget.
+    this.onAction = (action) => this.handleAction(action);
+    // Keys that are not navigation actions stay keyboard-only (`Widget#onKeyDown`).
+    this.onKeyDown = (event) => this.handleExtraKey(event);
 
     if (widget.disabled === true) {
       this.setEnabled(false);
@@ -263,12 +271,45 @@ export class Slider extends Widget {
     this.emit(SLIDER_EVENTS.CHANGE, next);
   }
 
-  /** Moves the value by one step, one page or to an end; reports it exactly like a drag would. */
-  private handleKey(event: KeyboardEvent): boolean {
+  /**
+   * Navigation actions along the slider's axis change the value.
+   *
+   * `left`/`right` are claimed for **every** device (keyboard arrows and gamepad D-Pad/stick); the
+   * cross-axis directions are declined so they keep navigating focus away from the slider.
+   */
+  private handleAction(action: NavAction): boolean {
     if (!this.enabled) {
       return false;
     }
-    const next = sliderValueForKey(this.current, event.key, this.min, this.max, this.step);
+    if (action !== 'left' && action !== 'right') {
+      return false;
+    }
+    return this.applyValue(
+      sliderValueForKey(
+        this.current,
+        ARROW_KEY_OF_DIRECTION[action],
+        this.min,
+        this.max,
+        this.step,
+      ),
+    );
+  }
+
+  /** Keys beyond navigation: `Home`/`End` jump to the ends, `PageUp`/`PageDown` by a tenth of the range. */
+  private handleExtraKey(event: KeyboardEvent): boolean {
+    if (!this.enabled) {
+      return false;
+    }
+    if (!EXTRA_KEYS.has(event.key)) {
+      return false;
+    }
+    return this.applyValue(
+      sliderValueForKey(this.current, event.key, this.min, this.max, this.step),
+    );
+  }
+
+  /** Applies whatever a key or a navigation action resolved to, reporting it exactly like a drag would. */
+  private applyValue(next: number | null): boolean {
     if (next === null) {
       return false;
     }

@@ -179,6 +179,10 @@ dialogFocus.next();
 
 插件每帧轮询 0 号手柄，所以**不需要**你自己写 gamepad listener。想换映射或加第二个手柄，`nav.ts` 导出了纯函数（`gamepadStateOf`、`gamepadActionsOf`、`heldDirectionsOf`、`NavRepeat`），可以脱离 Phaser 单测。
 
+> ⚠️ **游戏配置里必须开手柄**：`new Phaser.Game({ input: { gamepad: true } })`。Phaser 默认 `false`，此时插件轮询拿到的永远是空列表——示例应用直到第 64 轮才补上这一行（`#/gallery` 当时已经在文案里写着"gamepad supported"）。
+
+**方向键和手柄完全同权**：两台设备的导航动作都先问"当前焦点控件要不要这个动作"（`Widget.onAction`），再交给焦点管理器。所以聚焦滑杆后，`→` 与 `D-Pad 右` 都是**调值**，而不是一个调值、一个把焦点搬走；聚焦滚动容器后，`↓` 与 `D-Pad 下` 都是**滚动**。`↑`/`↓` 在横向滑杆上是"离开"，这就是手柄用户不会被困在控件里的原因（第 64 轮修复的 V28；同一轮还用它验证了 `activate`/`back` 与连发）。
+
 ```ts
 // 自定义连发节奏（想自己接管导航时）
 import { NavRepeat } from '@phaser-mvvm/phaser';

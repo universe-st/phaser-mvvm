@@ -34,11 +34,12 @@ import {
   gamepadStateOf,
   heldDirectionsOf,
   keyboardActionOf,
+  type NavAction,
   type NavInputState,
 } from './nav';
 import { getTheme, onThemeChange, setTheme, type Theme, type ThemeName } from './theme';
 import { UIRoot, type UIRootOptions } from './UIRoot';
-import { Widget } from './Widget';
+import { Widget, type ActivationSource } from './Widget';
 
 type GamepadLike = Parameters<typeof gamepadActionsOf>[0];
 
@@ -308,8 +309,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return;
     }
-    // The focused widget gets first refusal: a `Slider` moves its own value with the arrows, and every
-    // other widget declines so the keys keep navigating (`Widget#onKeyDown`).
+    // The focused widget gets first refusal, in two steps: `onKeyDown` for the keys it owns beyond
+    // navigation (typing, Home/End, PageUp/PageDown), then `onAction` for the navigation actions
+    // themselves — so a direction claimed once works on a gamepad too (`Widget#onAction`).
     const focused = this.focusManager?.focusedWidget ?? null;
     if (focused && focused.onKeyDown?.(event, action) === true) {
       event.preventDefault();
@@ -318,9 +320,23 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     if (!action) {
       return;
     }
-    if (this.focusManager?.handleAction(action, 'keyboard')) {
+    if (this.dispatchAction(action, 'keyboard')) {
       event.preventDefault();
     }
+  }
+
+  /**
+   * Gives the focused widget first refusal on a navigation action, then navigates.
+   *
+   * Every device goes through here: the keyboard path and the gamepad poll, so "the D-Pad adjusts the
+   * slider" and "the arrow key adjusts the slider" cannot drift apart (V28).
+   */
+  private dispatchAction(action: NavAction, source: ActivationSource): boolean {
+    const focused = this.focusManager?.focusedWidget ?? null;
+    if (focused?.onAction?.(action, source) === true) {
+      return true;
+    }
+    return this.focusManager?.handleAction(action, source) ?? false;
   }
 
   private pollGamepad(time: number): void {
@@ -342,11 +358,11 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
     for (const action of snapshot.actions) {
       if (action === 'activate' || action === 'back') {
-        this.focusManager?.handleAction(action, 'gamepad');
+        this.dispatchAction(action, 'gamepad');
       }
     }
     for (const action of repeated) {
-      this.focusManager?.handleAction(action, 'gamepad');
+      this.dispatchAction(action, 'gamepad');
     }
   }
 

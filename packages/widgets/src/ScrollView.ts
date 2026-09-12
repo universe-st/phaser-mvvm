@@ -45,8 +45,8 @@
 import Phaser from 'phaser';
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import { stageRectOf, Widget } from '@phaser-mvvm/phaser';
-import type { Theme } from '@phaser-mvvm/phaser';
+import { ARROW_KEY_OF_DIRECTION, stageRectOf, Widget } from '@phaser-mvvm/phaser';
+import type { NavDirection, NavAction, Theme } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import {
   clampZoomOffset,
@@ -64,6 +64,7 @@ import {
   isScrollable,
   normalizeWheel,
   planScrollDrag,
+  type ScrollKeyStep,
   planScrollKey,
   thumbGeometry,
   type ScrollRect,
@@ -124,6 +125,9 @@ export const SCROLL_DRAG_THRESHOLD = 10;
 export const FLING_MIN_VELOCITY = 0.08;
 /** Keyboard line step, in pixels. */
 export const KEY_LINE_STEP = 40;
+
+/** Keys the port owns beyond navigation (directions are navigation actions and go through `onAction`). */
+const EXTRA_SCROLL_KEYS = new Set(['Home', 'End', 'PageUp', 'PageDown']);
 /** Smallest scrollbar thumb, in pixels. */
 export const MIN_THUMB = 28;
 
@@ -885,6 +889,11 @@ export class ScrollView extends Widget {
     scene?.events?.on(Phaser.Scenes.Events.POST_UPDATE, this.onPostUpdate);
     registerScrollView(this);
     this.scope.onScopeDispose(() => this.removeListeners());
+    // Directions are *navigation actions*: claiming them through `onAction` is what makes a gamepad
+    // D-Pad/stick scroll the port instead of walking focus out of it (V28). The axis rule in
+    // `handlesDirection` is what keeps the cross-axis directions navigating.
+    this.onAction = (action) => this.scrollWithAction(action);
+    // `Home`/`End`/`PageUp`/`PageDown` are not navigation actions, so they stay keyboard-only.
     this.onKeyDown = (event) => this.scrollWithKey(event);
   }
 
@@ -1329,6 +1338,23 @@ export class ScrollView extends Widget {
    * the focused widget first, so this runs for the view that holds focus and never for anyone else —
    * `Tab`/`Enter`/`Escape` and every key a `TextField` inside the view owns stay untouched.
    */
+  /** Scrolls the port for a navigation action along its own axis; the cross axis keeps navigating. */
+  private readonly scrollWithAction = (action: NavAction): boolean => {
+    if (!this.focused || this.enabled === false || this.isDestroyed) {
+      return false;
+    }
+    if (action !== 'up' && action !== 'down' && action !== 'left' && action !== 'right') {
+      return false;
+    }
+    if (!this.handlesDirection(action)) {
+      return false;
+    }
+    return this.applyScrollStep(
+      planScrollKey(ARROW_KEY_OF_DIRECTION[action], this.viewport.height, KEY_LINE_STEP),
+    );
+  };
+
+  /** Keys the port owns beyond navigation (`Home`/`End`/`PageUp`/`PageDown`). */
   private readonly scrollWithKey = (event: KeyboardEvent): boolean => {
     if (!this.focused || this.enabled === false || this.isDestroyed) {
       return false;
@@ -1336,10 +1362,14 @@ export class ScrollView extends Widget {
     if (event.ctrlKey || event.metaKey || event.altKey) {
       return false;
     }
-    if (!this.handlesKey(event.key)) {
+    if (!EXTRA_SCROLL_KEYS.has(event.key)) {
       return false;
     }
-    const step = planScrollKey(event.key, this.viewport.height, KEY_LINE_STEP);
+    return this.applyScrollStep(planScrollKey(event.key, this.viewport.height, KEY_LINE_STEP));
+  };
+
+  /** Applies one keyboard/action step; `false` means the step resolved to nothing. */
+  private applyScrollStep(step: ScrollKeyStep | null): boolean {
     if (step === null) {
       return false;
     }
@@ -1358,7 +1388,7 @@ export class ScrollView extends Widget {
     }
     this.scrollBy(0, step.delta);
     return true;
-  };
+  }
 
   /** How many scroll views enclose this one (0 for a top-level view). */
   private scrollDepth(): number {
@@ -1531,24 +1561,16 @@ export class ScrollView extends Widget {
   }
 
   /** Which keys this view owns, given its direction. */
-  private handlesKey(key: string): boolean {
-    if (key === 'Home' || key === 'End') {
-      return true;
-    }
+  /** Whether a navigation direction belongs to this port's own axis (plus both axes for `direction: 'both'`). */
+  private handlesDirection(direction: NavDirection): boolean {
+    const vertical = direction === 'up' || direction === 'down';
     if (this.direction === 'vertical') {
-      return key === 'ArrowUp' || key === 'ArrowDown' || key === 'PageUp' || key === 'PageDown';
+      return vertical;
     }
     if (this.direction === 'horizontal') {
-      return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'PageUp' || key === 'PageDown';
+      return !vertical;
     }
-    return (
-      key === 'ArrowUp' ||
-      key === 'ArrowDown' ||
-      key === 'ArrowLeft' ||
-      key === 'ArrowRight' ||
-      key === 'PageUp' ||
-      key === 'PageDown'
-    );
+    return true;
   }
 
   private readonly onPostUpdate = (): void => {

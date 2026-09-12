@@ -18,6 +18,7 @@ import { ScrollScene } from './scenes/scroll';
 import { StatesScene } from './scenes/states';
 import { ShowcaseScene } from './scenes/showcase';
 import { StackScene } from './scenes/stack';
+import { installFakePad } from './fake-pad';
 import { appendStatus, installErrorReporting, setStatus } from './status';
 
 // Registers `this.add.vbox/hbox/uiGrid/uiStack/uiAbsolute/uiRect` …
@@ -26,6 +27,9 @@ installFactories();
 installWidgetFactories();
 
 installErrorReporting();
+// A fake gamepad any acceptance run can drive (`window.fakePad`); see `fake-pad.ts` for why this is
+// the only way to test the gamepad path from outside the browser.
+installFakePad();
 setStatus('boot');
 
 // Lets an acceptance run prove the "release mode prints nothing" half of the logging contract from
@@ -78,8 +82,13 @@ const game = new Phaser.Game({
   },
   // Two touch pointers (plus the mouse) so the demos exercise multi-touch: each pointer keeps its own
   // drag/press (see `docs/ACCEPTANCE-touch.md`). Phaser allocates `activePointers` touch pointers.
+  //
+  // `gamepad: true` was missing until round 64: Phaser defaults it to `false`, so the plugin's gamepad
+  // poll never ran in the demos even though `#/gallery` advertised "gamepad supported". Without a real
+  // pad, acceptance drives it through the fake pad below.
   input: {
     activePointers: 2,
+    gamepad: true,
   },
   // Required by the M5 DOM input bridge / a11y mirror (ADR-0004); harmless before that lands.
   dom: {
