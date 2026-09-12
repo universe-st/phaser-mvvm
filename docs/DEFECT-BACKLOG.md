@@ -7,7 +7,9 @@
 
 状态图例：`已修复` / `待修`（确认成立、未修）/ `待验证`（疑似，尚未证实）。
 
-**第 2 轮更新**：L1–L8、W1–W3 已修复，§3 的 V5（模板二次反转义）与 V6（转换器名字 trim）也已确认并修复；证据见 [`ACCEPTANCE-layout-defects.md`](./ACCEPTANCE-layout-defects.md)。表中保留原始描述与修法以便追溯，剩余未处理项为 W4 与 §3 其余疑似项。
+**第 2 轮更新**：L1–L8、W1–W3 已修复，§3 的 V5（模板二次反转义）与 V6（转换器名字 trim）也已确认并修复；证据见 [`ACCEPTANCE-layout-defects.md`](./ACCEPTANCE-layout-defects.md)。
+
+**第 3 轮更新**：新建 `#/lifecycle` 门禁（场景重启 100 次 + 8 项泄漏计数），**门禁第一次运行就抓到一个 HIGH 缺陷**（P1，见 §2.1）——`MVVMPlugin` 用 `once` 订阅场景事件又在 `dispose()` 里全部退订，而 `boot()` 每个场景只跑一次，于是 `scene.restart()` 之后插件再也不拆解 UI、`PRE_UPDATE` 也永远不再触发（重启后的 UI 既泄漏又是死的）。已修复，门禁 101 轮全绿，详见 [`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md)。W4（虚拟列表内容长度混用视口）同轮确认并修复。
 
 ---
 
@@ -31,7 +33,13 @@
 | W1  | 已修复 | MED    | `Repeat.ts:554-563`（+`376-391`、`repeat-plan.ts:190-193`） | 自身与父容器高度都未解析时 `viewportSize()` 返回 0 → 虚拟窗口塌成 `overscan` 行（`overscan: 0` 时 0 行），但 `maxScrollOffset` 仍声称整表可滚，且**无告警**（指南 §7 的最小示例就踩这个坑） | 视口为 0 时告警，并回退到最近的非零祖先高度/外层 `ScrollView` 视口                    |
 | W2  | 已修复 | MED    | `ScrollView.ts:585-592/595-618/416-434`                     | 内容范围重算后从不重新 clamp：滚到底再删行/放大视口 → `currentY > limitY` 停在越界位置（空白），`thumbGeometry` 又把 progress 夹到 [0,1] 掩盖问题                                           | `onRectChanged` 先测量再 clamp；`sync()` 刷新后在非拖拽/非惯性时重新 clamp + 应用偏移 |
 | W3  | 已修复 | LOW    | `scroll-plan.ts:127-134`                                    | `ThumbGeometry.position` 文档写「轨道比例 0…1」，实现与使用都是像素（已改为「像素」）                                                                                                       | 改文档或改名 `positionPx`                                                             |
-| W4  | 待验证 | 待验证 | `ScrollView.ts:602-605`                                     | `height = target.maxOffset + viewport.height` 混用了 Repeat 自身视口与 ScrollView 视口，二者不等时 `contentHeight`/`limitY` 可能失真（末行不可达或滚出空白）                                | 需在渲染环境实测后判定                                                                |
+| W4  | 已修复 | 已修复 | `ScrollView.ts:602-605`                                     | `height = target.maxOffset + viewport.height` 混用了 Repeat 自身视口与 ScrollView 视口，二者不等时 `contentHeight`/`limitY` 可能失真（末行不可达或滚出空白）                                | 需在渲染环境实测后判定                                                                |
+
+## 2.1 第 3 轮新增（P1，已修复）
+
+| #   | 状态   | 严重度   | 位置                                           | 问题                                                                                                                                                                                                                                                                                                          | 修法                                                                                                       |
+| --- | ------ | -------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| P1  | 已修复 | **HIGH** | `phaser/src/plugin.ts`（`boot()`/`dispose()`） | 用 `events.once(SHUTDOWN/DESTROY)` 注册、`dispose()` 里又 `off` 掉全部订阅；`boot()` 每个场景只调用一次，因此 `scene.restart()` 后插件与场景事件永久断开：① 每次关闭都不再拆解 UI（实测每轮泄漏 37 个主题订阅、13 个指针目标、21 张文本纹理）；② `PRE_UPDATE` 不再触发 → 重启后的场景没有帧刷新/布局/输入路由 | 改为持久订阅（`on` 而非 `once`），`dispose()` 只拆 UI，新增 `detachEvents()` 仅供插件自身 `destroy()` 使用 |
 
 ## 3. 疑似项（第 2 轮已处理 V5、V6）
 
@@ -50,4 +58,5 @@
 
 ## 4. 覆盖率缺口（不是缺陷，但值得补门禁）
 
-- 仓库**没有**自动化门禁覆盖「场景创建→销毁 100 次后计数归零」「场景关闭后 `themeListenerCount()` 回到基线」「`InputRouter`/`FocusManager`/`ScrollView`/`Repeat`/`TextInputBase` 生命周期」——现有 `packages/{phaser,widgets}/test` 只测纯函数。建议在 M8 前补一个 Node 侧的假渲染器夹具，或把该门禁放进 Playwright 验收脚本。
+- ✅ **已补（第 3 轮）**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）通过 `window.lifecycle.churn(n)` 做「场景重启 n 次 + 8 项计数采样」，Playwright MCP 上 101 轮全绿（[`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md)）。覆盖了 `themeListenerCount()` 回基线、`InputRouter`/`FocusManager` 集合不残留、`ScrollView`+`Repeat` 虚拟化在重启后存活，以及重启后仍可点击/输入。
+- ⬜ **仍缺**：① Node 侧假渲染器夹具（让 `packages/phaser`/`widgets` 的生命周期逻辑能进 CI，不依赖浏览器）；② 聚焦输入框后重启是否留下光标闪烁定时器；③ `scene.stop()/start()`、多场景并存、`SceneManager.remove()` 路径。

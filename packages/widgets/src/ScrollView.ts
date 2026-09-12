@@ -107,11 +107,20 @@ export const KEY_LINE_STEP = 40;
 /** Smallest scrollbar thumb, in pixels. */
 export const MIN_THUMB = 28;
 
-/** The slice of a virtualised list the view drives instead of moving the content. */
+/**
+ * The slice of a virtualised list the view drives instead of moving the content.
+ *
+ * `contentExtent` is the list's **full** length in pixels (every item, not the mounted window), which
+ * is what an enclosing port has to measure. Deriving it from `maxOffset + <port viewport>` mixes two
+ * different viewports as soon as the list's own box and the port disagree — either letting the port
+ * scroll past the end into blank space or leaving the last rows unreachable.
+ */
 export interface VirtualScrollTarget {
   readonly virtualizedEnabled: boolean;
   readonly offset: number;
   readonly maxOffset: number;
+  /** Full content length in pixels, independent of any viewport. */
+  readonly contentExtent: number;
   setScrollOffset(offset: number): void;
 }
 
@@ -608,8 +617,11 @@ export class ScrollView extends Widget {
     let height = 0;
     if (target !== null && this.scrollsY()) {
       // A virtualised list already knows how long it is; its mounted window is not the whole story.
+      // `contentExtent` is that length; the old `maxOffset + viewport` only agreed with it while the
+      // list's own box happened to be exactly as tall as this port.
+      const extent = target.contentExtent;
       width = viewport.width;
-      height = target.maxOffset + viewport.height;
+      height = Number.isFinite(extent) ? extent : target.maxOffset + viewport.height;
     } else if (content !== null) {
       this.rectBuffer.length = 0;
       collectRects(content, 0, 0, this.rectBuffer);

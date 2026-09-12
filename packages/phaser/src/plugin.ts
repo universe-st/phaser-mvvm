@@ -83,9 +83,14 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     if (!events) {
       return;
     }
+    // `on`, not `once`, and the subscriptions survive a shutdown. Phaser runs `boot()` exactly once
+    // per scene, so a handler consumed by the first SHUTDOWN left a *restarted* scene with no
+    // PRE_UPDATE pump (no frame flush, no layout, no input routing) and no teardown on later
+    // shutdowns — every restart then leaked a complete UI tree (theme listeners, pointer targets and
+    // one text texture per label). Only the plugin's own `destroy()` unsubscribes.
     events.on(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
-    events.once(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
-    events.once(Phaser.Scenes.Events.DESTROY, this.onShutdown, this);
+    events.on(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
+    events.on(Phaser.Scenes.Events.DESTROY, this.onShutdown, this);
   }
 
   /** The UI root of this scene; created on first access (and wired for input). */
@@ -154,6 +159,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
   override destroy(): void {
     this.dispose();
+    this.detachEvents();
     super.destroy();
   }
 
@@ -247,17 +253,23 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.router?.update(time);
   }
 
+  /** Tears the UI down; the scene-event subscriptions stay so a restart works (see `boot()`). */
   private onShutdown(): void {
     this.dispose();
   }
 
-  private dispose(): void {
+  /** Unsubscribes from the scene's events; only the plugin's own teardown does this. */
+  private detachEvents(): void {
     const events = this.systems?.events;
-    if (events) {
-      events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
-      events.off(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
-      events.off(Phaser.Scenes.Events.DESTROY, this.onShutdown, this);
+    if (!events) {
+      return;
     }
+    events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
+    events.off(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
+    events.off(Phaser.Scenes.Events.DESTROY, this.onShutdown, this);
+  }
+
+  private dispose(): void {
     this.scene?.input.keyboard?.off('keydown', this.onKeyDown, this);
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = null;

@@ -103,6 +103,7 @@ export class ComposeScene extends Phaser.Scene {
   private stage: ScrollView | null = null;
   private sectionHost: Widget | null = null;
   private listWidget: Repeat<SampleRow> | null = null;
+  private scrollWidget: ScrollView | null = null;
 
   /** Controls whose page coordinates are republished every frame (`pt.<key>`). */
   private readonly tracked = new Map<string, Widget>();
@@ -182,6 +183,10 @@ export class ComposeScene extends Phaser.Scene {
       this.publish('rows.rendered', this.listWidget.renderedCount);
       this.publish('rows.total', this.listWidget.totalCount);
     }
+    if (this.scrollWidget) {
+      this.publish('list.offset', Math.round(this.scrollWidget.offset));
+      this.publish('list.maxOffset', Math.round(this.scrollWidget.maxOffset));
+    }
     // The geometry is reported here rather than at click time: a freshly added section is only
     // arranged by the plugin's PRE_UPDATE flush, so reading `appliedRect` right after `addWidget()`
     // would publish the *previous* section's rect (or a zero one).
@@ -246,6 +251,7 @@ export class ComposeScene extends Phaser.Scene {
     host.removeAllWidgets(true);
     this.clearTracked('section.');
     this.listWidget = null;
+    this.scrollWidget = null;
 
     const built = ui(this, () => this.buildSection(id));
     host.addWidget(built);
@@ -702,28 +708,39 @@ export class ComposeScene extends Phaser.Scene {
         Text(() => `共 ${this.rows.value.length} 行`, { tone: 'muted' });
       });
 
-      this.listWidget = List(
-        {
-          items: () => this.rows.value,
-          key: (row) => row.id,
-          name: 'list',
-          width: 'fill',
-          height: 260,
-          container: { gap: 4 },
-          virtualize: true,
-          itemExtent: 34,
-          overscan: 4,
-        },
-        (row, index) => {
-          Row({ gap: 8, height: 30, alignItems: 'center', width: 'fill' }, () => {
-            Text(`${index + 1}`, { width: 44, tone: 'muted' });
-            Text(() => row.label);
-            Spacer({ flex: true });
-            Text('·', { tone: 'muted' });
-          });
+      // A virtualised list needs a scroll driver: `Scroll` owns the offset and tells the list which
+      // window to mount, so the list's own box is `fill` (exactly the port's viewport, which is what
+      // makes the port's scroll range equal the list's real length).
+      this.scrollWidget = Scroll(
+        { direction: 'vertical', height: 260, width: 'fill', name: 'listScroll' },
+        () => {
+          this.listWidget = List(
+            {
+              items: () => this.rows.value,
+              key: (row) => row.id,
+              name: 'list',
+              width: 'fill',
+              height: 'fill',
+              container: { gap: 4 },
+              virtualize: true,
+              itemExtent: 34,
+              overscan: 4,
+            },
+            (row, index) => {
+              Row({ gap: 8, height: 30, alignItems: 'center', width: 'fill' }, () => {
+                Text(`${index + 1}`, { width: 44, tone: 'muted' });
+                Text(() => row.label);
+                Spacer({ flex: true });
+                Text('·', { tone: 'muted' });
+              });
+            },
+          );
         },
       );
-      this.track('list', this.listWidget);
+      this.track('listScroll', this.scrollWidget);
+      if (this.listWidget) {
+        this.track('list', this.listWidget);
+      }
     });
   }
 

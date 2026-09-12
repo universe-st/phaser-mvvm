@@ -76,6 +76,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
   - 要校验的场景在脚本里**硬编码**（当前 `m0`、`probe`、`stack`）——新增场景若需像素断言，必须同时加进 `PIXEL_EXPECTATIONS` 与该场景列表。
   - 被其它控件遮挡的采样点用 `{ rgb, fx, fy }` 指定相对采样位置。
   - 脚本启动 Chrome 时**不传** `--user-data-dir`，因此依赖默认 profile 目录可写（`~/Library/Application Support/Google/Chrome`）。在受限/沙箱环境里 Chrome 会直接崩溃（Crashpad 写盘被拒），脚本报 `timed out waiting for chrome devtools endpoint` —— 这是环境限制而非脚本缺陷；此时请在汇报里说明「像素验收未运行」，并至少断言 `#status` 里的几何。
+- **生命周期泄漏门禁**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）建一页全控件界面并暴露 `window.lifecycle.churn(n)`：重启场景 n 次、每轮采样 8 项计数（`themeListeners`/`displayList`/`focusables`/`pointerTargets`/`textures`/`tweens`/`timers`/`widgets`）。验收断言：每项只有一个取值 + `pages()` 只剩当前页 + 重启后 `pt.click` 能点、`pt.name` 能输入。改动插件生命周期、控件销毁或主题订阅后必须跑一次。
 - **示例场景约定**：在 `apps/examples/src/scenes/<name>.ts` 导出 `Phaser.Scene` 子类 → 注册进 `apps/examples/src/main.ts` 的 `SCENES`（hash 即场景名）。用 `status.ts` 的 `setStatus`/`appendStatus`/`reportWidget`/`reportCanvas` 输出可断言的几何；`#status`、`#demo-state` 在 CSS 里 `display: none`（内容供机器读，不画到画布上）。`?capture=1` 会开启 `preserveDrawingBuffer`，否则截图读不到 WebGL 帧。
 - **性能预算**（PR 评审依据，PLAN §8）：1000 节点全量 `measure+arrange` < 1.5 ms；无变化帧布局耗时 = 0；测量缓存命中率 > 95%；排布热路径零新增对象/闭包；gzip 体积 `core`+`layout` < 25 KB、`phaser`+`widgets` < 45 KB（不含 Phaser）。
 - **CI**（`.github/workflows/ci.yml`）：Prettier 检查 → 逐包 `typecheck` → 逐包 `test` → 逐包 `build` → 示例构建，PR 必须全绿。

@@ -6,6 +6,7 @@ import { ComposeScene } from './scenes/compose';
 import { DashboardScene } from './scenes/dashboard';
 import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
+import { LifecycleScene } from './scenes/lifecycle';
 import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
@@ -34,6 +35,7 @@ const SCENES = {
   scroll: ScrollScene,
   showcase: ShowcaseScene,
   compose: ComposeScene,
+  lifecycle: LifecycleScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

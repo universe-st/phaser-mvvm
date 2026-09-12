@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeVisibleRange,
+  contentExtentOf,
   describeRepeatFlow,
   diffKeys,
   isGridContainerOptions,
@@ -348,5 +349,29 @@ describe('describeRepeatFlow', () => {
       gap: 0,
       virtualizable: false,
     });
+  });
+});
+
+describe('contentExtentOf', () => {
+  it('measures the whole list, with no gap after the last row', () => {
+    // `itemExtent` already includes the flow gap, so the extent is `count × extent − gap`: one row is
+    // its own height (30 − 8), ten rows are ten heights minus the gap that would follow the last one.
+    expect(contentExtentOf(10, 30, 8)).toBe(300 - 8);
+    expect(contentExtentOf(1, 30, 8)).toBe(30 - 8);
+    expect(contentExtentOf(0, 30, 8)).toBe(0);
+  });
+
+  it('collapses non-finite and non-positive inputs to zero', () => {
+    expect(contentExtentOf(Number.NaN, 30, 8)).toBe(0);
+    expect(contentExtentOf(10, Number.POSITIVE_INFINITY, 8)).toBe(0);
+    expect(contentExtentOf(10, 0, 8)).toBe(0);
+    expect(contentExtentOf(10, 30, Number.NaN)).toBe(0);
+    expect(contentExtentOf(-5, 30, 8)).toBe(0);
+  });
+
+  it('matches the scroll range a virtualised list reports for its own viewport', () => {
+    // What an enclosing port relies on: extent = maxOffset + the list's own viewport.
+    const extent = contentExtentOf(200, 34, 4);
+    expect(extent - 260).toBe(200 * 34 - 4 - 260);
   });
 });

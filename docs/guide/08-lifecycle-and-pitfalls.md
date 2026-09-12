@@ -27,6 +27,10 @@
 1. **自己创建的、挂在 `UIRoot` 之外的 Phaser 对象**（比如自己 `new` 的 `Graphics` 又 `container.add` 到了别的显示列表）。
 2. **自己在控件之外注册的监听**（`window.addEventListener`、自定义定时器等）。
 
+### 重启（`scene.restart()`）也要能用
+
+`MVVMPlugin` 的拆解挂在场景事件上，而**订阅本身在重开后依然有效**：`boot()` 每个场景只调用一次，插件不会因为一次 SHUTDOWN 就与场景脱钩。重启后 `create()` 重新挂载 UI 即可；`#/lifecycle` 门禁会同时检查「不泄漏」与「重启后仍可点击/输入」两件事（历史上这里出过一次 HIGH 缺陷：插件在 `dispose()` 里退订了全部场景事件，重启后的 UI 既泄漏又是死的）。
+
 ### 挂载的三种粒度
 
 | 需求              | 做法                                                                                                                                   |
@@ -59,13 +63,13 @@
 
 ### 自检手段
 
-| 想验证什么                | 怎么验证                                                      |
-| ------------------------- | ------------------------------------------------------------- |
-| 主题订阅是否泄漏          | `themeListenerCount()`（导出）在场景销毁后应回到基线          |
-| 焦集合是否残留            | `this.mvvm.focus.focusables.length`、`focusedWidget === null` |
-| 有没有残留的指针目标      | `this.mvvm.input.widgets.length`                              |
-| 布局是否还在无谓重算      | `layoutEngine.stats.passes` 在静止时不再增长                  |
-| 场景反复创建/销毁是否泄漏 | 仓库硬门禁：**创建→销毁 100 次后计数归零**（PLAN §7）         |
+| 想验证什么                | 怎么验证                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 主题订阅是否泄漏          | `themeListenerCount()`（导出）在场景销毁后应回到基线                                                                                                                                                                                                                                                                    |
+| 焦集合是否残留            | `this.mvvm.focus.focusables.length`、`focusedWidget === null`                                                                                                                                                                                                                                                           |
+| 有没有残留的指针目标      | `this.mvvm.input.widgets.length`                                                                                                                                                                                                                                                                                        |
+| 布局是否还在无谓重算      | `layoutEngine.stats.passes` 在静止时不再增长                                                                                                                                                                                                                                                                            |
+| 场景反复创建/销毁是否泄漏 | 打开 `#/lifecycle`，控制台执行 `await window.lifecycle.churn(100)`，再比对 `window.lifecycle.samples()`：`themeListeners`、`displayList`、`focusables`、`pointerTargets`、`textures`、`tweens`、`timers`、`widgets` 必须**每项只有一个取值**，`pages()` 只剩当前一页（仓库硬门禁：创建→销毁 100 次后计数归零，PLAN §7） |
 
 > 硬约束（[ADR-0008](../adr/0008-reactivity-and-scheduler.md)）：**响应式副作用必须归入 `EffectScope`**。写自定义控件时，任何 `effect`/`watch`/绑定都应挂到 `this.scope` 上（用 `bind*` 系列会自动这样），否则控件销毁后订阅还在。
 

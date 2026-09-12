@@ -196,6 +196,22 @@ export function computeVisibleRange(
 }
 
 /**
+ * Full length of a virtualised list in pixels, viewport excluded.
+ *
+ * `itemExtent` includes the flow gap, so the length is `count × extent − gap` (the last row has no gap
+ * after it). Non-finite and non-positive inputs collapse to 0 instead of a negative length.
+ */
+export function contentExtentOf(itemCount: number, itemExtent: number, gap: number): number {
+  if (!Number.isFinite(itemCount) || !Number.isFinite(itemExtent) || !Number.isFinite(gap)) {
+    return 0;
+  }
+  if (itemCount <= 0 || itemExtent <= 0) {
+    return 0;
+  }
+  return Math.max(0, itemCount * itemExtent - gap);
+}
+
+/**
  * The window plus the filler heights a box/grid container needs.
  *
  * The fillers reproduce the exact layout the full list would have: with a flow gap `g`, a row `i`

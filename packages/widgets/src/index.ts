@@ -103,6 +103,7 @@ export {
 } from './scroll-plan';
 export {
   computeVisibleRange,
+  contentExtentOf,
   describeRepeatFlow,
   diffKeys,
   isGridContainerOptions,

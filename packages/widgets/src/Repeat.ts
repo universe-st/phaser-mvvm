@@ -31,6 +31,7 @@ import type { PathScope, StopBinding } from '@phaser-mvvm/core';
 import { Widget } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions } from './options';
 import {
+  contentExtentOf,
   describeRepeatFlow,
   planRepeatUpdate,
   planVirtualWindow,
@@ -209,12 +210,22 @@ export class Repeat<Item> extends Widget {
     return this.maxScrollOffset();
   }
 
-  private maxScrollOffset(): number {
+  /**
+   * Full length of the list in pixels, viewport excluded.
+   *
+   * This is the number an enclosing `ScrollView` measures: it does not depend on how tall this list's
+   * own box is, so a port can size its scrollbar and its scroll limits from the real list length even
+   * when the two viewports differ.
+   */
+  get contentExtent(): number {
     if (!this.virtualized) {
       return 0;
     }
-    const content = Math.max(0, this.itemCount * this.extent() - this.flow.gap);
-    return Math.max(0, content - this.viewportSize());
+    return contentExtentOf(this.itemCount, this.extent(), this.flow.gap);
+  }
+
+  private maxScrollOffset(): number {
+    return Math.max(0, this.contentExtent - this.viewportSize());
   }
 
   /** Drops every mounted row and rebuilds the list from the current items. */
