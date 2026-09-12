@@ -68,3 +68,4 @@
 
 - ✅ **已补（第 3 轮）**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）通过 `window.lifecycle.churn(n)` 做「场景重启 n 次 + 8 项计数采样」，Playwright MCP 上 101 轮全绿（[`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md)）。覆盖了 `themeListenerCount()` 回基线、`InputRouter`/`FocusManager` 集合不残留、`ScrollView`+`Repeat` 虚拟化在重启后存活，以及重启后仍可点击/输入。
 - ⬜ **仍缺**：① Node 侧假渲染器夹具（让 `packages/phaser`/`widgets` 的生命周期逻辑能进 CI，不依赖浏览器）；② 聚焦输入框后重启是否留下光标闪烁定时器；③ `scene.stop()/start()`、多场景并存、`SceneManager.remove()` 路径。
+- ⬜ **未实现的预算（第 5 轮实测发现）**：PLAN §8 的「文本度量缓存命中率 > 95 %、同帧同文本同样式只度量一次」**尚无实现**——`PhaserTextMeasurer`（LRU + `stats`）在 `packages/phaser` 导出但无人使用，`Label`/`TextInputBase` 直接调 Phaser 的度量。做法：把 measurer 接进 `Label.measureContent` 与截断路径，按 (文本, 样式键) 缓存并在主题/字体切换时失效；实测数据见 [`ACCEPTANCE-performance.md`](./ACCEPTANCE-performance.md) §5。

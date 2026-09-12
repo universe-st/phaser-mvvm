@@ -79,8 +79,8 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 - **交互状态矩阵**：`#/states`（`apps/examples/src/scenes/states.ts`）把每个有状态的控件摆成一行，并把 `visualState` 逐帧写进 `#demo-state` 的 `st.<name>`，坐标写进 `pt.<name>`。验收方式：用真实 `mouse.move`/`down`/`up`、`keyboard.press` 驱动悬停/按下/聚焦/校验，断言 `st.*` 的迁移；在视口外的探针先用 `window.states.reveal(name)` 滚进视野（否则坐标在画布外，指针事件落不到控件上）。
 - **生命周期泄漏门禁**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）建一页全控件界面并暴露 `window.lifecycle.churn(n)`：重启场景 n 次、每轮采样 8 项计数（`themeListeners`/`displayList`/`focusables`/`pointerTargets`/`textures`/`tweens`/`timers`/`widgets`）。验收断言：每项只有一个取值 + `pages()` 只剩当前页 + 重启后 `pt.click` 能点、`pt.name` 能输入。改动插件生命周期、控件销毁或主题订阅后必须跑一次。
 - **示例场景约定**：在 `apps/examples/src/scenes/<name>.ts` 导出 `Phaser.Scene` 子类 → 注册进 `apps/examples/src/main.ts` 的 `SCENES`（hash 即场景名）。用 `status.ts` 的 `setStatus`/`appendStatus`/`reportWidget`/`reportCanvas` 输出可断言的几何；`#status`、`#demo-state` 在 CSS 里 `display: none`（内容供机器读，不画到画布上）。`?capture=1` 会开启 `preserveDrawingBuffer`，否则截图读不到 WebGL 帧。
-- **性能预算**（PR 评审依据，PLAN §8）：1000 节点全量 `measure+arrange` < 1.5 ms；无变化帧布局耗时 = 0；测量缓存命中率 > 95%；排布热路径零新增对象/闭包；gzip 体积 `core`+`layout` < 25 KB、`phaser`+`widgets` < 45 KB（不含 Phaser）。
-- **CI**（`.github/workflows/ci.yml`）：Prettier 检查 → 逐包 `typecheck` → 逐包 `test` → 逐包 `build` → 示例构建，PR 必须全绿。
+- **性能预算**（PR 评审依据，PLAN §8）：1000 节点全量 `measure+arrange` < 1.5 ms（实测 0.06 ms）；无变化帧布局耗时 = 0（实测 0.024 ms、零测量）；布局约束缓存命中率 > 95 %（实测 95.6 %）；单节点编辑只重测该子树（实测 922 个节点里只重测 1 个）；排布热路径零新增对象/闭包（对象池长度稳定）；gzip 体积 `core`+`layout` < 25 KB、`phaser`+`widgets` < 45 KB（按 min+gzip，实测 18.3 / 14.7 KB）。怎么跑见 §8；**文本度量缓存那条预算尚未实现**（`PhaserTextMeasurer` 未被控件使用）。
+- **CI**（`.github/workflows/ci.yml`）：Prettier 检查 → 逐包 `typecheck` → 逐包 `test` → 逐包 `build` → 示例构建，PR 必须全绿。`perf.test.ts` 随逐包 `test` 一起跑；`pnpm size` 尚未接进 CI（需要先 build），本地提交前跑一次即可。
 
 ## 7. 提交前自查清单
 
@@ -94,7 +94,8 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 
 - **开发期包入口指向源码**：`packages/*` 的 `exports` 中 `types`/`import` 指向 `src/index.ts`，只有 `require` 指向 `dist/index.cjs`。因此改源码在 dev 里立即生效，但 CJS 消费方需要先 `build`；**永远不要手改 `dist/`**（生成物且被 gitignore）。
 - **`dist/`、`.tmp/`、`coverage/`、`test-results/` 都是生成物**，已 gitignore；验收截图、日志、临时脚本请放 `.tmp/`。
-- **布局缓存按 (约束, revision) 命中**：忘记 `markDirty()`/`invalidate()` 会表现为「UI 不更新」而不是报错；调试布局时优先看 `LayoutEngine#stats`（`measureCalls`/`cacheHits`/`skippedSubtrees` 等计数器）。
+- **布局缓存按 (约束, 百分比基准, revision) 命中**：忘记 `markDirty()`/`invalidate()` 会表现为「UI 不更新」而不是报错；调试布局时优先看 `LayoutEngine#stats`（`measureCalls`/`cacheHits`/`skippedSubtrees` 等计数器）。基准进键是必须的：同一个约束在不同包含块下解析百分比会得到不同答案。
+- **性能/体积预算怎么跑**：`pnpm --filter @phaser-mvvm/layout run test`（含 `test/perf.test.ts`：1000 节点耗时、无变化帧、缓存命中率、单节点编辑增量性、对象池稳定性）与 `pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定 core+layout < 25 KB、phaser+widgets < 45 KB，同时打印未压缩 gzip）。改动布局引擎、控件度量或新增控件后请跑这两个。
 - **本机没有 `timeout` 命令**（macOS）；长命令用后台任务而不是 `timeout` 包裹。
 - **文档数字会滞后**：`README.md`、`CONTRIBUTING.md`、`docs/ACCEPTANCE-*.md` 里的里程碑状态与测试数量彼此不一致（例如三份文档分别写着 M0–M2 / M0–M7 与不同的用例数）。**以代码、`pnpm -r run test` 的实跑结果和 CI 为准**；顺手更新过时描述是受欢迎的改动。
 - **不要引入浏览器测试框架**（仓库无 Playwright 依赖，验收走 `scripts/visual-check.mjs` 的 CDP）；任何新运行时依赖都需要 ADR。

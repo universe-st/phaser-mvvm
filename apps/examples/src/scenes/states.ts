@@ -450,6 +450,35 @@ export class StatesScene extends Phaser.Scene {
         const widget = this.probes.get(name)?.widget as { getValue?: () => string } | undefined;
         return typeof widget?.getValue === 'function' ? widget.getValue() : null;
       },
+      /**
+       * Layout-engine counters of this scene, for the PLAN §8 budgets: typing must not re-lay-out the
+       * whole tree, so a check samples this before and after typing.
+       */
+      stats: () => {
+        const { stats } = this.mvvm.root.layoutEngine;
+        return {
+          passes: stats.passes,
+          measureCalls: stats.measureCalls,
+          cacheHits: stats.cacheHits,
+          arrangeCalls: stats.arrangeCalls,
+          placedChildren: stats.placedChildren,
+          skippedSubtrees: stats.skippedSubtrees,
+        };
+      },
+      /** Number of widgets in the page, so a measure-count delta can be read against the page size. */
+      widgetCount: () => {
+        let total = 0;
+        const walk = (widget: Widget): void => {
+          total += 1;
+          for (const child of widget.getWidgetChildren()) {
+            walk(child);
+          }
+        };
+        if (this.page) {
+          walk(this.page);
+        }
+        return total;
+      },
       /** Whether a probe can be focused at all (its `focusable` flag). */
       focusable: (name: string): boolean => this.probes.get(name)?.widget.focusable === true,
       geometry: () => ({

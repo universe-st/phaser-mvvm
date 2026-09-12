@@ -357,11 +357,13 @@ this.mvvm.mount(page);
 
 ## 8. 性能预算与体积目标
 
-- 布局：1000 节点全量 `measure+arrange` < 1.5 ms（M 系列 Mac，Node 基准）；无变化帧布局耗时 = 0；单节点内容变更仅重算 relayout boundary 子树。
-- 文本：度量缓存命中率 > 95%（表单类界面）；同一帧内同文本同样式只度量一次。
-- 分配：排布热路径零新增对象/闭包（对象池 + 复用数组）；稳定态 GC 增量可忽略。
-- 输入：连续输入（含 IME）不引发整树布局。
-- 体积（gzip，不含 Phaser）：`core` + `layout` < 25 KB；`phaser` + `widgets` < 45 KB。
+预算与**测量方式**（第一次实测见 [`ACCEPTANCE-performance.md`](./ACCEPTANCE-performance.md)）：
+
+- 布局：1000 节点全量 `measure+arrange` < 1.5 ms（M 系列 Mac，Node 基准）——由 `packages/layout/test/perf.test.ts` 断言（取预热后多次运行的最小值，避免 CI 抖动误报），实测 **0.06 ms**；无变化帧布局耗时 = 0——同一文件断言「一次无变化 pass 的 `measureCalls` 增量 = 0、`arrangeCalls` 增量 = 1、`skippedSubtrees` > 100」，实测 **0.024 ms**；单节点内容变更仅重算 relayout boundary 子树——同一文件用逐节点 `measureCount` 证明「编辑 1 个节点只重测 1 个节点（共 922）」。
+- 度量缓存：布局引擎的约束缓存命中率 > 95%（表单类界面）——`perf.test.ts` 实测键盘编辑 100 次为 **95.6%**，断言下限取 90% 以免随页面规模抖动，另用「编辑一次只重测一个节点」承担回归权重。**文本度量缓存（`PhaserTextMeasurer` 的 LRU）目前未被控件使用**：`Label`/`TextInputBase` 直接走 Phaser `Text` 的度量，因此该条预算尚未成立（登记为待办，见验收记录 §5）。
+- 分配：排布热路径零新增对象/闭包——`perf.test.ts` 断言对象池（按深度索引的 `EngineContext`）在 200 次 pass 后长度不变、且这些 pass 不产生任何测量。
+- 输入：连续输入（含 IME）不引发整树布局——浏览器实测：在 786 个控件的页面上输入 43 个字符，`passes` 增量为 **0**（输入框尺寸不随文本变化，连一次布局都不需要）；在 119 个控件的页面上输入 43 个字符为 4 次 pass、约 5 次测量/字符（只重测输入框自身子树）。
+- 体积（gzip，不含 Phaser）：`core` + `layout` < 25 KB；`phaser` + `widgets` < 45 KB——由 `pnpm size`（`scripts/size-check.mjs`）在 **minify 后**的 gzip 上判定（库产物故意不 minify，便于堆栈可读；消费方打包时一定会 minify），实测 **18.3 KB** / **14.7 KB**，脚本同时打印未压缩 gzip 值（27.7 KB / 22.3 KB）以便对照。
 
 ---
 

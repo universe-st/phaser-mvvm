@@ -17,6 +17,7 @@
     "build:examples": "pnpm --filter @phaser-mvvm/examples run build",
     "preview": "pnpm --filter @phaser-mvvm/examples run preview",
     "visual-check": "node scripts/visual-check.mjs",
+    "size": "node scripts/size-check.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
