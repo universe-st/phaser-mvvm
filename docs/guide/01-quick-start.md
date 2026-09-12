@@ -131,7 +131,7 @@ new Phaser.Game({ /* … */ scene: [HelloScene] });
 
 > `UIRoot` 构造时按当前游戏尺寸（`scene.scale.gameSize`）把自己撑满，并 `setDepth(1000)` 抬高渲染层级；窗口尺寸变化时它监听 `scale` 的 `resize` 重新布局。页面因此天然居中。想要页面占满整屏就把 `page` 的 `width/height` 设成 `'fill'`。
 >
-> 另外，`UIRoot` **不会**设置 `scrollFactor`：如果主相机滚动（跟随玩家），整棵 UI 会跟着移动。要把它钉在屏幕上，请自己 `this.mvvm.root.setScrollFactor(0)`。
+> 另外，`UIRoot` **不会**设置 `scrollFactor`：如果主相机滚动（跟随玩家），整棵 UI 会跟着移动。要把它钉在屏幕上，请自己 `this.mvvm.root.setScrollFactor(0)`——它会**向下传播到整棵树**（Phaser 的命中测试用的是被点中对象自己的 `scrollFactor`，只钉根会导致相机滚动后「看得见但点不到」；原因与实测见 [ADR-0009](../adr/0009-camera-pinned-ui-and-input.md)）。如果你确实需要某个子树用不同的 scrollFactor，请在设置之后再单独覆盖它。
 
 ---
 
