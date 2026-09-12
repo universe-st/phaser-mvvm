@@ -41,6 +41,13 @@ export function getDemoState(key: string): string | number | boolean | undefined
 /**
  * Records the centre of a widget in **page** coordinates (`pt.<key>=@x,y`) so an interactive check
  * can click it: the canvas is not necessarily at the page origin (Phaser may centre it).
+ *
+ * **Sampled once, at the moment you call it.** That is fine for a page whose layout never moves, and
+ * wrong for one that re-flows while it is used (`bindVisible` collapsing a panel, a list growing): the
+ * recorded point then aims at whatever moved into its place, and a check that clicks it either misses
+ * or hits a neighbour. Round 58 hit exactly that in `#/bindings` - the second "toggle details" click
+ * looked like a framework bug until the page switched to publishing `pt.*` every frame, the way
+ * `#/states`, `#/compose`, `#/hud` and now `#/bindings` do.
  */
 export function reportControl(
   scene: Phaser.Scene,

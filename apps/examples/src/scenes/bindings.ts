@@ -1,9 +1,16 @@
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { bindCommand, bindEnabled, bindError, bindText, bindVisible } from '@phaser-mvvm/phaser';
+import {
+  bindCommand,
+  bindEnabled,
+  bindError,
+  bindText,
+  bindVisible,
+  type Widget,
+} from '@phaser-mvvm/phaser';
 import type { Panel } from '@phaser-mvvm/widgets';
-import { reportControl, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget } from '../status';
+import { setDemoState } from '../demo';
+import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
 
 /**
  * MVVM demo: a ViewModel made of `ref`/`computed`, a view built from widgets, and bindings that keep
@@ -34,6 +41,11 @@ export class BindingsScene extends Phaser.Scene {
   );
 
   private page: Panel | null = null;
+
+  /** Widgets whose page coordinates and visual states are published every frame. */
+  private readonly tracked = new Map<string, Widget>();
+
+  private readonly published = new Map<string, string>();
 
   constructor() {
     super('bindings');
@@ -144,6 +156,9 @@ export class BindingsScene extends Phaser.Scene {
 
     this.mvvm.mount(this.page);
 
+    // Tracked (not `reportControl`): this page's layout *moves* as bindings fire (`bindVisible`
+    // collapses a panel), so a coordinate captured at create time points somewhere else after the
+    // first toggle - the same assertability gap `#/form` had.
     for (const [key, widget] of [
       ['add', addButton],
       ['remove', removeButton],
@@ -151,7 +166,7 @@ export class BindingsScene extends Phaser.Scene {
       ['busy', busyButton],
       ['replace', replaceButton],
     ] as const) {
-      reportControl(this, key, widget);
+      this.track(key, widget);
     }
     this.mvvm.focus.onFocusChange = (widget) => {
       setDemoState('focus', widget ? widget.name || 'unnamed' : 'none');
@@ -189,6 +204,40 @@ export class BindingsScene extends Phaser.Scene {
     setDemoState('details', this.detailsVisible.value);
     setDemoState('busy', this.busy.value);
     setDemoState('invalid', this.invalid.value);
+  }
+
+  private track(key: string, widget: Widget): void {
+    this.tracked.set(key, widget);
+  }
+
+  /** Repaints `pt.<key>` / `st.<key>` for the tracked widgets; runs every frame. */
+  override update(): void {
+    for (const [key, widget] of this.tracked) {
+      if (widget.isDestroyed) {
+        continue;
+      }
+      this.publish(`st.${key}`, widget.visualState);
+      if (!widget.visible || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
+        continue;
+      }
+      const canvas = this.game.canvas.getBoundingClientRect();
+      const origin = stagePosition(widget);
+      this.publish(
+        `pt.${key}`,
+        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
+          canvas.top + origin.y + widget.appliedRect.height / 2,
+        )}`,
+      );
+    }
+  }
+
+  private publish(key: string, value: string | number | boolean): void {
+    const text = String(value);
+    if (this.published.get(key) === text) {
+      return;
+    }
+    this.published.set(key, text);
+    setDemoState(key, value);
   }
 
   private report(): void {
