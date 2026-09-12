@@ -153,6 +153,12 @@ export {
 } from './skin';
 export { resolveWidgetState, type WidgetState, type WidgetStateFlags } from './widget-state';
 export {
+  BASE_WIDGET_OPTION_KEYS,
+  reportUnknownOptions,
+  suggestOptionKey,
+  unknownOptionKeys,
+} from './option-keys';
+export {
   LruCache,
   PhaserTextMeasurer,
   textMeasureKey,

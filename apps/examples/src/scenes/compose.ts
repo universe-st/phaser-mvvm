@@ -17,8 +17,8 @@
  */
 
 import Phaser from 'phaser';
-import { computed, ref } from '@phaser-mvvm/core';
-import { setTheme, themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
+import { computed, onDevWarning, ref } from '@phaser-mvvm/core';
+import { buildUiSubtree, setTheme, themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
 import type { BranchWidget, PanelOptions, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import {
   Absolute,
@@ -1205,6 +1205,48 @@ export class ComposeScene extends Phaser.Scene {
         stage: rectOf(this.stage),
         section: rectOf(this.sectionHost),
       }),
+      /**
+       * Builds one panel with a mistyped option and returns the warning it produced.
+       *
+       * The option audit (round 83) is the framework telling a caller that a key nobody reads is
+       * silently ignored — a typo like `pading` used to cost an afternoon ("why is my padding not
+       * applied?"). Reading it back from the page is the only way to check the whole path: DSL → flat
+       * option bag → `splitOptions` → `warn()`. The panel is destroyed immediately, and the handler is
+       * registered only for the duration of the call, so ordinary warnings still reach the console.
+       */
+      typo: (
+        key = 'pading',
+        value: number | string = 20,
+        kind: 'panel' | 'field' | 'button' = 'panel',
+      ): string[] => {
+        const captured: string[] = [];
+        const stop = onDevWarning((message: string) => captured.push(message));
+        try {
+          const bag: Record<string, unknown> = { width: 120, height: 40 };
+          bag[key] = value;
+          // Built through the documented lazy entry: this runs from a page API call, i.e. outside the
+          // page's build pass, and a composable cannot find its scene on its own.
+          const probe = buildUiSubtree(
+            this,
+            () => {
+              if (kind === 'field') {
+                TextField({ ...bag, name: 'typoProbe' });
+                return;
+              }
+              if (kind === 'button') {
+                Button('probe', { ...bag, name: 'typoProbe' });
+                return;
+              }
+              Panel(bag);
+            },
+            'compose.typo()',
+          );
+          probe.destroy();
+        } finally {
+          stop();
+        }
+        return captured;
+      },
     };
   }
 }

@@ -221,7 +221,7 @@ new Phaser.Game({
 8. **新增包、引入运行时依赖、改变包间依赖方向 —— 必须新增一篇 ADR**（新编号，不修改历史 ADR）。见 [`docs/adr/README.md`](./docs/adr/README.md)。
 9. **不使用 `eval` / `new Function`**：路径表达式编译为 getter/setter 闭包，保证 CSP 环境可用。
 10. **提交前自查**：`pnpm format:check`、受影响包的 `typecheck` / `test`；涉及控件的改动需附带示例页（M4 起截图回归）。
-11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。四个包当前都有测试（合计 **1260** 个用例：core 281 / layout 313 / phaser 308 / widgets 358）；`packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，只为「暂时没有测试也不至于失败」，不代表可以长期没有断言。
+11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。四个包当前都有测试（合计 **1273** 个用例：core 281 / layout 313 / phaser 320 / widgets 359）；`packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，只为「暂时没有测试也不至于失败」，不代表可以长期没有断言。
 
 ---
 
@@ -261,6 +261,7 @@ phaser-mvvm/
 | [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)           | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                       |
 | [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)     | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                       |
 | [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                     | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                         |
+| [`docs/ACCEPTANCE-options.md`](./docs/ACCEPTANCE-options.md)                   | 验收记录：选项审计（拼错的选项在开发模式下被指名 + 建议、发布模式零输出、全示例零误报与门禁的阳性对照）                                                       |
 | [`docs/ACCEPTANCE-keyboard.md`](./docs/ACCEPTANCE-keyboard.md)                 | 验收记录：`VirtualKeyboard` 屏幕键盘（手柄 `A` 打字 / 鼠标 / 触摸、`⇧` 一次性与锁定、换键盘泄漏门禁、37 个控制节点的可访问性树断言）与三个缺陷（V47/V48/V49） |
 | [`docs/ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)           | 验收记录：PLAN §8 性能与体积预算的实测（1000 节点 0.06 ms、无变化帧零测量、缓存 95.6%、体积 18.3/14.7 KB）                                                    |
 | [`docs/ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)               | 验收记录：`render()` 入口、控制流演示、DSL 优先的快速开始与文档对齐                                                                                           |

@@ -535,6 +535,55 @@ async function connect(webSocketDebuggerUrl) {
   return new CdpSession(socket);
 }
 
+/**
+ * Option-audit state for the scene being checked.
+ *
+ * `splitOptions()` warns (development mode only) whenever an option bag carries a key nothing reads:
+ * a widget option that was silently ignored is the "my padding does nothing" afternoon, and the only
+ * way to know the check is complete is to run every demo and see that none of them warns. The positive
+ * control lives in `#/compose` (`window.compose.typo()`), so a broken detector cannot pass quietly.
+ */
+const optionWarnings = [];
+
+function trackOptionWarnings(session) {
+  session.on('Runtime.consoleAPICalled', (params) => {
+    if (params.type !== 'warning' && params.type !== 'error') {
+      return;
+    }
+    const text = (params.args ?? []).map((arg) => arg.value ?? arg.description ?? '').join(' ');
+    if (text.includes('unknown option')) {
+      optionWarnings.push(text.replace(/^\[phaser-mvvm\]\s*/, ''));
+    }
+  });
+}
+
+/** Fails the scene when any option bag it built carried a key nobody reads. */
+function checkOptionAudit(scene) {
+  if (optionWarnings.length === 0) {
+    return [];
+  }
+  const unique = [...new Set(optionWarnings)];
+  optionWarnings.length = 0;
+  return [`${scene}: ${unique.length} unknown-option warning(s): ${unique.join(' | ')}`];
+}
+
+/** Asks `#/compose` for one warning on purpose; without it this gate could be silently dead. */
+async function checkOptionAuditControl(session) {
+  const { result } = await session.send('Runtime.evaluate', {
+    expression: "(() => window.compose?.typo?.('pading') ?? ['no typo() hook'])()",
+    returnByValue: true,
+  });
+  const captured = Array.isArray(result.value) ? result.value : [];
+  optionWarnings.length = 0;
+  const message = captured[0] ?? '';
+  if (!message.includes('pading') || !message.includes('padding')) {
+    return [
+      `compose: the option audit did not report a mistyped key (got ${JSON.stringify(captured)})`,
+    ];
+  }
+  return [];
+}
+
 /** Extracts the text of the page's `#status` block. */
 function parseStatus(text) {
   if (typeof text !== 'string') {
@@ -688,6 +737,8 @@ async function main() {
     const session = await connect(target.webSocketDebuggerUrl);
 
     await session.send('Page.enable');
+    await session.send('Runtime.enable');
+    trackOptionWarnings(session);
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: viewWidth,
       height: viewHeight,
@@ -775,6 +826,21 @@ async function main() {
         const axProblems = await checkAxTree(session, scene);
         failures += axProblems.length;
       }
+
+      // Development warnings from the option audit: a scene that passes an option nobody reads is a
+      // scene whose demo is lying about what it configured.
+      if (scene === 'compose') {
+        const controlProblems = await checkOptionAuditControl(session);
+        for (const problem of controlProblems) {
+          console.error(`[visual-check] ${problem}`);
+        }
+        failures += controlProblems.length;
+      }
+      const auditProblems = checkOptionAudit(scene);
+      for (const problem of auditProblems) {
+        console.error(`[visual-check] ${problem}`);
+      }
+      failures += auditProblems.length;
 
       const spec = pixelSpec(scene, png, status);
       if (!spec) {

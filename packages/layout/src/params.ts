@@ -25,6 +25,45 @@ export type Align = 'auto' | 'start' | 'center' | 'end' | 'stretch';
 export type Justify =
   'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly';
 
+/**
+ * Every key `LayoutParams` accepts, as a runtime list.
+ *
+ * It exists for the option audit: a widget option bag mixes node-level params with the widget's own
+ * options, and a mistyped key (`pading`, `with`) used to be *silently ignored* — the widget looked
+ * wrong and nothing said why. The check needs to tell "a layout key I do not read" from "a key nobody
+ * knows", which is only possible with the list written down.
+ *
+ * Typed as `keyof LayoutParams`, so a key that does not exist is a compile error; completeness is
+ * guarded from the other side by the demo sweep (`scripts/visual-check.mjs` and the scene walk assert
+ * that a page full of options produces no unknown-option warning at all).
+ */
+export const LAYOUT_PARAM_KEYS: readonly (keyof LayoutParams)[] = [
+  'width',
+  'height',
+  'minWidth',
+  'maxWidth',
+  'minHeight',
+  'maxHeight',
+  'grow',
+  'shrink',
+  'basis',
+  'margin',
+  'padding',
+  'alignSelf',
+  'aspectRatio',
+  'position',
+  'left',
+  'top',
+  'right',
+  'bottom',
+  'order',
+  'hideMode',
+  'gridColumn',
+  'gridRow',
+  'gridColumnSpan',
+  'gridRowSpan',
+] as const;
+
 export interface LayoutParams {
   width?: Length;
   height?: Length;

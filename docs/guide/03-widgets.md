@@ -22,7 +22,7 @@ Button('保存', {
 });
 ```
 
-拆包在构造函数里完成（`splitOptions` / `splitWidgetOptions`），未知键在**运行时**被静默忽略。但选项接口是闭合类型：直接在字面量里拼错键名会被 TypeScript 报出来，只有绕开类型检查（先存变量、`as` 断言）时才会悄悄失效。以本章表格为准。
+拆包在构造函数里完成（`splitOptions` / `splitWidgetOptions`）。选项接口是闭合类型，直接在字面量里拼错键名会被 TypeScript 报出来；绕开类型检查时（先存变量、`as` 断言、动态拼键）**开发模式下框架会指名警告**：`unknown option "pading" on "panel" — it is ignored. Did you mean "padding"?`（第 83 轮的选项审计，见 [`ACCEPTANCE-options.md`](../ACCEPTANCE-options.md)；发布模式零输出）。以本章表格为准。
 
 `name` / `visible` / `focusOrder` 这三个**基类选项**每个控件都接受（它们直接落到 `Widget` 的字段上）；其余选项见各控件自己的表格。
 
@@ -445,7 +445,7 @@ create(): void {
 
 ## 10. 小结
 
-- 六个控件的选项都是「节点参数 + 控件选项」的扁平合并，未知键会被静默忽略。
+- 六个控件的选项都是「节点参数 + 控件选项」的扁平合并；不认识的键在开发模式下会被指名警告（并尽量给出建议），不会再悄悄消失。
 - 状态机只有六个状态，全部由主题驱动；`disabled`/`error` 优先级最高。
 - `Label` 负责文本的换行/截断，`Panel` 负责骨架与拦截，`Button` 负责激活与开关，`Image` 负责贴图适配，`Spacer`/`Divider` 负责排布里的「空白」与「线」。
 

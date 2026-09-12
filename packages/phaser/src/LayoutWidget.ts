@@ -16,6 +16,7 @@ import type {
   LayoutParams,
   StackLayoutOptions,
 } from '@phaser-mvvm/layout';
+import { reportUnknownOptions } from './option-keys';
 import { Widget } from './Widget';
 
 export interface BoxWidgetOptions extends LayoutParams {
@@ -82,6 +83,11 @@ export function splitOptions<C extends Record<string, unknown>>(
   options: Record<string, unknown>,
   containerKeys: readonly string[],
 ): { layout: LayoutParams; container: C } {
+  // Every option bag in the framework passes through here — plain containers directly, leaf widgets
+  // through `splitWidgetOptions()` — so this is the one place that can tell a caller it passed a key
+  // nobody reads (a typo used to be silently ignored; see `option-keys.ts`).
+  reportUnknownOptions(options, containerKeys);
+
   const layout: Record<string, unknown> = {};
   const container: Record<string, unknown> = {};
 
