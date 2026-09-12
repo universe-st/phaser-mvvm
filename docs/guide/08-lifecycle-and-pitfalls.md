@@ -245,16 +245,7 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 - **文本框的聚焦/失焦只有构造选项、没有事件**：`TextField`/`TextArea` 接受 `onFocus`/`onBlur` 选项（[04 §4](./04-text-inputs.md)），但不会 `emit` 对应事件；同理也没有 `text:focus` 之类的常量。今天若要「在任何地方观察焦点变化」，用两个现成的东西：`this.mvvm.focus.onFocusChange = (widget) => …`（框架级焦点变化，覆盖全部可聚焦控件），或轮询 `this.mvvm.focus.focusedWidget`。开发模式下框架本身也会打印 `focus: <name>` 轨迹（见下文「调试期会打印什么」）。
 - **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，需要运行期自行设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
 - **`UIRoot` 不设置 `scrollFactor`**：源码里没有任何 `setScrollFactor(0)`，主相机一旦滚动整棵 UI 会跟着动。要固定在屏幕上请自己调 `this.mvvm.root.setScrollFactor(0)`，或者只钉某一页（`page.setScrollFactor(0)`）——两种都受支持，指针空间是按**每个控件自己的**因子折算的（`#/hud` 是常驻示例）。
-- **`hideMode` 尚未生效（`'keep'` 目前等同 `'collapse'`）**：`LayoutParams.hideMode` 会被解析保存，但引擎与 `Widget` 都没有读取它；真正决定「是否退出流」的是 `inFlow`（`Widget.inFlow === visible`）。**想在隐藏时保留占位**，今天可行的做法是外面套一个固定尺寸的容器，只切换里面那个节点的 `visible`：
-
-  ```ts
-  // Column 的高度由 slot 自己决定，与孩子是否可见无关
-  Column({ width: 'fill', height: 48, alignItems: 'stretch' }, () => {
-    Text('可能要隐藏的内容', { visible: () => on.value });
-  });
-  ```
-
-  等真正实现 `hideMode: 'keep'` 时，注意它只应影响**布局流**：不可见的节点不应该变成可聚焦/可点击的（焦点与指针收集看的是 `visible`，不是 `inFlow`）。
+- ~~**`hideMode` 尚未生效**~~ **已实现（第 53 轮）**：`Widget.inFlow` 改为 `inFlowOf(visible, hideMode)`，`hideMode: 'keep'` 保留占位（CSS `visibility: hidden` 语义），且只影响**布局流**——焦点与指针收集看 `visible`，所以隐藏的节点依然不可聚焦、不可点击（这正是当初写在这里的要求）。见 [02 §3](./02-layout.md)，运行期示例在 `#/compose` 的 Flow 分区。
 
 - **`@phaser-mvvm/phaser` 里还留着 M0 的探针控件** `RectWidget`/`LabelWidget` 与 `uiRect`/`uiLabel` 工厂：可用；DSL 侧已把 `RectWidget` 包成 `Rect()`（[09 §4](./09-compose-dsl.md)），正式项目请用 `@phaser-mvvm/widgets` 的控件与 DSL。
 
@@ -364,24 +355,24 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 每个控件（以及 `vbox`/`hbox`/`uiGrid`/`uiStack`/`uiAbsolute`）都接受这些字段，与控件自己的选项写在同一层。
 
-| 字段                                                | 类型                                                      | 默认         | 说明                                                                      |
-| --------------------------------------------------- | --------------------------------------------------------- | ------------ | ------------------------------------------------------------------------- |
-| `width` / `height`                                  | `Length`                                                  | `'auto'`     | 主轴/交叉轴尺寸                                                           |
-| `minWidth` / `maxWidth` / `minHeight` / `maxHeight` | `Length`（实际**只写数字**）                              | `0` / 无限   | 该轴的硬性上下限；百分比/`fill` 会按基准 0 解析成 0                       |
-| `grow`                                              | `number`                                                  | `0`          | 主轴剩余空间权重                                                          |
-| `shrink`                                            | `number`                                                  | `0`          | 主轴溢出时的收缩权重（默认不收缩，允许溢出）                              |
-| `basis`                                             | `Length`                                                  | —            | grow/shrink 之前的初始主轴尺寸                                            |
-| `margin`                                            | `number \| [v,h] \| [t,r,b,l] \| {top,right,bottom,left}` | 0            | 外边距（在父容器流里占位）                                                |
-| `padding`                                           | 同上                                                      | 0            | 内边距（容器自己的内容盒内缩）                                            |
-| `alignSelf`                                         | `'auto' \| 'start' \| 'center' \| 'end' \| 'stretch'`     | `'auto'`     | 覆盖父容器的 `alignItems`                                                 |
-| `aspectRatio`                                       | `number`                                                  | —            | `宽/高`，给定一边推另一边                                                 |
-| `position`                                          | `'flow' \| 'absolute'`                                    | `'flow'`     | 绝对定位则脱离文档流                                                      |
-| `left` / `top` / `right` / `bottom`                 | `Length`                                                  | —            | 绝对定位偏移（水平优先 `left`，垂直优先 `top`）                           |
-| `order`                                             | `number`                                                  | `0`          | box/grid 内的排序提示（稳定排序）                                         |
-| `hideMode`                                          | `'collapse' \| 'keep'`                                    | `'collapse'` | **当前未被读取**；是否退出流取决于 `inFlow`（见 [02 §3](./02-layout.md)） |
-| `gridColumn` / `gridRow`                            | `number`                                                  | —            | 网格坐标（**1 起始**）                                                    |
-| `gridColumnSpan` / `gridRowSpan`                    | `number`                                                  | `1`          | 跨列 / 跨行                                                               |
-| `name`                                              | `string`                                                  | —            | 调试名（不是布局字段，但可以写在同一个对象里）                            |
+| 字段                                                | 类型                                                      | 默认         | 说明                                                                               |
+| --------------------------------------------------- | --------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------- |
+| `width` / `height`                                  | `Length`                                                  | `'auto'`     | 主轴/交叉轴尺寸                                                                    |
+| `minWidth` / `maxWidth` / `minHeight` / `maxHeight` | `Length`（实际**只写数字**）                              | `0` / 无限   | 该轴的硬性上下限；百分比/`fill` 会按基准 0 解析成 0                                |
+| `grow`                                              | `number`                                                  | `0`          | 主轴剩余空间权重                                                                   |
+| `shrink`                                            | `number`                                                  | `0`          | 主轴溢出时的收缩权重（默认不收缩，允许溢出）                                       |
+| `basis`                                             | `Length`                                                  | —            | grow/shrink 之前的初始主轴尺寸                                                     |
+| `margin`                                            | `number \| [v,h] \| [t,r,b,l] \| {top,right,bottom,left}` | 0            | 外边距（在父容器流里占位）                                                         |
+| `padding`                                           | 同上                                                      | 0            | 内边距（容器自己的内容盒内缩）                                                     |
+| `alignSelf`                                         | `'auto' \| 'start' \| 'center' \| 'end' \| 'stretch'`     | `'auto'`     | 覆盖父容器的 `alignItems`                                                          |
+| `aspectRatio`                                       | `number`                                                  | —            | `宽/高`，给定一边推另一边                                                          |
+| `position`                                          | `'flow' \| 'absolute'`                                    | `'flow'`     | 绝对定位则脱离文档流                                                               |
+| `left` / `top` / `right` / `bottom`                 | `Length`                                                  | —            | 绝对定位偏移（水平优先 `left`，垂直优先 `top`）                                    |
+| `order`                                             | `number`                                                  | `0`          | box/grid 内的排序提示（稳定排序）                                                  |
+| `hideMode`                                          | `'collapse' \| 'keep'`                                    | `'collapse'` | 隐藏时是否退出流：`'keep'` 保留占位（`Widget.inFlow`，见 [02 §3](./02-layout.md)） |
+| `gridColumn` / `gridRow`                            | `number`                                                  | —            | 网格坐标（**1 起始**）                                                             |
+| `gridColumnSpan` / `gridRowSpan`                    | `number`                                                  | `1`          | 跨列 / 跨行                                                                        |
+| `name`                                              | `string`                                                  | —            | 调试名（不是布局字段，但可以写在同一个对象里）                                     |
 
 容器选项（写在同一个对象里给容器用）：
 

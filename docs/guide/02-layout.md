@@ -104,15 +104,29 @@ Row({ gap: 8 }, () => {
 
 ### 宽高比与隐藏
 
-| 字段          | 说明                                                                              |
-| ------------- | --------------------------------------------------------------------------------- |
-| `aspectRatio` | `width / height`；给定一边后另一边自动推导                                        |
-| `hideMode`    | 字段存在（默认 `'collapse'`），但**当前引擎与 `Widget` 都没有读取它**，见下方说明 |
-| `order`       | 在 box/grid 里的排序提示（升序，相同值保持声明顺序）                              |
+| 字段          | 说明                                                              |
+| ------------- | ----------------------------------------------------------------- |
+| `aspectRatio` | `width / height`；给定一边后另一边自动推导                        |
+| `hideMode`    | 隐藏时是否退出布局流：`'collapse'`（默认）退出，`'keep'` 保留占位 |
+| `order`       | 在 box/grid 里的排序提示（升序，相同值保持声明顺序）              |
 
-`widget.setVisible(false)` 会让节点 `inFlow = false`，在 vbox 里表现为「这一行消失了，后面的顶上」—— 这正是 `bindVisible` 想要的效果。
+`setVisible(false)` 默认让节点 `inFlow = false`，在 `vbox` 里表现为「这一行消失了，后面的顶上」—— 这正是 `visible: () => cond` 想要的效果（等价于 Compose 的 `if`，但不重建子树）。
 
-> **`hideMode: 'keep'` 目前无效**：真正决定「是否退出流」的是节点的 `inFlow`，而 `Widget.inFlow` 直接等于 `visible`，`hideMode` 只在 `LayoutParams` 里被记录和传递。想在隐藏时保留占位，请改用「清空内容」或「设 alpha」而不是 `setVisible(false)`。
+想在**隐藏时保留占位**（CSS 的 `visibility: hidden`）就写 `hideMode: 'keep'`：
+
+```ts
+Row({ gap: 8, alignItems: 'center' }, () => {
+  Text('前');
+  Panel({ width: 56, height: 18, visible: () => on.value, hideMode: 'keep' }); // 槽位一直在
+  Text('后'); // 不会跟着移动
+});
+```
+
+它的实现只有一句：`Widget.inFlow` 现在等于 `inFlowOf(visible, hideMode)`（`packages/layout/src/params.ts`）。因此
+
+- **保留的是布局槽位**：节点照常被测量与摆放（`measureContent` 仍会被调用），只是渲染器不画它；
+- **不影响交互**：`collectFocusables` 要求 `visible !== false`（[`focus.ts`](../../packages/phaser/src/focus.ts)），输入路由走树时也整棵跳过 `visible === false` 的节点（`resolveTargetInTree`），而 Phaser 自己的命中测试同样跳过不可见对象——三道都拦着，所以「隐藏但占位」的节点既不能聚焦也点不到。它们**仍然留在路由的注册集合里**（`collectInteractive` 不看 `visible`），这是有意的：显示回来时不需要一次结构性刷新就能立刻恢复交互；
+- 运行期示例见 `#/compose` 的 Flow 分区（同一行里并排演示 `collapse` 与 `keep` 的差别）。
 
 ---
 

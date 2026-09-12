@@ -195,7 +195,7 @@ Text('仅在开启时出现', { visible: () => on.value });   // 相当于 Compo
 Panel({ visible: () => hasError.value }, () => { … });
 ```
 
-隐藏的节点会**退出布局流**（`Widget.inFlow === visible`，`hideMode: 'collapse'` 是默认值），所以它后面的兄弟会跟着上移——这正是 Compose 里 `if` 的布局效果，只是不需要重建子树。
+隐藏的节点默认会**退出布局流**（`hideMode: 'collapse'`），所以它后面的兄弟会跟着上移——这正是 Compose 里 `if` 的布局效果，只是不需要重建子树；想保留占位就写 `hideMode: 'keep'`（见 [02 §3](./02-layout.md)）。
 
 ---
 

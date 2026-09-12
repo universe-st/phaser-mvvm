@@ -99,6 +99,15 @@ describe('collectFocusable', () => {
     expect(collected(root)).toEqual([visible]);
   });
 
+  it('skips a hidden node that keeps its slot (`hideMode: keep`)', () => {
+    // The third state `hideMode` introduced: the node stays *in flow* (so siblings do not move) but is
+    // not drawn. It must not become focusable - the layout slot is kept, the interaction is not.
+    const kept = node({ visible: false, inFlow: true });
+    const root = node({ children: [kept], focusable: false });
+
+    expect(collected(root)).toEqual([]);
+  });
+
   it('skips a whole subtree that is out of flow', () => {
     const reachable = node();
     const buried = node();
