@@ -535,6 +535,16 @@ export abstract class TextInputBase extends Widget {
     return this.bridge?.element ?? null;
   }
 
+  /**
+   * Tells the accessibility mirror to step aside: this field is *already* an element in the DOM.
+   *
+   * `null` when there is no bridge (a game without a DOM container), which keeps the mirror node as the
+   * field's only surface in that case — see `Widget#getA11yDomElement`.
+   */
+  override getA11yDomElement(): HTMLElement | null {
+    return this.bridgeElement;
+  }
+
   /** True when the field is driven by the hidden DOM element. */
   get bridged(): boolean {
     return this.usingDomBridge;

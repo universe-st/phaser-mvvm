@@ -279,6 +279,24 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     return this.a11y;
   }
 
+  /**
+   * The widget's own DOM element, when it has one (`DomInputBridge` for a text field).
+   *
+   * Accessibility is per *element*: a text field already has a real, labelled, focusable `<input>` in
+   * the DOM overlay, so a screen reader sees it without any help from the mirror. Mirroring it a second
+   * time as a `<div role="textbox">` exposed the same control twice (Chrome's AX tree on `#/a11y`
+   * listed four textboxes for two fields, and the `div`'s value was its own label), so the bridge asks
+   * this method and **steps aside** when it answers with an element: the mirror node becomes
+   * `aria-hidden` and the element receives the role/name/state.
+   *
+   * `null` (the default) is the normal case for a widget painted on the canvas, and it is also the
+   * right answer for a field whose bridge could not be created (no DOM container, `dom: false`) — then
+   * the mirror node *is* the surface again, instead of the control going unannounced.
+   */
+  getA11yDomElement(): HTMLElement | null {
+    return null;
+  }
+
   /** Moves keyboard/gamepad focus to this widget. */
   focus(): void {
     this.focusManager?.focus(this);

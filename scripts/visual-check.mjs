@@ -42,7 +42,7 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene'];
+const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y'];
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.
@@ -86,6 +86,161 @@ const CANVAS_CLEAR_SKIP = new Set(['modal']);
  * answers nothing. Both `localhost` (IPv6 `::1` included) and `127.0.0.1` are probed, because a
  * listener bound to one of them is invisible to a plain socket bind on the other.
  */
+/**
+ * The browser's own accessibility tree, per scene.
+ *
+ * `ACCEPTANCE-a11y.md` asserts the attributes the framework *wrote* (`[data-mvvm-a11y]` nodes). That is
+ * a different question from "what does a screen reader see": Chrome computes its own tree, and the two
+ * disagreed twice in round 76 — every text field was exposed **twice** (the mirror's `<div role="textbox">`
+ * plus the field's real hidden `<input>`, with the div reporting its own label as its AX *value*), and
+ * `aria-valuenow` was written on `textbox` nodes, where ARIA does not support it.
+ *
+ * So each entry below must appear **exactly once** in the computed tree, with these properties, and the
+ * scene must expose exactly as many control nodes as there are entries — which is the strongest form of
+ * "one node per control" the harness can state.
+ */
+const AX_EXPECTATIONS = {
+  a11y: [
+    { role: 'textbox', name: '名字' },
+    { role: 'textbox', name: '备注' },
+    { role: 'button', name: '普通按钮' },
+    { role: 'checkbox', name: '接收通知', properties: { checked: true } },
+    { role: 'button', name: '不可用按钮', properties: { disabled: true } },
+    { role: 'slider', name: '音量', value: '40', properties: { valuemin: 0, valuemax: 100 } },
+    { role: 'button', name: '可点击的卡片' },
+    { role: 'region', name: '按钮区域' },
+    { role: 'button', name: '区域内的按钮 1' },
+    { role: 'button', name: '区域内的按钮 2' },
+    { role: 'button', name: '区域内的按钮 3' },
+    { role: 'button', name: '区域内的按钮 4' },
+    { role: 'button', name: '区域内的按钮 5' },
+    { role: 'button', name: '区域内的按钮 6' },
+  ],
+};
+
+/** Roles the AX gate counts as "a control the user can act on" (the mirror's own vocabulary). */
+const AX_CONTROL_ROLES = new Set([
+  'button',
+  'checkbox',
+  'radio',
+  'switch',
+  'slider',
+  'spinbutton',
+  'textbox',
+  'searchbox',
+  'combobox',
+  'listbox',
+  'link',
+  'region',
+]);
+
+/** Scenes where pressing `Tab` must land the computed tree on exactly one control node. */
+const AX_TAB_SCENES = new Set(['a11y']);
+
+/**
+ * One computed AX property.
+ *
+ * Chrome's protocol mixes types here: `value.value` comes back as `true` for some properties and as the
+ * string `'true'` for others (`checked` is tri-state), so every comparison normalises through `String()`.
+ */
+function axProperty(node, name) {
+  const raw = (node.properties ?? []).find((entry) => entry.name === name)?.value?.value;
+  return raw === undefined ? undefined : String(raw);
+}
+
+/**
+ * Reads the computed accessibility tree and compares it with the expectations.
+ *
+ * @returns the list of problems; empty means the scene's tree is exactly as promised.
+ */
+async function checkAxTree(session, scene) {
+  const expected = AX_EXPECTATIONS[scene];
+  if (!expected) {
+    return [];
+  }
+  const problems = [];
+  if (AX_TAB_SCENES.has(scene)) {
+    // One real `Tab`: focus must move in the framework *and* the computed tree must point at the node
+    // that describes the control (the mirror node now takes DOM focus, which is how a screen reader
+    // follows a canvas).
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      windowsVirtualKeyCode: 9,
+      key: 'Tab',
+      code: 'Tab',
+    });
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      windowsVirtualKeyCode: 9,
+      key: 'Tab',
+      code: 'Tab',
+    });
+    await sleep(250);
+  }
+
+  const { nodes } = await session.send('Accessibility.getFullAXTree');
+  const visible = nodes.filter((node) => !node.ignored);
+  const controls = visible.filter((node) => AX_CONTROL_ROLES.has(node.role?.value));
+
+  for (const want of expected) {
+    const matches = controls.filter(
+      (node) => node.role?.value === want.role && (node.name?.value ?? '') === want.name,
+    );
+    if (matches.length !== 1) {
+      problems.push(
+        `"${want.name}" (${want.role}): found ${matches.length} node(s) in the computed tree, expected 1`,
+      );
+      continue;
+    }
+    const node = matches[0];
+    if (want.value !== undefined && String(node.value?.value ?? '') !== want.value) {
+      problems.push(`"${want.name}": value is "${node.value?.value}", expected "${want.value}"`);
+    }
+    for (const [name, value] of Object.entries(want.properties ?? {})) {
+      const actual = axProperty(node, name);
+      if (actual !== String(value)) {
+        problems.push(`"${want.name}": ${name} is ${JSON.stringify(actual)}, expected ${value}`);
+      }
+    }
+  }
+
+  if (controls.length !== expected.length) {
+    problems.push(
+      `the tree exposes ${controls.length} control node(s), expected ${expected.length} ` +
+        `(${controls.map((node) => `${node.role?.value}:${node.name?.value ?? ''}`).join(', ')})`,
+    );
+  }
+
+  if (AX_TAB_SCENES.has(scene)) {
+    const focused = controls.filter((node) => axProperty(node, 'focused') === 'true');
+    if (focused.length !== 1) {
+      problems.push(
+        `after Tab, ${focused.length} control node(s) report focus, expected exactly 1 ` +
+          `(the mirror node has to take DOM focus for a screen reader to follow)`,
+      );
+    }
+  }
+
+  // The live region is the other half of the feature: `role=status` with the configured politeness.
+  const live = visible.filter((node) => node.role?.value === 'status');
+  if (live.length !== 1) {
+    problems.push(`found ${live.length} live region(s), expected exactly 1`);
+  } else if (axProperty(live[0], 'live') !== 'assertive') {
+    // The example app configures `MVVMPlugin.configure({ a11y: { politeness: 'assertive' } })`.
+    problems.push(`the live region is "${axProperty(live[0], 'live')}", expected "assertive"`);
+  }
+
+  for (const problem of problems) {
+    console.error(`[visual-check] ${scene} a11y: ${problem}`);
+  }
+  if (problems.length === 0) {
+    console.log(
+      `[visual-check] a11y tree ok for ${scene} (${controls.length} control nodes, no duplicates)`,
+    );
+  }
+  return problems;
+}
+
 async function freePort(start) {
   for (let candidate = start; candidate < start + 30; candidate++) {
     if (!(await isServing(candidate))) {
@@ -580,6 +735,12 @@ async function main() {
         console.error(`[visual-check] ${scene}: the page reported an error`);
         failures += 1;
         continue;
+      }
+
+      if (AX_EXPECTATIONS[scene]) {
+        await session.send('Accessibility.enable');
+        const axProblems = await checkAxTree(session, scene);
+        failures += axProblems.length;
       }
 
       const spec = pixelSpec(scene, png, status);

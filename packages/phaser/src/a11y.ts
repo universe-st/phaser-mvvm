@@ -5,17 +5,26 @@
  * therefore deliberately small and honest — **not** a WCAG claim, and not a second UI:
  *
  * - every widget that can be *acted on* (the focus manager's collection, which is exactly the set a
- *   keyboard user can reach) gets a visually hidden `<div>` with `role`/`aria-label`/state attributes,
- * - focus changes and app messages are announced through one `aria-live` region,
+ *   keyboard user can reach) gets exactly **one** node in the computed accessibility tree, with
+ *   `role`/name/state on it,
+ * - **DOM focus follows framework focus** so the reader lands on the control that is focused, and app
+ *   messages are announced through one `aria-live` region (which is also the fallback when DOM focus
+ *   cannot be moved),
  * - the mirror lives in Phaser's DOM container (`dom.createContainer: true`), the same overlay the
  *   text-input bridge uses, and it is created and torn down with the plugin,
- * - the nodes are **not** keyboard-focusable: keyboard control stays with the framework (arrow keys,
- *   `Tab`, gamepad), so a screen-reader user browses the mirror while the game keeps the keys.
+ * - the nodes carry `tabindex="-1"`: reachable for a screen reader, but **not** in the `Tab` order, so
+ *   keyboard control still belongs to the framework (arrow keys, `Tab`, gamepad).
  *
  * Widgets describe themselves (`Widget#describeA11y`), because the adapter cannot know what a
- * `Button` or a `Slider` is — `packages/phaser` must not depend on the widget library. The descriptor
- * is re-read whenever the mirror is refreshed (structure change, focus change) or asked to
- * (`sync()`), so a value that changed while a control was not focused is picked up by the next sync.
+ * `Button` or a `Slider` is — `packages/phaser` must not depend on the widget library. The descriptor is
+ * re-read on every refresh (structure change), on every focus change, **and once per frame for the
+ * focused widget** — a control whose value or validity changes without a focus move (a slider dragged
+ * with the arrow keys, an error that appears on submit) must not be read as its old self. Writing is
+ * change-checked, so an unchanged control costs no DOM work.
+ *
+ * A widget that already owns a DOM element (a text field's hidden `<input>`, see
+ * `Widget#getA11yDomElement`) is **not** mirrored as a node: that element is the surface, and mirroring
+ * it too exposed every field twice (round 76, V42).
  */
 
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
@@ -90,6 +99,10 @@ export class A11yBridge {
   private root: HTMLElement | null = null;
   private live: HTMLElement | null = null;
   private on = false;
+  /** The widget whose surface currently holds DOM focus (see `focusChanged`). */
+  private domFocused: Widget | null = null;
+  /** Last applied signature per widget, so an unchanged control costs no DOM writes. */
+  private readonly lastApplied = new Map<Widget, string>();
 
   constructor(plugin: MVVMPlugin, options: A11yOptions = {}) {
     this.plugin = plugin;
@@ -125,6 +138,11 @@ export class A11yBridge {
     this.on = value;
     if (value) {
       this.attach();
+      // `attach()` only creates the container and the live region; the nodes come from `refresh()`,
+      // which the plugin calls on a structure change. Without this call, turning the mirror back on left
+      // it *mounted but empty* until something else changed the tree — a screen reader would find no
+      // controls at all, while `container` and the `aria-live` region both looked right (V44).
+      this.refresh();
     } else {
       this.detach();
     }
@@ -183,6 +201,9 @@ export class A11yBridge {
       if (!entry) {
         const node = document.createElement('div');
         node.setAttribute(A11Y_ATTRIBUTE, '');
+        // `-1` (not `0`): programmatically focusable so a screen reader can land on the control, but out
+        // of the Tab order — navigation stays with the framework (`Tab`, arrows, gamepad).
+        node.setAttribute('tabindex', '-1');
         const element = this.root;
         element?.appendChild(node);
         entry = { widget, node };
@@ -201,7 +222,9 @@ export class A11yBridge {
    *
    * With no argument it syncs every node (structure change, theme switch, app-driven refresh); with a
    * widget it syncs just that one, which is the cheap call for "this control's value changed" — for
-   * example after a field wrote back to its model.
+   * example after a field wrote back to its model. Either way only the attributes that actually changed
+   * are written (`applyDescriptor` compares against the last applied state), so the plugin can afford to
+   * call it once per frame for the focused widget.
    */
   sync(widget?: Widget): void {
     if (!this.on) {
@@ -220,6 +243,68 @@ export class A11yBridge {
         entry.widget.isDestroyed === true ? null : entry.widget.describeA11y(),
       );
     }
+  }
+
+  /**
+   * Follows a framework focus change into the DOM, and announces when it cannot.
+   *
+   * A screen reader follows **DOM** focus. The mirror used to be a list of non-focusable nodes plus a
+   * live-region line, which reads the control once but leaves the reader's cursor where it was: ask for
+   * "the next item" after focusing a button and you hear whatever comes after the *old* position, and the
+   * value of a slider moved with the arrow keys is never spoken again. The nodes therefore carry
+   * `tabindex="-1"` and take DOM focus when the framework focus moves — `-1` keeps them out of the Tab
+   * order, so navigation still belongs to the framework (`Tab`, arrows, gamepad), while a screen reader
+   * lands on the node that describes the control and can be re-read at will.
+   *
+   * A widget that owns a DOM element (a text field's `<input>`) is focused through that element instead —
+   * and if focusing fails (a browser that refuses, a node that is not in the document), the live region
+   * still announces, which is what the whole feature did before.
+   */
+  focusChanged(widget: Widget | null): boolean {
+    if (!this.on || !this.attach()) {
+      return true;
+    }
+    const surface = widget ? this.surfaceOf(widget) : null;
+    this.blurPrevious(widget);
+    this.domFocused = widget;
+    if (!widget) {
+      return true;
+    }
+    // The state of the control being read has to be current: a toggle flipped by a `Tab`+`Enter` or a
+    // validation error that appeared while it was focused must already be on the node.
+    this.sync(widget);
+    if (!surface) {
+      return false;
+    }
+    if (document.activeElement !== surface) {
+      try {
+        surface.focus({ preventScroll: true });
+      } catch {
+        return false;
+      }
+    }
+    return document.activeElement === surface;
+  }
+
+  /**
+   * Announces the widget that just took focus, without touching DOM focus.
+   *
+   * This is the fallback `focusChanged()` uses, and the right call for an app that manages DOM focus
+   * itself and only wants the line read aloud.
+   */
+  announceFocus(widget: Widget | null): void {
+    if (!this.on) {
+      return;
+    }
+    if (!widget) {
+      return;
+    }
+    const descriptor = widget.describeA11y();
+    if (!descriptor) {
+      return;
+    }
+    this.sync(widget);
+    this.announce(describeA11yText(descriptor, widget));
   }
 
   /**
@@ -262,28 +347,40 @@ export class A11yBridge {
     return this.live?.textContent ?? '';
   }
 
-  /** Announces the widget that just took focus, the way a screen reader needs it. */
-  announceFocus(widget: Widget | null): void {
-    if (!this.on) {
-      return;
-    }
-    if (!widget) {
-      return;
-    }
-    const descriptor = widget.describeA11y();
-    if (!descriptor) {
-      return;
-    }
-    this.sync(widget);
-    this.announce(describeA11yText(descriptor, widget));
-  }
-
   /** Removes the mirror (scene shutdown, or `enabled = false`). Idempotent. */
   destroy(): void {
     this.detach();
   }
 
   // ------------------------------------------------------------------ internals
+
+  /**
+   * The DOM element a screen reader should land on for `widget`: its own element when it has one, else
+   * the mirror node.
+   */
+  private surfaceOf(widget: Widget): HTMLElement | null {
+    const own = widget.getA11yDomElement();
+    if (own) {
+      return own;
+    }
+    return this.nodes.find((entry) => entry.widget === widget)?.node ?? null;
+  }
+
+  /**
+   * Releases DOM focus from the surface of the widget that had it, so the tree never keeps a stale
+   * `document.activeElement` (a page popped while one of its controls was focused used to leave DOM
+   * focus on a removed node).
+   */
+  private blurPrevious(next: Widget | null): void {
+    const previous = this.domFocused;
+    if (!previous || previous === next || previous.isDestroyed === true) {
+      return;
+    }
+    const surface = this.surfaceOf(previous);
+    if (surface && document.activeElement === surface) {
+      surface.blur();
+    }
+  }
 
   private attach(): boolean {
     if (this.root && this.root.isConnected) {
@@ -320,16 +417,34 @@ export class A11yBridge {
   }
 
   private detach(): void {
+    const focused = this.domFocused;
+    if (focused) {
+      const surface = this.surfaceOf(focused);
+      if (surface && document.activeElement === surface) {
+        surface.blur();
+      }
+    }
+    this.domFocused = null;
+    this.lastApplied.clear();
     this.root?.remove();
     this.root = null;
     this.live = null;
     this.nodes.length = 0;
   }
 
+  /**
+   * Writes one descriptor to wherever its surface is, and only when something actually changed.
+   *
+   * The plugin syncs the focused widget every frame (so a value that changes without a focus move — a
+   * slider dragged with the arrow keys, a validation error that appears on submit — is never stale), and
+   * the signature check is what makes that affordable: identical attributes are not rewritten, because
+   * touching an unchanged attribute would still wake the accessibility tree.
+   */
   private applyDescriptor(entry: MirrorNode, descriptor: A11yDescription): void {
     const { node, widget } = entry;
     if (descriptor === null) {
       node.remove();
+      this.lastApplied.delete(widget);
       const index = this.nodes.indexOf(entry);
       if (index !== -1) {
         this.nodes.splice(index, 1);
@@ -337,35 +452,152 @@ export class A11yBridge {
       return;
     }
 
-    const label = descriptor.label ?? widget.name ?? '';
-    node.setAttribute('role', descriptor.role);
+    // A widget that owns a DOM element (a text field's hidden `<input>`) is *already* in the browser's
+    // accessibility tree: it is focusable, it has a name and it holds the text. Mirroring it a second
+    // time as a `<div role="textbox">` exposed the same control twice — measured on `#/a11y` with
+    // Chrome's own AX tree: four textboxes for two fields, and the `div`'s AX *value* was the
+    // description line ("名字") rather than the field's text. So the mirror steps aside: the node stays
+    // in the DOM (it is what `count`, the dev trace and the DOM-level checks read) but is `aria-hidden`,
+    // and the widget's element carries the role/name/state. When the element cannot be created (no DOM
+    // container, `dom: false`), `getA11yDomElement()` answers `null` and the node is the surface again.
+    const domElement = widget.getA11yDomElement();
+    const attributes = a11yAttributes(descriptor, widget);
+    const text = a11yText(descriptor, widget);
+    const signature = `${domElement ? 'dom' : 'node'}|${text}|${attributeSignature(attributes)}`;
+    if (this.lastApplied.get(widget) === signature) {
+      return;
+    }
+    this.lastApplied.set(widget, signature);
+
     node.setAttribute('data-mvvm-a11y-name', widget.name || descriptor.role);
-    setAttribute(node, 'aria-label', label.length > 0 ? label : null);
-    setAttribute(node, 'aria-description', descriptor.hint ?? null);
-    setAttribute(node, 'aria-disabled', descriptor.disabled === true ? 'true' : null);
-    setAttribute(node, 'aria-invalid', descriptor.invalid === true ? 'true' : null);
-    setAttribute(
-      node,
-      'aria-checked',
-      descriptor.checked === undefined ? null : String(descriptor.checked),
-    );
-    setAttribute(
-      node,
+    node.textContent = text;
+    if (domElement) {
+      node.setAttribute('aria-hidden', 'true');
+    } else {
+      node.removeAttribute('aria-hidden');
+    }
+
+    // The node keeps the full attribute set even when it is hidden: it is the surface the DOM-level
+    // checks read (`[data-mvvm-a11y]`), and a second copy costs nothing on a hidden 1px div.
+    for (const attribute of MANAGED_ATTRIBUTES) {
+      const value = attributes[attribute] ?? null;
+      setAttribute(node, attribute, value);
+      if (domElement && attribute !== 'role') {
+        // The element's role comes from the element itself (`<input>` *is* a textbox); only the ARIA
+        // state and the name are written, so nothing can turn a real input into something else.
+        setAttribute(domElement, attribute, value);
+      }
+    }
+  }
+}
+
+/** Every ARIA attribute the mirror owns; the ones a descriptor stops mentioning are removed. */
+const MANAGED_ATTRIBUTES = [
+  'role',
+  'aria-label',
+  'aria-description',
+  'aria-disabled',
+  'aria-invalid',
+  'aria-checked',
+  'aria-valuenow',
+  'aria-valuemin',
+  'aria-valuemax',
+] as const;
+
+/** A stable string for "did anything change?" — sorted, so key order cannot fake a difference. */
+function attributeSignature(attributes: Record<string, string>): string {
+  return Object.keys(attributes)
+    .sort()
+    .map((key) => `${key}=${attributes[key] ?? ''}`)
+    .join(';');
+}
+
+function labelOf(descriptor: A11yDescriptor, widget?: { name?: string }): string | null {
+  const label = descriptor.label ?? widget?.name ?? '';
+  return label.length > 0 ? label : null;
+}
+
+/**
+ * The ARIA attributes a descriptor maps to — pure, so the mapping is unit-tested in Node without a DOM
+ * (`test/a11y.test.ts`).
+ *
+ * Two rules worth naming:
+ *
+ * - **`aria-valuenow`/`min`/`max` only exist on roles that support a value range.** Writing them on a
+ *   `textbox` is invalid ARIA (that role takes its value from its content), and invalid attributes are
+ *   the kind of thing a validator complains about while a screen reader silently ignores them.
+ * - **`aria-label` is always written when there is one**, even if the element also has visible text:
+ *   the framework already decided the accessible name (`Widget.a11yLabel` wins over the widget's own
+ *   text), and a field's hidden `<input>` would otherwise fall back to whatever the placeholder says.
+ */
+export function a11yAttributes(
+  descriptor: A11yDescriptor,
+  widget?: { name?: string },
+): Record<string, string> {
+  const attributes: Record<string, string> = { role: descriptor.role };
+  setIf(attributes, 'aria-label', labelOf(descriptor, widget));
+  setIf(attributes, 'aria-description', descriptor.hint ?? null);
+  setIf(attributes, 'aria-disabled', descriptor.disabled === true ? 'true' : null);
+  setIf(attributes, 'aria-invalid', descriptor.invalid === true ? 'true' : null);
+  setIf(
+    attributes,
+    'aria-checked',
+    descriptor.checked === undefined ? null : String(descriptor.checked),
+  );
+  if (VALUE_RANGE_ROLES.has(descriptor.role)) {
+    setIf(
+      attributes,
       'aria-valuenow',
       descriptor.value === undefined ? null : String(descriptor.value),
     );
-    setAttribute(
-      node,
+    setIf(
+      attributes,
       'aria-valuemin',
       descriptor.min === undefined ? null : String(descriptor.min),
     );
-    setAttribute(
-      node,
+    setIf(
+      attributes,
       'aria-valuemax',
       descriptor.max === undefined ? null : String(descriptor.max),
     );
-    // The text node is what a screen reader reads in browse mode; the attributes carry the detail.
-    node.textContent = describeA11yText(descriptor, widget);
+  }
+  return attributes;
+}
+
+/**
+ * Roles whose accessible value comes from a range (or a number), and which therefore accept
+ * `aria-valuenow`/`aria-valuemin`/`aria-valuemax` (ARIA 1.2 — `textbox` and `checkbox` are not among
+ * them: a textbox's value is its content, a checkbox's is `aria-checked`).
+ */
+export const VALUE_RANGE_ROLES: ReadonlySet<string> = new Set([
+  'slider',
+  'spinbutton',
+  'scrollbar',
+  'progressbar',
+  'meter',
+  'separator',
+]);
+
+/**
+ * Roles whose accessible *value* is read from the element's text content.
+ *
+ * For those the node's content has to be the value alone — `describeA11yText()` starts with the label,
+ * and Chrome reports a `div role="textbox"`'s value as its content, so writing the description line
+ * there made every field announce its own label as its value.
+ */
+const CONTENT_VALUE_ROLES: ReadonlySet<string> = new Set(['textbox', 'searchbox', 'combobox']);
+
+/** The text content a mirrored node gets: the value for a text-like role, else the readable line. */
+export function a11yText(descriptor: A11yDescriptor, widget?: { name?: string }): string {
+  if (CONTENT_VALUE_ROLES.has(descriptor.role)) {
+    return descriptor.value === undefined ? '' : String(descriptor.value);
+  }
+  return describeA11yText(descriptor, widget);
+}
+
+function setIf(target: Record<string, string>, name: string, value: string | null): void {
+  if (value !== null) {
+    target[name] = value;
   }
 }
 

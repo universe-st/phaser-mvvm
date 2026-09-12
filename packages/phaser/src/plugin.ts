@@ -584,8 +584,12 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     if (focused !== this.lastFocused) {
       this.lastFocused = focused;
       devLog(`focus: ${focused ? focused.name || focused.constructor.name : 'none'}`);
-      // A screen reader has no way to see a focus ring on a canvas, so focus moves are announced.
-      this.a11yBridge?.announceFocus(focused);
+      // A screen reader follows DOM focus, and a canvas has none of its own: the mirror moves focus to
+      // the node (or the field's own `<input>`) that describes the focused control, and falls back to
+      // announcing through the live region when it cannot.
+      if (this.a11yBridge && !this.a11yBridge.focusChanged(focused)) {
+        this.a11yBridge.announceFocus(focused);
+      }
       if (focused) {
         // Keyboard/gamepad focus can land on a widget the mask has clipped away, and then the ring is
         // painted where nobody can see it (round 67). Asking the ports above it to scroll it into view
@@ -593,6 +597,14 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
         // arranged every rect, so the ports compute against real geometry rather than last frame's.
         revealInViewports(focused, { flushLayout: () => this.uiRoot?.flushLayout() });
       }
+    }
+
+    // The focused control's own state can change without a focus move (a slider dragged with the arrow
+    // keys, a toggle flipped, a validation error appearing), and a screen reader sitting on that node
+    // must not read yesterday's value. `sync()` writes only what changed, so this is a comparison in the
+    // common case.
+    if (this.a11yBridge && focused) {
+      this.a11yBridge.sync(focused);
     }
 
     // Re-collect only when the tree actually changed: visibility or state changes do not need it, and

@@ -257,6 +257,18 @@ export class A11yScene extends UIScene {
       /** The DOM mirror, attribute by attribute. */
       nodes: (): MirrorNode[] => this.mirrorNodes(),
       names: (): string[] => this.mirrorNodes().map((node) => node.name),
+      /**
+       * Which element carries a widget in the accessibility tree: `element` when the widget has a DOM
+       * element of its own (a text field's `<input>`, which is why the mirror node is `aria-hidden`), or
+       * `mirror` when the node *is* the surface (V42).
+       */
+      surface: (name: string): string => {
+        const node = document.querySelector(`[data-mvvm-a11y-name="${name}"]`);
+        if (!node) {
+          return 'none';
+        }
+        return node.getAttribute('aria-hidden') === 'true' ? 'element' : 'mirror';
+      },
       node: (name: string): MirrorNode | null =>
         this.mirrorNodes().find((node) => node.name === name) ?? null,
       /** Text currently in the `aria-live` region. */
@@ -320,6 +332,12 @@ export class A11yScene extends UIScene {
         nodes: this.mirrorNodes().length,
         root: this.mvvm.a11y.container ? 'mounted' : 'missing',
         enabled: this.mvvm.a11y.enabled,
+        // Nodes that stepped aside for a widget's own DOM element (a text field's `<input>`): each of
+        // those controls is in the accessibility tree through its element, not through the mirror node,
+        // so `nodes` and "controls a screen reader sees" stay the same number (V42).
+        hidden: [...document.querySelectorAll('[data-mvvm-a11y]')].filter(
+          (node) => node.getAttribute('aria-hidden') === 'true',
+        ).length,
         focus: this.mvvm.focus.focusedWidget?.name || 'none',
         volume: this.volume.value,
         name: this.name.value,
