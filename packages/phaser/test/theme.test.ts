@@ -16,7 +16,7 @@ import {
   themeListenerCount,
   type ThemeColorName,
 } from '../src/theme';
-import { resolveWidgetState } from '../src/widget-state';
+import { announceableState, resolveWidgetState } from '../src/widget-state';
 
 const COLOR_KEYS: ThemeColorName[] = [
   'background',
@@ -153,6 +153,16 @@ describe('widget state machine', () => {
 
   it('maps each single flag', () => {
     expect(resolveWidgetState({ hovered: true })).toBe('hover');
+  });
+
+  it('announces a state only when it changed', () => {
+    // `widget:state` is emitted from every repaint (`appearanceChanged`), but it promises a *change*:
+    // an unconditional emit sent `pressed` twice within one click (measured on `#/states`, round 96).
+    expect(announceableState(null, 'normal')).toBe('normal');
+    expect(announceableState('normal', 'hover')).toBe('hover');
+    expect(announceableState('hover', 'hover')).toBeNull();
+    expect(announceableState('pressed', 'pressed')).toBeNull();
+    expect(announceableState('pressed', 'focused')).toBe('focused');
     expect(resolveWidgetState({ pressed: true })).toBe('pressed');
     expect(resolveWidgetState({ focused: true })).toBe('focused');
     expect(resolveWidgetState({ error: true })).toBe('error');

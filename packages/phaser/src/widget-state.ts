@@ -39,3 +39,19 @@ export function resolveWidgetState(flags: WidgetStateFlags): WidgetState {
   }
   return 'normal';
 }
+
+/**
+ * What `widget:state` should announce after a repaint: the new state, or `null` when it did not change.
+ *
+ * `appearanceChanged()` runs on **every** repaint — a theme switch, a variant change, a validation
+ * error — while `WIDGET_EVENTS.STATE_CHANGE` promises a *change*. Announcing unconditionally sent the
+ * same state twice inside one click (measured on `#/states`: `pressed, pressed, focused, hover`), which
+ * makes a subscriber that counts transitions wrong and one that asks "did it enter `pressed`?" fire
+ * twice. `previous === null` (nothing announced yet) always announces.
+ */
+export function announceableState(
+  previous: WidgetState | null,
+  current: WidgetState,
+): WidgetState | null {
+  return previous === current ? null : current;
+}

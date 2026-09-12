@@ -30,7 +30,7 @@ import { getTheme, onThemeChange, type Theme } from './theme';
 import type { NavAction } from './nav';
 import { devLog, isDevMode } from '@phaser-mvvm/core';
 import { inFlowOf } from '@phaser-mvvm/layout';
-import { resolveWidgetState, type WidgetState } from './widget-state';
+import { announceableState, resolveWidgetState, type WidgetState } from './widget-state';
 import type { A11yDescriptor } from './a11y';
 
 export interface WidgetOptions {
@@ -415,11 +415,29 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
   /** Subclasses repaint their background here; called on state and theme changes. */
   protected refreshAppearance(): void {}
 
-  /** Invalidates the appearance and repaints. */
+  /**
+   * Invalidates the appearance and repaints.
+   *
+   * Also the place `widget:state` is announced — but only when the state **changed**. This method runs
+   * on every repaint (a theme switch, a variant change, a validation error), so announcing
+   * unconditionally sent the same state twice within one click: measured on `#/states` (round 96), a
+   * pointer click on a plain button produced `pressed, pressed, focused, hover`. The event is named
+   * `STATE_CHANGE`, so a subscriber that counts transitions was wrong and one that asks "did it enter
+   * `pressed`?" fired twice. Repaints that keep the state are still repaints — they are simply not
+   * state *changes*.
+   */
   protected appearanceChanged(): void {
     this.refreshAppearance();
-    this.emit(WIDGET_EVENTS.STATE_CHANGE, this.visualState);
+    const next = announceableState(this.announcedState, this.visualState);
+    if (next === null) {
+      return;
+    }
+    this.announcedState = next;
+    this.emit(WIDGET_EVENTS.STATE_CHANGE, next);
   }
+
+  /** The last state announced through `widget:state`; `null` until the first one. */
+  private announcedState: WidgetState | null = null;
 
   private syncHitArea(): void {
     if (!this.pointerReady) {
@@ -682,7 +700,16 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
 }
 
 /** Activation sources a widget can receive. */
-export type ActivationSource = 'pointer' | 'keyboard' | 'gamepad';
+/**
+ * Where an activation came from.
+ *
+ * `'touch'` is separate from `'pointer'` because the two need different answers more often than the
+ * name suggests — a hint line that reads "click" or "tap", a tooltip that must not open under a finger,
+ * telemetry that has to tell a phone from a desktop — and Phaser already tells them apart
+ * (`pointer.wasTouch`). Until round 96 both arrived as `'pointer'` and the distinction was only
+ * available by listening to Phaser's own input instead.
+ */
+export type ActivationSource = 'pointer' | 'touch' | 'keyboard' | 'gamepad';
 
 /** Minimal focus-manager surface `Widget.focus()` needs (implemented by `FocusManager`). */
 export interface FocusTarget {

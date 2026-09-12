@@ -20,6 +20,7 @@
 
 import Phaser from 'phaser';
 import { ref } from '@phaser-mvvm/core';
+import { WIDGET_EVENTS } from '@phaser-mvvm/phaser';
 import { bindCommand, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
@@ -55,6 +56,9 @@ interface RowItem {
   label: string;
 }
 
+/** How many events a probe's history keeps before the oldest is dropped. */
+const EVENT_LOG_LIMIT = 40;
+
 export class StatesScene extends Phaser.Scene {
   private readonly clicks = ref(0);
   private readonly toggled = ref(false);
@@ -71,6 +75,19 @@ export class StatesScene extends Phaser.Scene {
 
   private readonly probes = new Map<string, Probe>();
   private readonly tracked = new Map<string, Widget>();
+  /**
+   * The two events every widget emits, recorded per probe.
+   *
+   * `WIDGET_EVENTS` (`widget:activate` / `widget:state`) is the framework's per-widget event
+   * vocabulary, and until round 96 **no demo or test ever listened to it** — so nothing proved that an
+   * activation from the three input devices arrives with the right `ActivationSource`, or that the
+   * visual state machine announces its transitions at all. Capped, because a page can be driven for a
+   * while and a probe's history is only interesting near the gesture under test.
+   */
+  private readonly eventLog: {
+    activated: Array<{ name: string; source: string }>;
+    states: Array<{ name: string; state: string }>;
+  } = { activated: [], states: [] };
   private readonly published = new Map<string, string>();
   private page: Widget | null = null;
 
@@ -134,6 +151,7 @@ export class StatesScene extends Phaser.Scene {
   }
 
   override update(): void {
+    this.publishEvents();
     for (const [name, widget] of this.tracked) {
       if (widget.isDestroyed || !widget.visible) {
         continue;
@@ -466,7 +484,37 @@ export class StatesScene extends Phaser.Scene {
     widget.name = name;
     this.probes.set(name, { name, widget, rest });
     this.tracked.set(name, widget);
+    this.watchEvents(name, widget);
     return widget;
+  }
+
+  /** Records `widget:activate` / `widget:state` for one probe (see {@link StatesScene.eventLog}). */
+  private watchEvents(name: string, widget: Widget): void {
+    widget.on(WIDGET_EVENTS.ACTIVATE, (source: string) => {
+      this.eventLog.activated.push({ name, source });
+      if (this.eventLog.activated.length > EVENT_LOG_LIMIT) {
+        this.eventLog.activated.shift();
+      }
+    });
+    widget.on(WIDGET_EVENTS.STATE_CHANGE, (state: string) => {
+      this.eventLog.states.push({ name, state });
+      if (this.eventLog.states.length > EVENT_LOG_LIMIT) {
+        this.eventLog.states.shift();
+      }
+    });
+  }
+
+  /** Publishes the event counters, so a check can read them from `#demo-state` without the API. */
+  private publishEvents(): void {
+    this.publish('events.activations', this.eventLog.activated.length);
+    this.publish('events.states', this.eventLog.states.length);
+    const lastActivation = this.eventLog.activated[this.eventLog.activated.length - 1];
+    this.publish(
+      'events.lastActivation',
+      lastActivation ? `${lastActivation.name}:${lastActivation.source}` : 'none',
+    );
+    const lastState = this.eventLog.states[this.eventLog.states.length - 1];
+    this.publish('events.lastState', lastState ? `${lastState.name}:${lastState.state}` : 'none');
   }
 
   private publish(key: string, value: string | number | boolean): void {
@@ -493,6 +541,19 @@ export class StatesScene extends Phaser.Scene {
         notes: this.notes.value.length,
       }),
       focusables: () => this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
+      /**
+       * Everything the `WIDGET_EVENTS` listeners have seen: activations with their
+       * `ActivationSource` ("pointer" / "keyboard" / "gamepad") and state transitions, in order.
+       */
+      events: () => ({
+        activated: this.eventLog.activated.map((entry) => ({ ...entry })),
+        states: this.eventLog.states.map((entry) => ({ ...entry })),
+      }),
+      /** Drops the recorded events, so a measurement starts from a known place. */
+      clearEvents: (): void => {
+        this.eventLog.activated.length = 0;
+        this.eventLog.states.length = 0;
+      },
       /**
        * Scrolls every `ScrollView` above a probe so the probe is visible, then resolves.
        *

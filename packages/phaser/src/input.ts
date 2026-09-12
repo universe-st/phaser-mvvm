@@ -765,8 +765,12 @@ export class InputRouter {
         continue;
       }
 
-      if (widget.activate('pointer')) {
-        this.onActivate?.(widget, 'pointer');
+      // A touch is reported as its own source: `wasTouch` is the only reliable difference between a
+      // finger and a mouse, and an app that adapts its hints to the device needs it here rather than
+      // from Phaser's input behind the framework's back.
+      const source: ActivationSource = pointer.wasTouch === true ? 'touch' : 'pointer';
+      if (widget.activate(source)) {
+        this.onActivate?.(widget, source);
       }
 
       // `resetInteraction` cleared hover above; a mouse click leaves the cursor inside the widget, so the

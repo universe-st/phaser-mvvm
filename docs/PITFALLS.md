@@ -325,3 +325,19 @@ Canvas 路径没有 DOM 的 `event.detail`，"这是第几次点击"只能由控
 **纪律**：新增一个导出（尤其是别名/便捷包装）时问一句「谁会调用它？」—— 答不上来就别加；加上了就必须有 demo 用到、指南提到。第 95 轮把这条变成 `pnpm docs:check` 的第三关 **vocabulary**（`compose` 的每个运行时导出都要在示例里出现、并在指南里被提名），正对照是把这个别名加回去立刻报红。
 
 **顺带一句**：同一轮发现 `justifyContent` 的六个取值里 `space-evenly` 从没被任何页面画过（引擎实现了、指南写了，就是没有 demo）。**"文档里有"不等于"跑过"** —— 三份语料要一起查。
+
+## 8.56 事件名承诺"变化"，就别在每次重绘时发（第 96 轮 V63）
+
+`WIDGET_EVENTS.STATE_CHANGE`（`'widget:state'`）是从 `appearanceChanged()` 里发的，而那个方法的名字就写着"外观需要重绘"：主题切换、`setVariant`、`setError`、焦点环变化都会走它。于是**一次鼠标点击会发出两次 `pressed`**（实测 `#/states`：`pressed, pressed, focused, hover`）。
+
+对订阅者来说这是错的：按状态计数的人会多算一次，问"它进入 `pressed` 了吗"的人会触发两次副作用。**名字是给订阅者的契约**——要么改名成"重绘了"，要么只在真的变化时发。这里选了后者：判定收成纯函数 `announceableState(previous, current)`（返回 `null` = 不必发），单测钉住三条（首次必发/相同不发/不同发新的）。
+
+修后（同一页面、同样的手势，鼠标与触摸都跑）：
+
+| 手势                                     | `widget:state` 流                                     |
+| ---------------------------------------- | ----------------------------------------------------- |
+| 鼠标点击                                 | `pressed → focused → hover`                           |
+| 触摸点击                                 | `pressed → focused`（手指没有悬停，所以没有 `hover`） |
+| `Enter`/`Space`/手柄 A（焦点已在控件上） | 空                                                    |
+
+同一轮还发现 `WIDGET_EVENTS` 的两个事件**从没被任何 demo 或单测订阅过**（`ActivationSource` 的唯一出口），以及 `ActivationSource` 把鼠标与触摸都报成 `'pointer'` —— 已在 `#/states` 的 `events()` 探针与 `'touch'` 源里补上。

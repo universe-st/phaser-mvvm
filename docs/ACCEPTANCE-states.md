@@ -128,3 +128,42 @@
 
 - 提交信息：`fix(phaser): focus the pressed widget so the ring and Tab order follow the mouse`（正文含状态矩阵结果与 P2 前后对照）。
 - 提交前门禁：`pnpm -r run typecheck`、`pnpm -r run test`、`pnpm exec prettier --check .`、`pnpm run build:examples` 全绿。
+
+---
+
+## 7. `WIDGET_EVENTS`：控件事件词汇表第一次被订阅（第 96 轮）
+
+### 7.1 为什么查它
+
+把四个包的**事件表**（`BUTTON_EVENTS`/`SLIDER_EVENTS`/`TEXT_INPUT_EVENTS`/`WIDGET_EVENTS`）逐个拿去查 demo / 指南 / 单测三份语料，只有 `WIDGET_EVENTS` 的**两个成员没有任何代码用过**：
+
+```ts
+export const WIDGET_EVENTS = { ACTIVATE: 'widget:activate', STATE_CHANGE: 'widget:state' } as const;
+```
+
+它是"任何控件都能订阅"的那一层词汇表（也是 `ActivationSource` 的唯一出口），却从没被跑过 —— 于是本轮在 `#/states` 的 `probe()` 里给**每个探针**挂上两个监听（`eventLog`，各保留最近 40 条），逐帧发布 `events.activations`/`events.states`/`events.lastActivation`/`events.lastState`，并加 API `window.states.events()` / `clearEvents()`。
+
+### 7.2 实测矩阵（真鼠标 / 真键盘 / 假手柄 / 真触摸）
+
+| #   | 手势                                                 | `widget:activate`                                 | `widget:state` 流                        |
+| --- | ---------------------------------------------------- | ------------------------------------------------- | ---------------------------------------- |
+| 1   | 鼠标点击 `button.default`                            | `{ name: 'button.default', source: 'pointer' }` ✓ | `pressed → focused → hover` ✓            |
+| 2   | 聚焦后按 `Enter`                                     | `source: 'keyboard'` ✓                            | 无（焦点早已在那，状态没变）✓            |
+| 3   | 聚焦后按 `Space`                                     | `source: 'keyboard'` ✓                            | 无 ✓                                     |
+| 4   | 假手柄按 A（`window.fakePad.button(0, true/false)`） | `source: 'gamepad'` ✓                             | 无 ✓                                     |
+| 5   | **触摸**点击 `button.default`                        | `source: 'touch'` ✓                               | `pressed → focused`（**没有 `hover`**）✓ |
+| 6   | 触摸点击 `button.toggle`                             | `source: 'touch'` ✓                               | `pressed → focused` ✓                    |
+| 7   | 点击 `button.disabled`（负对照）                     | **两个都是空** ✓                                  | 空 ✓                                     |
+
+第 5/7 条各自说明一件事：`source` 里鼠标与触摸**是可以分开的**；`disabled` 的控件连状态事件都不发（不是"发了但没人管"）。
+
+### 7.3 顺带修掉的两件事
+
+**V63（LOW，已修）：`widget:state` 在状态没变时也发。** 第 1 条第一次量出来的是 `pressed, pressed, focused, hover` —— 一次点击里 `pressed` 出现两次。原因：`appearanceChanged()` 是"重绘即调用"（主题切换、`setVariant`、`setError`、焦点环都走它），而事件名承诺的是**变化**。修法：把判定收成纯函数 `announceableState(previous, current)`（`widget-state.ts`，返回 `null` 表示不必发），`Widget` 只保留"上次播报过的状态"；单测三条钉住（首次必发、相同不发、不同发新的）。修后同一次点击是 `pressed → focused → hover` ✓。
+
+**`ActivationSource` 补上 `'touch'`（API 改进，非缺陷）。** 此前鼠标与手指都报 `'pointer'`，需要区分"点击/点按"的界面只能绕过框架去读 Phaser 的输入；`pointer.wasTouch` 本来就摆在那里。现在输入路由器按它选源，实测第 5/6 条得到 `'touch'`、第 1 条仍是 `'pointer'`。类型是加法（`'pointer' | 'touch' | 'keyboard' | 'gamepad'`），`#/states` 的探针把两种都记下来了。
+
+### 7.4 仍然没覆盖的
+
+- **真实手柄**：第 4 条用的是 `window.fakePad`（替换 `navigator.getGamepads`），真机与蓝牙手柄未验。
+- **长按/连发**：`activate` 是单次事件，框架没有重复激活的概念（第 51 轮登记过的导航连发在 `NavSource` 层）。
