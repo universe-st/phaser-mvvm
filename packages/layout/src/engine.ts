@@ -8,6 +8,8 @@
  * - `invalidate(node)` walks up the parent chain marking nodes dirty; clean nodes with an
  *   unchanged rect are skipped entirely, so a small change costs O(depth + changed subtree)
  *   instead of O(tree).
+ * - The upward walk stops *measuring* at a relayout boundary but keeps collecting the ancestors
+ *   above it in `dirtyPath`, so the arrange pass still descends to the boundary (see `invalidate`).
  * - Layout is sub-pixel; snapping happens once, in `arrangeNode`, right before `applyRect`.
  * - Nothing in here allocates per frame once warmed up: contexts, child records and rects are
  *   pooled per node.
@@ -132,6 +134,20 @@ export class LayoutEngine {
   private readonly appliedRects = new WeakMap<LayoutNode, Rect>();
   private readonly dirty = new WeakSet<LayoutNode>();
   private readonly dirtyPending: LayoutNode[] = [];
+  /**
+   * Ancestors *above* a relayout boundary that the arrange pass still has to walk through.
+   *
+   * They are deliberately kept out of `dirty`: a dirty node misses the measurement cache, so marking
+   * them would re-measure everything above the boundary and destroy the optimisation the boundary
+   * promises (a change inside a fixed-size panel must not cost the page a measure). `dirtyPath` only
+   * relaxes the *arrange* skip in `placeChildOf()`, which is what lets the walk reach the boundary
+   * at all.
+   *
+   * A plain `Set` rather than a `WeakSet`: it is dropped at the end of every pass (`clearDirty()`),
+   * so it holds references only between an invalidation and the pass that consumes it - the same
+   * lifetime `dirtyPending` already has.
+   */
+  private readonly dirtyPath = new Set<LayoutNode>();
   private readonly contextPool: EngineContext[] = [];
   private contextDepth = 0;
 
@@ -169,17 +185,25 @@ export class LayoutEngine {
    * so a dirty node deep in the tree would otherwise never be re-arranged.
    *
    * A node declaring `isRelayoutBoundary` promises that its own size does not depend on its parent's
-   * constraint, so the walk ends there: the boundary and its subtree are recalculated, while the
-   * ancestors above it answer from the measurement cache and are arranged with unchanged rects.
-   * That keeps an incremental layout proportional to the change instead of to the tree depth.
+   * constraint, so the *measurement* walk ends there: the boundary and its subtree are recalculated,
+   * while the ancestors above it answer from the measurement cache. Their measurements stay valid —
+   * but they still have to be *walked through* by the arrange pass, otherwise the skip in
+   * `placeChildOf()` would prune the branch and the boundary would never see its new rect. Those
+   * ancestors are therefore collected in `dirtyPath`, which affects nothing but that skip.
    */
   invalidate(node: LayoutNode): void {
     let current: LayoutNode | null = node;
-    while (current && !this.dirty.has(current)) {
-      this.dirty.add(current);
-      this.dirtyPending.push(current);
-      if (current !== node && current.isRelayoutBoundary === true) {
-        break;
+    let aboveBoundary = false;
+    while (current && (aboveBoundary || !this.dirty.has(current))) {
+      if (aboveBoundary) {
+        // Above a boundary: the arrange has to descend through, the measurement cache stays valid.
+        this.dirtyPath.add(current);
+      } else {
+        this.dirty.add(current);
+        this.dirtyPending.push(current);
+        if (current !== node && current.isRelayoutBoundary === true) {
+          aboveBoundary = true;
+        }
       }
       current = current.parent ?? null;
     }
@@ -196,6 +220,11 @@ export class LayoutEngine {
    * This is the entry point hosts must use before deciding to skip a pass: with relayout
    * boundaries, a change deep inside a fixed-size panel does not mark the root dirty, so
    * `isDirty(root)` alone would silently skip the pass and leave the UI stale.
+   *
+   * `dirtyPath` does not have to be folded in: `invalidate()` always marks the node it was called
+   * with (unless that node is already dirty from this same pass, which `dirtyPending` already
+   * records), so any pending arrange implies a pending `dirtyPending` entry as well. Hosts can keep
+   * asking this one question.
    */
   get hasDirtyNodes(): boolean {
     return this.dirtyPending.length > 0;
@@ -455,7 +484,12 @@ export class LayoutEngine {
 
     const target = this.snap(rect);
     const applied = this.appliedRects.get(child.node);
-    if (applied && rectEquals(applied, target) && !this.dirty.has(child.node)) {
+    if (
+      applied &&
+      rectEquals(applied, target) &&
+      !this.dirty.has(child.node) &&
+      !this.dirtyPath.has(child.node)
+    ) {
       this.stats.skippedSubtrees++;
       return;
     }
@@ -571,6 +605,9 @@ export class LayoutEngine {
       this.dirty.delete(this.dirtyPending[i] as LayoutNode);
     }
     this.dirtyPending.length = 0;
+    // `dirtyPath` is per pass: leftovers would keep forcing the arrange walk through ancestors that
+    // no longer have anything to place.
+    this.dirtyPath.clear();
   }
 }
 

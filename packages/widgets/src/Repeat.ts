@@ -349,18 +349,16 @@ export class Repeat<Item> extends Widget {
   /**
    * Tells the tree that this subtree gained or lost widgets.
    *
-   * Two things have to happen, and neither is automatic for a widget that grows children **after**
-   * it was mounted (which is exactly what a `Repeat` does):
+   * `Widget.setEngineRecursive()` hands a `structureListener` to the children it walks, so a widget
+   * that grows children **after** it was mounted (exactly what a `Repeat` does) is not guaranteed to
+   * carry one of its own: the nearest listener up the parent chain is notified instead. The layout
+   * root installs that listener, and the scene plugin turns the bumped version into a router/focus
+   * refresh on the next frame — which is what makes a freshly mounted row clickable.
    *
-   * 1. **input/focus re-collection** — `Widget.setEngineRecursive()` hands a `structureListener` to
-   *    the children it walks, so a widget added as part of a subtree ends up without one of its own.
-   *    The nearest listener up the parent chain is notified instead (the layout root installs one;
-   *    the scene plugin turns the bumped version into a router/focus refresh on the next frame).
-   * 2. **the layout path** — `LayoutEngine.invalidate()` stops at the first relayout boundary (a
-   *    fixed-size panel above the list) and the arrange pass skips *clean* subtrees, so a new row
-   *    below such a boundary would never receive an `applyRect` (it would stay 0×0: invisible,
-   *    unclickable). Marking every ancestor on the path dirty keeps the arrange pass descending all
-   *    the way to this widget.
+   * The *layout* half needs no help here: `LayoutEngine.invalidate()` collects the clean ancestors
+   * above a relayout boundary in its own dirty path, so the arrange pass still descends to this
+   * widget and the new rows receive their `applyRect` (see `engine-dirty-path.test.ts`). The
+   * ancestor-marking this method used to do was a workaround for that gap and was removed with it.
    */
   private notifyStructureChange(): void {
     let node: Widget | null = this;
@@ -368,19 +366,9 @@ export class Repeat<Item> extends Widget {
       const listener = node.structureListener;
       if (typeof listener === 'function') {
         listener();
-        break;
+        return;
       }
       node = (node.parent as Widget | null) ?? null;
-    }
-
-    const engine = this.engine;
-    let ancestor = this.parent as Widget | null;
-    this.markDirty();
-    while (ancestor !== null) {
-      if (engine === null || !engine.isDirty(ancestor)) {
-        ancestor.markDirty();
-      }
-      ancestor = ancestor.parent as Widget | null;
     }
   }
 
