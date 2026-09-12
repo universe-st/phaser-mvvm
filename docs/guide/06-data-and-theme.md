@@ -284,6 +284,16 @@ off(); // 取消订阅
 ```
 
 > 控件的重绘**永远读当前主题**，不会缓存颜色字面量。所以在构造选项里传的字面量颜色（如 `Divider` 的 `color: 0xff0000`）在换肤后**不会**跟着变 —— 想跟随主题就传令牌名（`color: 'border'`）。
+>
+> **`Rect` 是唯一的例外，因为它按契约就是"一个纯色块"**：`Rect({ color: 0x2f6feb })` 收的是数字，不是令牌，所以它没有主题订阅。要画跟随主题的色块，用 `Panel({ variant: 'surface' })`（变体名就是令牌），或者自己订阅：
+>
+> ```ts
+> const chip = Rect({ color: this.mvvm.theme.colors.primary, width: 24, height: 24 });
+> const off = onThemeChange((theme) => chip.setColor(theme.colors.primary));
+> chip.scope.onScopeDispose(off); // 跟着控件一起销毁，不会漏订阅
+> ```
+>
+> 框架内部唯一"给 `Rect` 喂令牌"的地方是对话框遮罩，它就是这么接的（第 71 轮的 V38：此前遮罩在打开时把当时的 `overlay` 烤死，暗色下打开再切亮色就会留下一层纯黑面纱）。逐控件的重绘矩阵见 [`ACCEPTANCE-theme.md`](../ACCEPTANCE-theme.md)。
 
 ---
 
@@ -368,16 +378,16 @@ export class OpsScene extends Phaser.Scene {
 
 ## 9. 常见坑
 
-| 现象                           | 原因                                                        | 修法                                                      |
-| ------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------- |
-| 改了数据界面不变               | 读的不是响应式对象，或读的时机不在 effect 内                | 数据用 `ref`/`reactive`/`makeObservable`；绑定用 `bind*`  |
-| 文本框输入时模型被写坏（中文） | 没等输入法提交就写回                                        | 用 `bindModel`（内部已按 `composing` 暂停写回）           |
-| 双向绑定来回抖                 | 手写了 `on change → setValue` 又叠了 `bindModel`            | 只保留一套方向的实现                                      |
-| 换成 `flush: 'sync'` 后掉帧    | 每次写数据都立刻重排                                        | 保持默认 `'frame'`                                        |
-| 换肤后某些颜色没变             | 那些颜色是构造时写的字面量                                  | 传主题令牌名（`tone`、`color: 'border'`）                 |
-| 场景切换后旧页面还在响应       | 手动 `addWidget` 到了根之外，或者在控件外用裸 `effect` 订阅 | 用 `this.mvvm.mount()`；副作用放进 `widget.scope`         |
-| `computed` 每次读都重算        | 依赖的其实是每次新建的对象                                  | 让依赖保持稳定引用；必要时用 `watchEffect` 看依赖收集情况 |
-| 模板里写 `{{ a + b }}` 报错    | 模板**不支持表达式**，只有路径 + 转换器                     | 在 ViewModel 里写 `computed`，模板只引用它                |
+| 现象                           | 原因                                                        | 修法                                                                                                       |
+| ------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 改了数据界面不变               | 读的不是响应式对象，或读的时机不在 effect 内                | 数据用 `ref`/`reactive`/`makeObservable`；绑定用 `bind*`                                                   |
+| 文本框输入时模型被写坏（中文） | 没等输入法提交就写回                                        | 用 `bindModel`（内部已按 `composing` 暂停写回）                                                            |
+| 双向绑定来回抖                 | 手写了 `on change → setValue` 又叠了 `bindModel`            | 只保留一套方向的实现                                                                                       |
+| 换成 `flush: 'sync'` 后掉帧    | 每次写数据都立刻重排                                        | 保持默认 `'frame'`                                                                                         |
+| 换肤后某些颜色没变             | 那些颜色是构造时写的字面量（`Rect` 按契约就是字面量）       | 传主题令牌名（`tone`、`color: 'border'`），或用 `Panel` 的变体；`Rect` 要自己 `onThemeChange` + `setColor` |
+| 场景切换后旧页面还在响应       | 手动 `addWidget` 到了根之外，或者在控件外用裸 `effect` 订阅 | 用 `this.mvvm.mount()`；副作用放进 `widget.scope`                                                          |
+| `computed` 每次读都重算        | 依赖的其实是每次新建的对象                                  | 让依赖保持稳定引用；必要时用 `watchEffect` 看依赖收集情况                                                  |
+| 模板里写 `{{ a + b }}` 报错    | 模板**不支持表达式**，只有路径 + 转换器                     | 在 ViewModel 里写 `computed`，模板只引用它                                                                 |
 
 ---
 

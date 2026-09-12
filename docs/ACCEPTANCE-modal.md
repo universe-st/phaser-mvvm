@@ -92,7 +92,11 @@ after  { widgets: 21, themeListeners: 23, pointerTargets: 10, focusables: 7 }
 
 dev 模式下一次开/关打印 2 行（`modal.open: …`、`modal.close: …`），`setDevMode(false)` 后同样操作 **0 行**。
 
+> **第 71 轮追加**：`churn(12)` 复跑，四项计数同样完全一致，`depth=0` —— 这一轮给遮罩加了一条主题订阅（V38：遮罩此前把打开时的 `overlay` 烤进 `Rect` 的字面量，切主题不跟随），退订挂在遮罩的 `scope` 上，所以关闭对话框时跟着释放。`#demo-state` 逐帧发布 `scrim=` 与 `scrim.overlay=`（两者必须永远相等），`window.modal.scrim()` 返回数值。详见 [`ACCEPTANCE-theme.md`](./ACCEPTANCE-theme.md) §2。
+
 ### M16 像素（`node scripts/visual-check.mjs`）
+
+**第 71 轮追加**：这一场景现在也进亮色半场 —— `confirm.ok` 亮色期望 `#cf222e`（danger 的亮色令牌）、`confirm.cancel` 亮色期望 `#ffffff`（ghost 按钮透出对话框面板）。
 
 新增 `modal` 场景：`SCENE_SETUP.modal = 'window.modal.open("confirm")'`，场景在**每种对话框第一次打开**时把自己的 rect 追加进 `#status`：
 

@@ -587,6 +587,40 @@ export class ModalScene extends Phaser.Scene {
     this.publish('counts.themeListeners', counts.themeListeners);
     this.publish('counts.pointerTargets', counts.pointerTargets);
     this.publish('counts.focusables', counts.focusables);
+
+    // The scrim is the one control in the framework that paints a **theme token** on a `Rect` (which
+    // takes a plain colour literal), so it has its own subscription and its own probe: the two numbers
+    // must stay equal across a theme switch (V38 — before the fix a dialog opened in the dark kept the
+    // black veil after switching to light: `scrim=#000000` while `overlay=#1f2328`).
+    const scrim = this.scrimColor();
+    this.publish('scrim', scrim === null ? 'none' : `#${scrim.toString(16).padStart(6, '0')}`);
+    this.publish(
+      'scrim.overlay',
+      `#${this.mvvm.theme.colors.overlay.toString(16).padStart(6, '0')}`,
+    );
+  }
+
+  /** The open dialog's scrim fill, or `null` when no dialog has a scrim. */
+  scrimColor(): number | null {
+    const layer = this.mvvm.modal.top?.widget ?? null;
+    if (!layer) {
+      return null;
+    }
+    let found: { shape?: { fillColor?: number } } | null = null;
+    const visit = (widget: Widget): void => {
+      if (found) {
+        return;
+      }
+      if (widget.name.endsWith('.scrim')) {
+        found = widget as unknown as { shape?: { fillColor?: number } };
+        return;
+      }
+      for (const child of widget.getWidgetChildren()) {
+        visit(child);
+      }
+    };
+    visit(layer);
+    return found ? ((found as { shape?: { fillColor?: number } }).shape?.fillColor ?? null) : null;
   }
 
   /** Live-object counters used as the leak gate of `docs/ACCEPTANCE-modal.md` §6. */
@@ -659,6 +693,8 @@ export class ModalScene extends Phaser.Scene {
       note: (): string => this.note.value,
       field: (): string => this.field.value,
       counts: () => this.counts(),
+      /** Fill colour of the open dialog's scrim — must equal `theme.colors.overlay` in every theme. */
+      scrim: () => this.scrimColor(),
       /** Opens and closes `n` dialogs, returning the counters before/after (the leak gate). */
       churn: (
         n: number,

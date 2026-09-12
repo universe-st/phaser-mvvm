@@ -40,7 +40,7 @@ import type { MVVMPlugin } from './plugin';
 import { StackWidget } from './LayoutWidget';
 import { Widget } from './Widget';
 import { RectWidget } from './widgets';
-import { getTheme } from './theme';
+import { getTheme, onThemeChange } from './theme';
 import { buildUiPage } from './ui-build';
 
 /** How a modal was closed. */
@@ -177,6 +177,17 @@ export class ModalHost {
         width: '100%',
         height: '100%',
       });
+      // The scrim is the one `Rect` in the framework that paints a **theme token** (`overlay`, which is
+      // black in the dark theme and a blue-grey in the light one), and `Rect` takes a plain colour
+      // literal, so it does not follow a theme change on its own. Without this a dialog opened in the
+      // dark kept its black veil over a light page — measured: open in dark → fill `#000000`; switch to
+      // light while open → still `#000000` while `theme.colors.overlay` is `#1f2328`; a dialog opened
+      // *after* the switch got `#1f2328` (V38, round 71). The subscription rides the scrim's own scope,
+      // so closing the dialog (which destroys it) releases it: `themeListenerCount()` stays flat.
+      const unsubscribeScrim = onThemeChange((theme) => {
+        scrim.setColor(theme.colors.overlay);
+      });
+      scrim.scope.onScopeDispose(() => unsubscribeScrim());
       scene.add.existing(scrim);
       layer.addWidget(scrim);
 

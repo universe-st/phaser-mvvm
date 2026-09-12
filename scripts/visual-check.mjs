@@ -162,6 +162,68 @@ const PIXEL_EXPECTATIONS = {
   },
 };
 
+/**
+ * The second half of the pixel check: what the same widgets must look like **after a theme switch**.
+ *
+ * The dark expectations above prove a widget painted the token it was supposed to; this proves it
+ * *repainted* — the failure mode it exists for is a control that keeps its old colours on a new
+ * background (the modal scrim did exactly that until round 71, see `DEFECT-BACKLOG` V38).
+ *
+ * Two kinds of entry, and both matter:
+ *
+ * - a **themed** point lists the *light* token of that widget (`danger` is `#f85149` in the dark theme
+ *   and `#cf222e` in the light one), so a control that did not repaint fails;
+ * - a **literal** point lists the same colour as the dark pass (`Rect({ color })` and world tiles are
+ *   plain numbers, not tokens), so "everything changed" cannot pass for a correct repaint either.
+ *
+ * The canvas clear colour turns light by itself (the plugin keeps the camera in step with the theme),
+ * which is checked wherever the corner is visible.
+ */
+const LIGHT_EXPECTATIONS = {
+  m0: {
+    // Both rects are literals: the theme must leave them alone.
+    'rect.blue': 0x2f6feb,
+    'rect.amber': 0xf2a33c,
+  },
+  probe: {
+    backdrop: 0x161b22,
+    'abs.topleft': 0x3fb950,
+    'abs.bottomright': 0xf85149,
+    'hud.left': 0x8b949e,
+    'hud.center': 0xd29922,
+    'hud.right': 0xa371f7,
+    bar: 0x2f6feb,
+  },
+  stack: {
+    backdrop: { rgb: 0x161b22, fx: 0.05, fy: 0.05 },
+    card: 0x1f6feb,
+    badge: 0x3fb950,
+    footer: 0xf2a33c,
+  },
+  hud: {
+    // `score` is a themed button (dark `#2f6feb`, light `#0969da`); the tile is world colour.
+    score: { rgb: 0x0969da, fx: 0.12, fy: 0.5 },
+    tile: 0x161b22,
+  },
+  modal: {
+    // `danger` and `surface` after the switch; the dialog is open (see SCENE_SETUP).
+    'confirm.ok': { rgb: 0xcf222e, fx: 0.15, fy: 0.5 },
+    'confirm.cancel': { rgb: 0xffffff, fx: 0.15, fy: 0.5 },
+  },
+  uiscene: {
+    'show.a': { rgb: 0x0969da, fx: 0.12, fy: 0.5 },
+  },
+};
+
+/** The clear colour the camera must show after switching to the light theme. */
+const LIGHT_CANVAS_CLEAR = [0xf6, 0xf8, 0xfa];
+
+/** How each scene switches theme, for the scenes that have light expectations. */
+const THEME_SWITCH = {
+  default:
+    "window.game.scene.scenes.find((scene) => scene.scene.isActive()).mvvm.setTheme('light')",
+};
+
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -201,6 +263,8 @@ function run(command, commandArgs) {
     );
   });
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitFor(check, timeoutMs, what) {
   const deadline = Date.now() + timeoutMs;
@@ -310,8 +374,8 @@ function parseRects(status) {
 }
 
 /** Builds the pixel-check spec for a scene from its status block. */
-function pixelSpec(scene, png, status) {
-  const expectations = PIXEL_EXPECTATIONS[scene];
+function pixelSpec(scene, png, status, mode = 'dark') {
+  const expectations = mode === 'light' ? LIGHT_EXPECTATIONS[scene] : PIXEL_EXPECTATIONS[scene];
   if (!expectations) {
     return null;
   }
@@ -322,10 +386,10 @@ function pixelSpec(scene, png, status) {
   const checks = [];
   if (!CANVAS_CLEAR_SKIP.has(scene)) {
     checks.push({
-      label: 'canvas.clear',
+      label: `${mode === 'light' ? 'canvas.clear (light)' : 'canvas.clear'}`,
       x: canvas.x + clearX,
       y: canvas.y + clearY,
-      rgb: [0x0d, 0x11, 0x17],
+      rgb: mode === 'light' ? LIGHT_CANVAS_CLEAR : [0x0d, 0x11, 0x17],
     });
   }
 
@@ -515,6 +579,41 @@ async function main() {
       writeFileSync(specFile, `${JSON.stringify(spec, null, 2)}\n`);
       try {
         await run('python3', [join(root, 'scripts', 'png-sample.py'), specFile]);
+      } catch {
+        failures += 1;
+      }
+
+      // Second pass: switch the theme and look again. The geometry is reused on purpose — a theme
+      // change moves nothing, so a sample that lands on the wrong control means the layout *did*
+      // change (which would make the light expectations fail and say so).
+      if (!LIGHT_EXPECTATIONS[scene]) {
+        continue;
+      }
+      await session.send('Runtime.evaluate', {
+        expression: `(() => { ${THEME_SWITCH[scene] ?? THEME_SWITCH.default}; return true; })()`,
+      });
+      await sleep(400);
+      const lightPng = join(outDir, `${scene}.light.png`);
+      const lightShot = await session.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(lightPng, Buffer.from(lightShot.data, 'base64'));
+      console.log(`[visual-check] screenshot  ${lightPng}  (light theme)`);
+
+      const lightSpec = pixelSpec(scene, lightPng, status, 'light');
+      if (!lightSpec) {
+        continue;
+      }
+      const lightMissing = lightSpec.checks.filter((check) => check.missing);
+      for (const check of lightMissing) {
+        console.error(`[visual-check] ${scene} (light): no rect reported for "${check.label}"`);
+        failures += 1;
+      }
+      if (lightMissing.length === lightSpec.checks.length) {
+        continue;
+      }
+      const lightSpecFile = join(outDir, `${scene}.light.pixels.json`);
+      writeFileSync(lightSpecFile, `${JSON.stringify(lightSpec, null, 2)}\n`);
+      try {
+        await run('python3', [join(root, 'scripts', 'png-sample.py'), lightSpecFile]);
       } catch {
         failures += 1;
       }
