@@ -35,7 +35,12 @@ export interface EffectHandle {
   stop(): void;
   pause(): void;
   resume(): void;
-  /** Runs the effect immediately, bypassing the scheduler. */
+  /**
+   * Runs the effect immediately, bypassing the scheduler.
+   *
+   * While the effect is paused this is a no-op and the run is *remembered*: the effect re-runs once on
+   * `resume()`, exactly as a dependency change during the pause would.
+   */
   run(): void;
   readonly active: boolean;
 }

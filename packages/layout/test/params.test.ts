@@ -414,3 +414,35 @@ describe('params: non-finite values', () => {
     expect(resolved.heightMin).toBe(0);
   });
 });
+
+describe('params: grid indices', () => {
+  it('drops indices that are not finite, positive integers', () => {
+    const resolved = normalizeParams({
+      gridColumn: Number.NaN,
+      gridRow: Number.POSITIVE_INFINITY,
+      gridColumnSpan: Number.NaN,
+      gridRowSpan: 2.7,
+    });
+
+    // `NaN` used to reach the row/column arithmetic and produce NaN track sizes, which silently
+    // removes the cell from the layout; "no index" means "place it automatically".
+    expect(resolved.gridColumn).toBeNull();
+    expect(resolved.gridRow).toBeNull();
+    expect(resolved.gridColumnSpan).toBe(1);
+    expect(resolved.gridRowSpan).toBe(2);
+  });
+
+  it('keeps valid 1-based indices and floors fractions', () => {
+    const resolved = normalizeParams({ gridColumn: 3, gridRow: 2.9, gridColumnSpan: 0 });
+
+    expect(resolved.gridColumn).toBe(3);
+    expect(resolved.gridRow).toBe(2);
+    // A span below one would place nothing at all; the span is a count, so it clamps up.
+    expect(resolved.gridColumnSpan).toBe(1);
+  });
+
+  it('treats a zero or negative index as "auto"', () => {
+    expect(normalizeParams({ gridColumn: 0 }).gridColumn).toBeNull();
+    expect(normalizeParams({ gridRow: -2 }).gridRow).toBeNull();
+  });
+});

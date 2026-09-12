@@ -248,6 +248,29 @@ function sanitizeLengthUnitOrNull(length: Length | undefined): LengthUnit | null
   return unit === undefined ? null : sanitizeLengthUnit(unit);
 }
 
+/**
+ * Normalises a 1-based grid line index.
+ *
+ * `gridColumn: NaN` (or a fraction, or `Infinity`) used to travel into the row/column arithmetic and
+ * produced `NaN` track sizes — cells with `NaN` heights silently disappear from the layout. Anything
+ * that is not a finite number becomes `null`, which means "let the grid place it automatically".
+ */
+function normalizeGridIndex(value: number | undefined | null): number | null {
+  if (value === undefined || value === null || !Number.isFinite(value)) {
+    return null;
+  }
+  const index = Math.floor(value);
+  return index >= 1 ? index : null;
+}
+
+/** Normalises a span: at least one track, never `NaN` or fractional. */
+function normalizeGridSpan(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
 function normalizeBound(value: Length | undefined, fallback: number): number {
   const resolved = resolveLength(toLengthUnit(value) ?? 'auto', 0);
   return resolved === null || !Number.isFinite(resolved) ? fallback : resolved;
@@ -283,10 +306,10 @@ export function normalizeParams(params?: LayoutParams): ResolvedParams {
     bottom: sanitizeLengthUnitOrNull(params.bottom),
     order: finiteOr(params.order ?? 0, 0),
     hideMode: params.hideMode ?? 'collapse',
-    gridColumn: params.gridColumn ?? null,
-    gridRow: params.gridRow ?? null,
-    gridColumnSpan: Math.max(1, Math.floor(params.gridColumnSpan ?? 1)),
-    gridRowSpan: Math.max(1, Math.floor(params.gridRowSpan ?? 1)),
+    gridColumn: normalizeGridIndex(params.gridColumn),
+    gridRow: normalizeGridIndex(params.gridRow),
+    gridColumnSpan: normalizeGridSpan(params.gridColumnSpan),
+    gridRowSpan: normalizeGridSpan(params.gridRowSpan),
     widthMin: finiteOr(width?.min ?? 0, 0),
     widthMax: finiteOr(width?.max ?? UNBOUNDED_LENGTH, UNBOUNDED_LENGTH),
     heightMin: finiteOr(height?.min ?? 0, 0),
