@@ -250,7 +250,35 @@ releasePointerDrag(scene, pointerId, owner); // pointerup / 失焦 / 销毁时�
 
 单测：`packages/phaser/test/pointer-claim.test.ts`（7 条：认领/查询/跨场景隔离/带 owner 的释放不会被过期释放误删/关闭清理/探针命名/非法 id）。
 
-### 9.4 仍然没做的
+### 9.4 双击选词与三击选行（同一轮到齐）
 
-- **双击选词**：V58 的另一半，需要按词边界切分（`text-edit.ts` 里没有 word 边界的概念），本轮没做。
-- **拖动自动滚动**（拖到视口外时页面自己滚）：浏览器原生输入框有这个行为，Canvas 路径没有；要做得先有"按指针位置驱动滚动"的循环，留待以后。
+`text-edit.ts` 新增两个纯函数：`charIndexAtX(text, x, measureWidth)`（指针**压在哪一个字符**上）与
+`wordRangeAt(value, characterIndex)`（该字符所在的**同类连段**：词 / 连续空白 / 连续标点），以及 `lineRangeAt()`（三击选整行）。
+控件侧按时间 + 距离窗口自己数点击次数（Canvas 路径没有 DOM 的 `event.detail`），2 次选词、3 次选行。
+
+实测（真鼠标，手势之间间隔 > 400ms）：
+
+| 场景                         | 期望                          | 实测                                                                   |
+| ---------------------------- | ----------------------------- | ---------------------------------------------------------------------- |
+| `#/options` 单行字段点一下   | 只放光标                      | `caret 8`、`selection 0` ✓                                             |
+| 双击 `across`                | 选中 `across`                 | `selected: 'across'`（`caret 11`、`anchor 5`）✓                        |
+| 三击                         | 选中整行（单行字段 = 整个值） | `selected` = 整个值（`caret 34`、`anchor 0`）✓                         |
+| `#/form` 多行字段双击第 1 行 | 选中 `alpha`                  | `caret 5`、`selection 5` ✓                                             |
+| 同一字段双击**第 2 行**      | 选中 `gamma`                  | `caret 16`、`selection 5` ✓（**修了一个自己刚写出来的缺陷**，见 §9.5） |
+| 第 2 行第二个词              | 选中 `delta`                  | `caret 22`、`selection 5` ✓                                            |
+| 三击第 2 行                  | **只**选第 2 行               | `caret 22`、`selection 11`（= `gamma delta`）✓                         |
+| 软换行的第二个视觉行双击     | 落在同一逻辑行                | 选中整段 `w` 连段（`caret 56`、`selection 56`）✓                       |
+| 双击之后再拖动               | 拖选仍然生效                  | `caret 4`、`claim 0:options.select` ✓                                  |
+
+### 9.5 顺带修掉的缺陷：多行字段的"词"取错了行
+
+第一版 `selectUnitAt()` 用**整个 value** 去算"指针压在哪一个字符"（`charIndexAtX(this.value, x, …)`），
+而多行字段里 x 是相对**内容盒左边缘**的——换行符与前面每一行的文字都会把 x→字符的映射推偏。
+于是：双击第 2 行的 `gamma`，实测选中的是第 1 行的 `alpha`（`caret 5`、`selection 5`）。
+修法是在**被点到的那一行**里解析字符下标（`line.start + charIndexAtX(line.text, lineX, …)`，
+再经 `valueOffsetFromDisplay` 折回 value 偏移），与光标那一路完全对称。修后第 2 行两处双击分别得到
+`gamma` 与 `delta` ✓。**这条缺陷是"为每个控件写 demo 并逐格试"直接抓出来的**：单测覆盖不到"点在第几行"。
+
+### 9.6 仍然没做的
+
+- **拖动自动滚动**（拖到视口外时页面自己滚）：浏览器原生输入框有这个行为，Canvas 路径没有；要做得先有"按指针位置驱动滚动"的循环，已登记为 V62。

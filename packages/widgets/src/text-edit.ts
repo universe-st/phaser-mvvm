@@ -186,11 +186,84 @@ export function lineStartAt(value: string, caret: number): number {
   return found === -1 ? 0 : found + 1;
 }
 
+/** The whole logical line around `caret`, as a `[start, end)` range — what a **triple click** selects. */
+export function lineRangeAt(value: string, caret: number): TextRange {
+  return { start: lineStartAt(value, caret), end: lineEndAt(value, caret) };
+}
+
 /** End offset (exclusive, before the newline) of the line that contains `caret`. */
 export function lineEndAt(value: string, caret: number): number {
   const index = clampCaret(value, caret);
   const found = value.indexOf('\n', index);
   return found === -1 ? value.length : found;
+}
+
+/** What a double click treats as one unit: a word, a run of spaces, or a run of punctuation. */
+function runKind(char: string | undefined): 'word' | 'space' | 'other' {
+  if (char === undefined) {
+    return 'other';
+  }
+  if (/\s/u.test(char)) {
+    return 'space';
+  }
+  return /[\p{L}\p{N}_]/u.test(char) ? 'word' : 'other';
+}
+
+/**
+ * The run of text a **double click** selects, as a `[start, end)` range.
+ *
+ * `characterIndex` is the code point the pointer is **over** (see {@link charIndexAtX}) rather than a
+ * caret offset: a caret index sits *between* two characters, so "which word did the user click" is not
+ * answerable from it alone — a double click at the right edge of `Drag` must select `Drag`, not the
+ * space after it.
+ *
+ * Three kinds of run, each selected as a unit: a **word** (`\p{L}`, `\p{N}`, `_`; `中文` is one word),
+ * a run of **whitespace**, and a run of **punctuation/symbols** (so `foo, bar` double-clicks `,` on its
+ * own). The index is clamped, so a click past the end of the text selects the last character's run.
+ */
+export function wordRangeAt(value: string, characterIndex: number): TextRange {
+  const chars = [...value];
+  if (chars.length === 0) {
+    return { start: 0, end: 0 };
+  }
+  const clamped = Math.min(Math.max(0, Math.floor(characterIndex)), chars.length - 1);
+  const kind = runKind(chars[clamped]);
+  let start = clamped;
+  let end = clamped;
+  while (start > 0 && runKind(chars[start - 1]) === kind) {
+    start -= 1;
+  }
+  while (end + 1 < chars.length && runKind(chars[end + 1]) === kind) {
+    end += 1;
+  }
+  const toOffset = (codePointIndex: number): number =>
+    chars.slice(0, codePointIndex).reduce((sum, char) => sum + char.length, 0);
+  return { start: toOffset(start), end: toOffset(end + 1) };
+}
+
+/**
+ * Index of the code point whose horizontal span contains `x` — the character under a pointer.
+ *
+ * The companion of {@link caretAtX}, which answers the different question "where does the caret go".
+ * Measured with the same `measureWidth` the widget paints with, so a click and a double click agree
+ * about which character is under the mouse. Input past either end clamps to the first/last character.
+ */
+export function charIndexAtX(text: string, x: number, measureWidth: MeasureWidth): number {
+  const chars = [...text];
+  if (chars.length === 0) {
+    return 0;
+  }
+  if (!Number.isFinite(x) || x <= 0) {
+    return 0;
+  }
+  let width = 0;
+  for (let i = 0; i < chars.length; i += 1) {
+    width += measureWidth(chars[i] ?? '');
+    if (x < width) {
+      return i;
+    }
+  }
+  return chars.length - 1;
 }
 
 // ---------------------------------------------------------------------------- editing

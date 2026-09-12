@@ -44,6 +44,7 @@ import {
   MIN_CONTENT_WIDTH,
   canEditValue,
   caretAtX,
+  charIndexAtX,
   caretRectOf,
   clampCaret,
   clampScrollY,
@@ -57,6 +58,7 @@ import {
   insertText,
   layoutTextLines,
   lineEndAt,
+  lineRangeAt,
   lineStartAt,
   moveCaret,
   moveCaretVertically,
@@ -64,6 +66,7 @@ import {
   sanitizeValue,
   selectedText,
   selectionRange,
+  wordRangeAt,
   selectionRects,
   valueOffsetFromDisplay,
   visibleTextWindow,
@@ -172,6 +175,10 @@ export const TEXT_INPUT_EVENTS = {
 } as const;
 
 /** Opacity of the selection highlight. */
+/** Two presses count as a double click when they land within this window… */
+const DOUBLE_CLICK_MS = 400;
+/** …and within this distance, in design pixels. */
+const DOUBLE_CLICK_SLOP = 6;
 const SELECTION_ALPHA = 0.35;
 
 /** Number of line objects kept alive before the pool grows on demand. */
@@ -280,6 +287,18 @@ export abstract class TextInputBase extends Widget {
     this.placeBridge();
   };
 
+  /**
+   * How many clicks this press is, and where/when the previous one landed.
+   *
+   * Phaser hands the widget a pointer, not a DOM `MouseEvent`, so there is no `detail` to read: the
+   * count is derived from the time and distance to the previous press. Both windows are generous
+   * (400 ms, 6 px) because the two clicks of a double click are rarely identical.
+   */
+  private clickCount = 0;
+  private lastClickAt = 0;
+  private lastClickX = Number.NaN;
+  private lastClickY = Number.NaN;
+
   private readonly handlePointerDown = (pointer: Phaser.Input.Pointer): void => {
     if (!this.enabled) {
       return;
@@ -299,8 +318,94 @@ export abstract class TextInputBase extends Widget {
     if (!this.usingDomBridge) {
       claimPointerDrag(this.scene, pointer.id, this);
     }
+    const count = this.countClick(pointer);
+    if (count >= 2 && this.selectUnitAt(local.x, local.y, count)) {
+      return;
+    }
     this.placeCaretAt(local.x, local.y);
   };
+
+  /** How many clicks this press is (1, 2 or 3) — see {@link TextInputBase.clickCount}. */
+  private countClick(pointer: Phaser.Input.Pointer): number {
+    const now = pointer.downTime || this.scene?.time?.now || 0;
+    const near =
+      Math.abs(pointer.x - this.lastClickX) <= DOUBLE_CLICK_SLOP &&
+      Math.abs(pointer.y - this.lastClickY) <= DOUBLE_CLICK_SLOP;
+    const soon = now - this.lastClickAt <= DOUBLE_CLICK_MS;
+    this.clickCount = near && soon ? Math.min(this.clickCount + 1, 3) : 1;
+    this.lastClickAt = now;
+    this.lastClickX = pointer.x;
+    this.lastClickY = pointer.y;
+    return this.clickCount;
+  }
+
+  /**
+   * Double click selects the word under the pointer, triple click the whole logical line.
+   *
+   * The unit comes from the **character** under the pointer (`charIndexAtX`), not from the caret: the
+   * caret sits between two characters, so it cannot say which word was clicked. Returns `false` for a
+   * single-line field whose line is the whole value? No — a line selection is still a selection, so the
+   * only `false` here is an empty value.
+   */
+  private selectUnitAt(localX: number, localY: number, count: number): boolean {
+    if (this.value.length === 0) {
+      return false;
+    }
+    const box = this.contentRect();
+    // Two indexes of the same click, both in *value* offsets: where the caret would go, and which
+    // character the pointer is over. The second one has to be resolved **inside the clicked line**:
+    // measuring it against the whole value would put a pointer on line 2 into line 1 (the newline and
+    // every earlier line shift the x-to-character mapping).
+    let index = 0;
+    let character = 0;
+    if (this.multiline) {
+      const relativeY = localY - box.y - this.contentOffsetY + this.scrollY;
+      const lineIndex = Math.max(
+        0,
+        Math.min(this.displayLines.length - 1, Math.floor(relativeY / this.lineHeight)),
+      );
+      const line = this.displayLines[lineIndex];
+      if (line) {
+        const lineX = localX - box.x - line.x + this.scrollX;
+        index = valueOffsetFromDisplay(
+          this.value,
+          line.start + caretAtX(line.text, lineX, this.measureWidth),
+          this.inputType,
+        );
+        character = valueOffsetFromDisplay(
+          this.value,
+          line.start + charIndexAtX(line.text, lineX, this.measureWidth),
+          this.inputType,
+        );
+      }
+    } else {
+      const display = displayValue(this.value, this.inputType);
+      const x = localX - box.x + this.scrollX;
+      index = valueOffsetFromDisplay(
+        this.value,
+        caretAtX(display, x, this.measureWidth),
+        this.inputType,
+      );
+      character = valueOffsetFromDisplay(
+        this.value,
+        charIndexAtX(display, x, this.measureWidth),
+        this.inputType,
+      );
+    }
+    const range = count >= 3 ? lineRangeAt(this.value, index) : wordRangeAt(this.value, character);
+    if (range.end <= range.start) {
+      return false;
+    }
+    // The caret sits at the *end* of the unit with the anchor at its start, which is where a mouse
+    // selection leaves it — `setCaret` would collapse the anchor, so it is set directly here.
+    this.caret = range.end;
+    this.anchor = range.start;
+    this.columnHint = -1;
+    this.paintContent();
+    this.syncDomSelection();
+    this.restartBlink();
+    return true;
+  }
 
   /**
    * Drag selection on the pure-Canvas path (`dom: false`).

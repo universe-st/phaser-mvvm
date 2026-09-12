@@ -17,7 +17,9 @@ import {
   computeLineHeight,
   computeScrollX,
   canEditValue,
+  charIndexAtX,
   computeScrollY,
+  wordRangeAt,
   deleteRange,
   displayOffset,
   displaySlice,
@@ -511,6 +513,75 @@ describe('metrics', () => {
     expect(rowsForHeight(76, 20, padding)).toBe(3);
     expect(rowsForHeight(79, 20, padding)).toBe(3);
     expect(rowsForHeight(0, 20, padding)).toBe(1);
+  });
+});
+
+/**
+ * Word boundaries for double-click selection. Pure, so the edges that are hard to hit with a mouse —
+ * punctuation runs, whitespace runs, digits, CJK, emoji, an index past the end — are pinned here.
+ *
+ * The input is the **character index** the pointer is over (not a caret offset), because the caret sits
+ * between two characters and cannot say which one was clicked.
+ */
+describe('wordRangeAt', () => {
+  const word = (value: string, index: number): string => {
+    const range = wordRangeAt(value, index);
+    return value.slice(range.start, range.end);
+  };
+
+  it('selects the word the character belongs to', () => {
+    expect(word('Drag across this text', 7)).toBe('across');
+    expect(word('Drag across this text', 5)).toBe('across');
+    expect(word('Drag across this text', 10)).toBe('across');
+    expect(word('Drag across this text', 3)).toBe('Drag');
+  });
+
+  it('treats digits and underscores as word characters', () => {
+    expect(word('id_42 = value', 0)).toBe('id_42');
+    expect(word('id_42 = value', 2)).toBe('id_42');
+    expect(word('id_42 = value', 4)).toBe('id_42');
+  });
+
+  it('selects a run of whitespace when the character is a space', () => {
+    expect(word('a   b', 1)).toBe('   ');
+    expect(word('a   b', 2)).toBe('   ');
+    expect(word('a   b', 3)).toBe('   ');
+  });
+
+  it('selects punctuation on its own', () => {
+    expect(word('foo, bar', 3)).toBe(',');
+    expect(word('foo, bar', 4)).toBe(' ');
+    expect(word('foo, bar', 5)).toBe('bar');
+  });
+
+  it('clamps an index past either end to the nearest character', () => {
+    expect(word('one two', 99)).toBe('two');
+    expect(word('one two', -3)).toBe('one');
+    expect(wordRangeAt('', 0)).toEqual({ start: 0, end: 0 });
+  });
+
+  it('is Unicode-aware for words and does not split a surrogate pair', () => {
+    expect(word('中文 测试', 1)).toBe('中文');
+    expect(word('hi 😀 there', 3)).toBe('😀');
+    // Index 4 is the space *after* the emoji: a run of one space, not the emoji.
+    expect(word('hi 😀 there', 4)).toBe(' ');
+  });
+});
+
+describe('charIndexAtX', () => {
+  // A fake monospace measurer: 10 px per character.
+  const measure = (text: string): number => [...text].length * 10;
+
+  it('finds the character whose span contains x', () => {
+    expect(charIndexAtX('hello', 5, measure)).toBe(0);
+    expect(charIndexAtX('hello', 15, measure)).toBe(1);
+    expect(charIndexAtX('hello', 49, measure)).toBe(4);
+  });
+
+  it('clamps outside the text', () => {
+    expect(charIndexAtX('hello', -20, measure)).toBe(0);
+    expect(charIndexAtX('hello', 500, measure)).toBe(4);
+    expect(charIndexAtX('', 5, measure)).toBe(0);
   });
 });
 

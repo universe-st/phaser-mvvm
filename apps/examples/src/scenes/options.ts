@@ -553,7 +553,10 @@ export class OptionsScene extends Phaser.Scene {
   private selectionInfo(): {
     value: string;
     caret: number;
+    anchor: number;
     selection: number;
+    /** The selected substring, so a check can name the unit a click selected. */
+    selected: string;
     claim: string;
     stage: number;
   } {
@@ -566,10 +569,13 @@ export class OptionsScene extends Phaser.Scene {
     const anchor = field?.selectionAnchor ?? caret;
     const scene = this as unknown as object;
     const claims = pointerClaims(scene);
+    const value = field?.getValue?.() ?? '';
     return {
-      value: field?.getValue?.() ?? '',
+      value,
       caret,
+      anchor,
       selection: Math.abs(caret - anchor),
+      selected: value.slice(Math.min(caret, anchor), Math.max(caret, anchor)),
       claim:
         claims.length === 0 ? 'none' : claims.map((c) => `${c.pointerId}:${c.owner}`).join(','),
       stage: Math.round(this.stage?.offset ?? -1),
