@@ -1,4 +1,4 @@
-# M0–M4 验收记录
+# M0–M5 验收记录
 
 > 对应 `docs/PLAN.md` 的 M0（骨架与基线）、M1（响应式内核）、M2（布局引擎）。
 > 验收环境：macOS / Node `v24.18.1` / pnpm `10.34.5` / 无头 Chrome `153.0.8010.36`（CDP 驱动，视口固定 1280×720）。
@@ -144,3 +144,29 @@ OK       backdrop / card / badge / footer
 - **toggle 按钮**激活时翻转 `value` 并 `emit('change')`，不调用 `onClick`（决策抽成纯函数 `resolveButtonActivation`）。
 - **中文无空格文本**不会折行（沿用 Phaser 的按空格换行算法）；省略号度量未计 `letterSpacing`。
 - 未实现：NineSlice/渐变皮肤、长按/连击手势、`ScrollView`/`Repeat`/`Modal`/`TextField`（M5–M7）、a11y 镜像与手柄实测（M9；手柄代码路径已接好但缺硬件实测）。
+
+---
+
+# M5 验收记录（文本框 + DOM 输入桥，2026-09）
+
+## 交付
+
+- `packages/widgets/src/input-bridge.ts`：隐藏 `<input>`/`<textarea>` 桥（挂在 Phaser 的 `domContainer` 上，`opacity:0`、`pointer-events:none`，按控件矩形定位；无 `dom.createContainer` 时 `available=false` 并只警告一次）。
+- `packages/widgets/src/{TextInputBase,TextField,TextArea,text-edit}.ts`：单行/多行输入（光标闪烁、选区、方向键/Home/End/Backspace/Delete、Ctrl/Cmd+A/C/V/X、`maxLength`、占位符、密码掩码、数字过滤、只读、`validate` 错误态、文本超出时滚动）、多行（自动换行、内部滚动、Enter 换行 / Ctrl+Enter 提交、跨行选区）。
+- 工厂：`this.add.uiTextField`、`this.add.uiTextArea`（幂等注册）。
+
+## 门禁
+
+`pnpm -r typecheck` 5 个项目 0 错误；`pnpm -r test` **695 passed**（layout 251 / core 175 / phaser 98 / widgets 171，其中 M5 新增 88）；`prettier --check .` 通过。
+
+## demo `#/form` + Playwright 实测（真实 WebGL + 真实 DOM 桥）
+
+| 断言                         | 实测结果                                                                                                                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 加载后初始焦点               | `focus=name`，`document.activeElement.tagName === 'INPUT'`（隐藏 input 持有 DOM 焦点）                                                                              |
+| 点击邮箱框                   | `focus=email`、控件 `isFocused()===true`、`visualState=hover`                                                                                                       |
+| 逐字符键入 `ada@example.com` | 控件值 `ada@example.com`、`emailValid=true`、`#demo-state` 同步（`email=…`）                                                                                        |
+| **中文 IME 组合输入**        | `compositionstart` + 两次 `compositionupdate`（值变为「张」「张三」）期间**控件值保持空**（不写入 ViewModel，符合 ADR-0004），`compositionend` 后一次性变为「张三」 |
+| 校验                         | 邮箱非法时 `getError()` 返回消息且控件进入 `error` 状态（边框/文案由主题驱动）                                                                                      |
+
+已知边界：DOM 桥依赖 `dom: { createContainer: true }` 与 `parent`；不要与 `DOMElement` 控件同层混用；纯 Canvas 回退模式仅覆盖桌面英文/数字输入。

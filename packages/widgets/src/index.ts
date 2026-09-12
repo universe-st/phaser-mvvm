@@ -25,6 +25,26 @@ export {
 export { Image, Image as UIImage, type ImageOptions } from './Image';
 export { Spacer, type SpacerOptions } from './Spacer';
 export { Divider, type DividerOptions, type DividerOrientation } from './Divider';
+export { TextField, type TextFieldOptions } from './TextField';
+export { TextArea, type TextAreaOptions } from './TextArea';
+export {
+  TEXT_INPUT_EVENTS,
+  TEXT_INPUT_KEYS,
+  TextInputBase,
+  type TextInputOptions,
+  type TextInputWidgetOptions,
+} from './TextInputBase';
+export {
+  DOM_CONTAINER_WARNING,
+  DomInputBridge,
+  clampSelection,
+  clampValue,
+  resetBridgeWarning,
+  shouldEmitInput,
+  type BridgeRect,
+  type InputBridgeHandlers,
+  type InputBridgeOptions,
+} from './input-bridge';
 
 export {
   button,
@@ -33,6 +53,8 @@ export {
   label,
   panel,
   spacer,
+  textArea,
+  textField,
   uiImage,
   widgetFactoriesInstalled,
   WIDGET_FACTORY_KEYS,
@@ -66,5 +88,59 @@ export {
   paintElevation,
   paintFocusRing,
   panelSkinStyles,
+  textInputSkinStyles,
 } from './appearance';
 export { BOX_CONTAINER_KEYS, boxOptionsOf, optionBag, splitWidgetOptions } from './options';
+
+// Text editing primitives: pure functions, shared by the widgets, the bridge and the tests.
+export {
+  CARET_BLINK_MS,
+  LINE_SPACING,
+  MIN_CONTENT_WIDTH,
+  PASSWORD_MASK,
+  caretAtX,
+  caretRectOf,
+  clampCaret,
+  clampScrollY,
+  codePointCount,
+  computeLineHeight,
+  computeScrollX,
+  computeScrollY,
+  deleteRange,
+  displayOffset,
+  displaySlice,
+  displayValue,
+  filterNumeric,
+  hasSelection,
+  heightForRows,
+  insertText,
+  layoutTextLines,
+  lineEndAt,
+  lineIndexAt,
+  lineStartAt,
+  maskValue,
+  moveCaret,
+  moveCaretVertically,
+  positionLines,
+  rowsForHeight,
+  sanitizeValue,
+  selectedText,
+  selectionRange,
+  selectionRects,
+  splitLines,
+  stripNewlines,
+  valueOffsetFromDisplay,
+  visibleTextWindow,
+  widestLine,
+  wrapLine,
+  type CaretPosition,
+  type EditResult,
+  type LayoutLine,
+  type SanitizeOptions,
+  type TextInputAlign,
+  type TextInputType,
+  type TextLayoutOptions,
+  type TextLine,
+  type TextRange,
+  type TextWindow,
+} from './text-edit';

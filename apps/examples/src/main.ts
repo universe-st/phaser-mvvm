@@ -3,6 +3,7 @@ import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
 import { installWidgetFactories } from '@phaser-mvvm/widgets';
 import { BindingsScene } from './scenes/bindings';
 import { DashboardScene } from './scenes/dashboard';
+import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
@@ -24,6 +25,7 @@ const SCENES = {
   gallery: GalleryScene,
   dashboard: DashboardScene,
   bindings: BindingsScene,
+  form: FormScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

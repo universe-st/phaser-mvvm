@@ -20,6 +20,8 @@ import { Image, type ImageOptions } from './Image';
 import { Label, type LabelOptions } from './Label';
 import { Panel, type PanelOptions } from './Panel';
 import { Spacer, type SpacerOptions } from './Spacer';
+import { TextArea, type TextAreaOptions } from './TextArea';
+import { TextField, type TextFieldOptions } from './TextField';
 
 /** Attaches children, adds the widget to the scene and returns it. */
 function finish<T extends Widget>(
@@ -88,6 +90,24 @@ export function divider(
   return finish(scene, new Divider(scene, options), children);
 }
 
+/** Creates a single-line text input and adds it to the Scene. */
+export function textField(
+  scene: Phaser.Scene,
+  options: TextFieldOptions = {},
+  children: readonly Widget[] = [],
+): TextField {
+  return finish(scene, new TextField(scene, options), children);
+}
+
+/** Creates a multi-line text input and adds it to the Scene. */
+export function textArea(
+  scene: Phaser.Scene,
+  options: TextAreaOptions = {},
+  children: readonly Widget[] = [],
+): TextArea {
+  return finish(scene, new TextArea(scene, options), children);
+}
+
 // --------------------------------------------------------------------- this.add.*
 
 interface FactoryInternals {
@@ -108,6 +128,8 @@ export const WIDGET_FACTORY_KEYS = [
   'uiImage',
   'uiSpacer',
   'uiDivider',
+  'uiTextField',
+  'uiTextArea',
 ] as const;
 
 let installed = false;
@@ -177,6 +199,22 @@ export function installWidgetFactories(): void {
     return divider(
       sceneOf(this),
       (options as DividerOptions) ?? {},
+      (children as Widget[] | undefined) ?? [],
+    );
+  });
+
+  registry.register('uiTextField', function (this: unknown, options, children) {
+    return textField(
+      sceneOf(this),
+      (options as TextFieldOptions) ?? {},
+      (children as Widget[] | undefined) ?? [],
+    );
+  });
+
+  registry.register('uiTextArea', function (this: unknown, options, children) {
+    return textArea(
+      sceneOf(this),
+      (options as TextAreaOptions) ?? {},
       (children as Widget[] | undefined) ?? [],
     );
   });

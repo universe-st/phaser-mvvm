@@ -160,6 +160,32 @@ export function panelSkinStyles(
 }
 
 /**
+ * Per-state background styles of a text input (`TextField`/`TextArea`).
+ *
+ * A text field is a panel that is always editable, so the states read differently from a button: the
+ * fill barely moves between `normal`/`hover` (a field that flashes on hover is distracting), the
+ * pointer states only strengthen the border, `focused` shows the focus ring colour — and `error`
+ * paints the `danger` border, which outranks focus because `WidgetState` resolves `error` first.
+ *
+ * `readOnly` borrows the muted `surfaceAlt` fill so a locked field is recognisable at a glance.
+ */
+export function textInputSkinStyles(
+  theme: Theme,
+  radius: number = theme.radius.sm,
+  readOnly = false,
+): SkinStyles {
+  const fill = readOnly ? theme.colors.surfaceAlt : theme.colors.surface;
+  return {
+    normal: { fill, border: theme.colors.border, radius },
+    hover: { fill, border: theme.colors.borderStrong, radius },
+    pressed: { fill, border: theme.colors.borderStrong, radius },
+    focused: { fill, border: theme.colors.focusRing, radius },
+    disabled: { fill: theme.colors.surfaceAlt, border: theme.colors.border, radius },
+    error: { fill, border: theme.colors.danger, radius },
+  };
+}
+
+/**
  * Per-state background styles for a button of the given variant.
  *
  * The `focused` state is deliberately absent: the focus indication is the explicit `Graphics` ring

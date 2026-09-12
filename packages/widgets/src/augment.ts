@@ -17,6 +17,8 @@ import type { Image as UIImage, ImageOptions } from './Image';
 import type { Label, LabelOptions } from './Label';
 import type { Panel, PanelOptions } from './Panel';
 import type { Spacer, SpacerOptions } from './Spacer';
+import type { TextArea, TextAreaOptions } from './TextArea';
+import type { TextField, TextFieldOptions } from './TextField';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -35,6 +37,10 @@ declare global {
         uiSpacer(options?: SpacerOptions, children?: Widget[]): Spacer;
         /** Creates a divider widget and adds it to the Scene. */
         uiDivider(options?: DividerOptions, children?: Widget[]): Divider;
+        /** Creates a single-line text input widget and adds it to the Scene. */
+        uiTextField(options?: TextFieldOptions, children?: Widget[]): TextField;
+        /** Creates a multi-line text input widget and adds it to the Scene. */
+        uiTextArea(options?: TextAreaOptions, children?: Widget[]): TextArea;
       }
     }
   }
