@@ -13,6 +13,7 @@ import type { Rect } from '@phaser-mvvm/layout';
 import type { AnchorLike, FocusNodeLike, RectSourceLike } from '../src/focus';
 import {
   collectFocusable,
+  containsWidget,
   directionalTolerance,
   isFocusNodeLike,
   pickDirectional,
@@ -326,6 +327,40 @@ describe('pickDirectional', () => {
 
     expect(pickDirectional(current, [below], 'right', 64)).toBeNull();
     expect(pickDirectional(current, [below, aligned], 'right', 64)).toBe(1);
+  });
+
+  it('skips the candidates marked in `skip`', () => {
+    // The port's box encloses the middle button, so it is the nearest thing "below" it (centre 100 vs
+    // the bottom row's 140) — which is exactly the problem `skip` exists for.
+    const port = rect(0, 0, 340, 200);
+    const candidates = [port, grid[7] as Rect];
+
+    expect(pickDirectional(centre, candidates, 'down', 300)).toBe(0);
+    expect(pickDirectional(centre, candidates, 'down', 300, [true, false])).toBe(1);
+    expect(pickDirectional(centre, candidates, 'down', 300, [true, true])).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ containsWidget */
+
+describe('containsWidget', () => {
+  it('is true for a container above the widget and false for anything else', () => {
+    const root = anchor(0, 0);
+    const port = anchor(0, 0, root);
+    const row = anchor(10, 10, port);
+    const sibling = anchor(0, 0);
+
+    expect(containsWidget(port, row)).toBe(true);
+    expect(containsWidget(root, row)).toBe(true);
+    expect(containsWidget(sibling, row)).toBe(false);
+    expect(containsWidget(row, row)).toBe(false);
+  });
+
+  it('is false for a widget with no parent and for no widget at all', () => {
+    const port = anchor(0, 0);
+    expect(containsWidget(port, anchor(0, 0))).toBe(false);
+    expect(containsWidget(port, null)).toBe(false);
+    expect(containsWidget(port, undefined)).toBe(false);
   });
 });
 

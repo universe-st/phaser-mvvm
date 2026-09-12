@@ -49,6 +49,17 @@ export {
   type A11yOptions,
 } from './a11y';
 export { buildUiPage, type BuiltUi } from './ui-build';
+export {
+  DEFAULT_REVEAL_MARGIN,
+  DEFAULT_REVEAL_PASSES,
+  contentRectOf,
+  revealInViewports,
+  revealOffset,
+  type ContentRectSource,
+  type RevealAxis,
+  type RevealHost,
+  type RevealOptions,
+} from './reveal';
 export { PageHost, type PageBackTarget, type PageHandle, type PageOptions } from './pages';
 export { planBack, type BackState } from './back-plan';
 export { factoriesInstalled, FACTORY_KEYS, installFactories } from './factory';

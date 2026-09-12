@@ -45,7 +45,14 @@
 import Phaser from 'phaser';
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import { ARROW_KEY_OF_DIRECTION, stageRectOf, Widget } from '@phaser-mvvm/phaser';
+import {
+  ARROW_KEY_OF_DIRECTION,
+  DEFAULT_REVEAL_MARGIN,
+  contentRectOf,
+  revealOffset,
+  stageRectOf,
+  Widget,
+} from '@phaser-mvvm/phaser';
 import type { A11yDescriptor, NavDirection, NavAction, Theme } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import {
@@ -100,6 +107,14 @@ export interface ScrollViewOptions extends LayoutParams {
    * instead of scrolling to the wrong rows.
    */
   zoom?: boolean | { min?: number; max?: number };
+  /**
+   * Gap kept between the viewport edge and a widget scrolled into view by the focus system, in design
+   * pixels. Defaults to `DEFAULT_REVEAL_MARGIN` (8); `0` snaps the widget flush with the edge.
+   *
+   * Only the *keyboard/gamepad focus* path uses it (see `revealDescendant`): a user who drags or
+   * wheels the port is scrolling on purpose and gets no correction.
+   */
+  revealMargin?: number;
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
@@ -119,6 +134,7 @@ const SCROLL_KEYS = [
   'inertia',
   'bounce',
   'zoom',
+  'revealMargin',
 ] as const;
 
 /** Pointer travel (px) before a press becomes a scroll drag. */
@@ -255,6 +271,8 @@ export class ScrollView extends Widget {
   readonly inertiaEnabled: boolean;
   /** Whether overscroll rubber-bands back. */
   readonly bounceEnabled: boolean;
+  /** Gap kept from the viewport edge when the focus system scrolls a widget into view. */
+  readonly revealMargin: number;
 
   /** Holder of the user's content; positioned by the layout engine. */
   private readonly holder: Widget;
@@ -330,6 +348,9 @@ export class ScrollView extends Widget {
     this.dragEnabled = widget.drag !== false;
     this.inertiaEnabled = widget.inertia !== false;
     this.bounceEnabled = widget.bounce === true;
+    this.revealMargin = Number.isFinite(widget.revealMargin)
+      ? Math.max(0, widget.revealMargin as number)
+      : DEFAULT_REVEAL_MARGIN;
     if (widget.zoom === true || (typeof widget.zoom === 'object' && widget.zoom !== null)) {
       const zoom = typeof widget.zoom === 'object' ? widget.zoom : {};
       this.zoomEnabled = true;
@@ -529,6 +550,71 @@ export class ScrollView extends Widget {
   }
 
   // ------------------------------------------------------------------ layout
+
+  /**
+   * Scrolls the port so a descendant is inside the visible band — the `scrollIntoView` half of
+   * keyboard/gamepad focus (see `revealInViewports` in `@phaser-mvvm/phaser`).
+   *
+   * The geometry comes from the target's rect **in content space** (`contentRectOf`), not from its
+   * stage rect: the task is to *choose* an offset, so a rect that already contains the current one
+   * would make the answer depend on itself. Zoom multiplies the content-space rect by the holder's
+   * scale, because the offset is measured in screen pixels while `appliedRect` is not (`setZoom`).
+   */
+  override revealDescendant(target: Widget): boolean {
+    if (this.isDestroyed || target === this) {
+      return false;
+    }
+    const viewport = this.viewport;
+    if (viewport.width <= 0 || viewport.height <= 0) {
+      return false;
+    }
+    const rect = contentRectOf(target, this.holder);
+    if (rect === null) {
+      return false;
+    }
+
+    const scale = this.zoomScale;
+    const margin = this.revealMargin;
+    const nextX = this.scrollsX()
+      ? revealOffset({
+          offset: this.currentX,
+          viewport: viewport.width,
+          start: rect.x * scale,
+          length: rect.width * scale,
+          margin,
+        })
+      : this.currentX;
+    const nextY = this.scrollsY()
+      ? revealOffset({
+          offset: this.currentY,
+          viewport: viewport.height,
+          start: rect.y * scale,
+          length: rect.height * scale,
+          margin,
+        })
+      : this.currentY;
+
+    if (nextX === this.currentX && nextY === this.currentY) {
+      return false;
+    }
+    const before = this.offset;
+    // `setOffset` clamps to the limits, applies the new positions and forwards them to a virtualised
+    // list, so the row being revealed is mounted by the same call.
+    this.setOffset(nextX, nextY);
+    if (this.offset === before) {
+      // The request was real but the port's own limits refused it (the widget is at the very start and
+      // the margin pushes past it): nothing moved, and saying otherwise would make the focus system lay
+      // the tree out a second time for a scroll that never happened.
+      return false;
+    }
+    if (isDevMode()) {
+      devLog(
+        `reveal: ${this.name || 'scroll'} offset ${Math.round(before)} -> ${Math.round(this.offset)} ` +
+          `for ${target.name || target.constructor.name}`,
+      );
+    }
+    return true;
+  }
 
   /** The viewport is never content-sized: give the view a definite width/height (or `fill`). */
   override measureContent(_constraint: BoxConstraints): Size {
@@ -1373,26 +1459,33 @@ export class ScrollView extends Widget {
     return this.applyScrollStep(planScrollKey(event.key, this.viewport.height, KEY_LINE_STEP));
   };
 
-  /** Applies one keyboard/action step; `false` means the step resolved to nothing. */
+  /**
+   * Applies one keyboard/action step; `false` means the step resolved to nothing.
+   *
+   * "Resolved to nothing" is a real answer, not a formality: a port **at its limit** must *decline*
+   * the direction, or it swallows every further press and the focus never leaves it. Measured in
+   * round 67 on `#/a11y`: D-Pad down reached `a11y.region`, scrolled it to its end (offset 126 of
+   * 126) and then did nothing at all — with a gamepad there is no `Tab` key to fall back on, so the
+   * port was a roach motel. A `ScrollView` under the pointer/wheel is unaffected: those paths call
+   * `scrollBy()` directly.
+   */
   private applyScrollStep(step: ScrollKeyStep | null): boolean {
     if (step === null) {
       return false;
     }
     this.stopScroll();
+    const beforeX = this.currentX;
+    const beforeY = this.currentY;
     if (step.jump === 'start') {
       this.scrollTo('top');
-      return true;
-    }
-    if (step.jump === 'end') {
+    } else if (step.jump === 'end') {
       this.scrollTo('bottom');
-      return true;
-    }
-    if (this.direction === 'horizontal') {
+    } else if (this.direction === 'horizontal') {
       this.scrollBy(step.delta, 0);
-      return true;
+    } else {
+      this.scrollBy(0, step.delta);
     }
-    this.scrollBy(0, step.delta);
-    return true;
+    return this.currentX !== beforeX || this.currentY !== beforeY;
   }
 
   /** How many scroll views enclose this one (0 for a top-level view). */

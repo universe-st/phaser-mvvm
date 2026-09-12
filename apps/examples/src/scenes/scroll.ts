@@ -68,6 +68,8 @@ export class ScrollScene extends Phaser.Scene {
   private readonly hMax = ref(0);
   private readonly nestedOffset = ref(0);
   private readonly nestedMax = ref(0);
+  /** Last chip activated in the horizontal strip (`CHIP_COUNT` chips, all in one port). */
+  private readonly selectedChip = ref(-1);
 
   private pageContext: BindingContext | null = null;
 
@@ -189,24 +191,26 @@ export class ScrollScene extends Phaser.Scene {
     const chips: Widget[] = [];
     for (let index = 0; index < CHIP_COUNT; index++) {
       chips.push(
-        this.add.uiPanel(
-          {
-            direction: 'vertical',
-            width: CHIP_WIDTH,
-            height: 56,
-            variant: index % 2 === 0 ? 'surfaceAlt' : 'primary',
-            radius: 8,
-            alignItems: 'center',
-            justifyContent: 'center',
+        // Chips are *buttons*, which is what makes the horizontal port's own bring-into-view reachable:
+        // `Tab` walks the strip and the port has to scroll sideways to keep up (round 67). They were
+        // decorative panels before, so the horizontal axis had no focusable content at all and its
+        // reveal path was unreachable — and a drag across a strip of labels also had nothing to
+        // accidentally activate, which is the gesture bug this demo is supposed to catch.
+        this.add.uiButton({
+          text: `chip ${index}`,
+          variant: index % 2 === 0 ? 'secondary' : 'primary',
+          size: 'sm',
+          width: CHIP_WIDTH,
+          height: 56,
+          name: `chip.${index}`,
+          // The strip is a secondary region, so it leads the tab order instead of coming after the 220
+          // rows — which is also what makes its horizontal bring-into-view reachable in a handful of
+          // `Tab` presses rather than a few hundred.
+          focusOrder: -1,
+          onClick: () => {
+            this.selectedChip.value = index;
           },
-          [
-            this.add.uiLabel({
-              text: `chip ${index}`,
-              align: 'center',
-              style: { fontSize: `${theme.fontSize.sm}px` },
-            }),
-          ],
-        ),
+        }),
       );
     }
     const chipRow = this.add.uiPanel(
@@ -218,6 +222,10 @@ export class ScrollScene extends Phaser.Scene {
       height: 76,
       direction: 'horizontal',
       content: chipRow,
+      // A wider breathing space than the default 8: the option is per port, and this is the port that
+      // proves it (`#demo-state`'s `h.offset` steps by 104+16 instead of 104+8 when `Tab` walks the
+      // chips past the right edge).
+      revealMargin: 24,
       name: 'scroll.h',
     });
     this.hScroll = hScroll;
@@ -554,9 +562,27 @@ export class ScrollScene extends Phaser.Scene {
     );
     this.publish('h.offset', Math.round(hScroll.offset));
     this.publish('h.maxOffset', Math.round(hScroll.maxOffset));
+    this.publish('chip', this.selectedChip.value < 0 ? 'none' : this.selectedChip.value);
     this.publish('nested.offset', Math.round(nested.offset));
     this.publish('nested.zoom', Math.round(nested.zoom * 100) / 100);
     this.publish('nested.maxOffset', Math.round(nested.maxOffset));
+
+    // Where the focused widget *is*, and where each port's visible band is. Two raw numbers instead of
+    // a verdict, because the verdict is the point of the acceptance run: "keyboard focus never sits
+    // outside the band" is an invariant over a whole Tab walk, and the run that walks it owns the
+    // comparison (round 67 added the walk — before it, focus could sit under the clip with the offset
+    // still at 0 and nothing in the page said so).
+    const focused = this.mvvm.focus.focusedWidget;
+    if (focused) {
+      const origin = stagePosition(focused);
+      this.publish('focus.x', Math.round(origin.x));
+      this.publish('focus.y', Math.round(origin.y));
+      this.publish('focus.w', Math.round(focused.appliedRect.width));
+      this.publish('focus.h', Math.round(focused.appliedRect.height));
+    }
+    this.publishBand('v', vScroll);
+    this.publishBand('h', hScroll);
+    this.publishBand('nested', nested);
 
     const point = this.rowDeletePoint();
     if (point) {
@@ -624,6 +650,15 @@ export class ScrollScene extends Phaser.Scene {
       };
     }
     return null;
+  }
+
+  /** Publishes one port's visible band in stage coordinates (`<key>.top`/`.left`/`.width`/`.height`). */
+  private publishBand(key: string, view: ScrollView): void {
+    const origin = stagePosition(view);
+    this.publish(`${key}.left`, Math.round(origin.x));
+    this.publish(`${key}.top`, Math.round(origin.y));
+    this.publish(`${key}.width`, Math.round(view.appliedRect.width));
+    this.publish(`${key}.height`, Math.round(view.appliedRect.height));
   }
 
   private publish(key: string, value: string | number): void {

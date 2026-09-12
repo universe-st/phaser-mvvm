@@ -1,0 +1,147 @@
+# 验收记录 · 滚动区与焦点（`#/scroll` 的 bring-into-view）
+
+- **验收场**：[`#/scroll`](../../apps/examples/src/scenes/scroll.ts)（`window.scrollDemo` 暴露偏移/视口/归属/缩放；`#demo-state` 逐帧发布几何）
+- **被测实现**：[`packages/phaser/src/reveal.ts`](../../packages/phaser/src/reveal.ts)（`revealOffset` / `contentRectOf` / `revealInViewports`）、[`Widget.revealDescendant`](../../packages/phaser/src/Widget.ts)、[`ScrollView.revealDescendant`](../../packages/widgets/src/ScrollView.ts)、[`plugin.ts`](../../packages/phaser/src/plugin.ts) 的每帧焦点钩子，以及本轮顺带修掉的两处导航缺陷（[`focus.ts`](../../packages/phaser/src/focus.ts) 的 `containsWidget` + `pickDirectional(skip)`、`ScrollView#applyScrollStep` 到界拒绝）
+- **第 67 轮**：键盘/手柄焦点**永远落在看得见的地方**
+- **验收方式**：Playwright MCP（真实 `Tab`/`Shift+Tab`/鼠标拖拽 + `window.fakePad` 假手柄）+ 18 场景全量扫描 + `node scripts/visual-check.mjs`
+- **相关**：[`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md)（手柄矩阵）、[`ACCEPTANCE-a11y.md`](./ACCEPTANCE-a11y.md)（滚动区内的无障碍镜像）、[`guide/05-lists-and-scroll.md`](./guide/05-lists-and-scroll.md)
+
+---
+
+## 1. 缺陷：焦点可以停在裁剪区外面，而没有任何东西把它拉回来
+
+`ScrollView` 用 WebGL 滤镜（或 Canvas 的 `GeometryMask`）裁剪内容，指针命中也被裁剪（V23）。但**键盘/手柄焦点不是指针**：`FocusManager` 只按几何挑下一个控件，从不问"那个位置看得见吗"。于是 `Tab` 一路走下去，焦点环被画在遮罩之外——屏幕上一个字都看不到，用户完全不知道焦点在哪。
+
+第 67 轮实测（`#/scroll`，垂直口可见带 stage y **92..448**，行高 38）：
+
+```
+Tab #10  focus=row.delete.r008  y=401  inside=true   offset=0
+Tab #11  focus=row.delete.r009  y=439  inside=true   offset=0     ← 439+24=463 > 448，已经在带外
+Tab #12  focus=row.delete.r010  y=477  inside=false  offset=0     ← 完全看不见
+Tab #13  focus=row.delete.r011  y=515  inside=false  offset=0
+Tab #14  focus=row.delete.r012  y=553  inside=false  offset=0
+```
+
+行一直挂载着（`overscan` 让窗口比视口多几行），所以焦点进得去、`Enter` 也按得动——只是看不见。
+
+### 修法：把浏览器的 `scrollIntoView` 抄过来
+
+1. **能力**：`Widget#revealDescendant(target)` 默认返回 `false`（普通盒子没有视口）；`ScrollView` 覆盖它，按 `revealMargin`（默认 8px）把内容滚到目标可见。
+2. **遍历**：`revealInViewports(target)` 从焦点控件沿 `parentContainer` 往上，**由内到外**问每一个视口。嵌套口是个不动点问题（内层滚完，目标在外层里的位置就变了），所以一遍有移动就 `flushLayout()` 再走一遍，最多 3 遍。
+3. **接线**：插件在 `onPreUpdate` 里先 `flushFrame()` + `flushLayout()`，再比较焦点是否变化——**布局刚跑完**，视口拿到的是真几何，而不是上一帧的矩形。
+
+几何全部是纯函数（`revealOffset` 是算术、`contentRectOf` 是树遍历），Node 单测覆盖（`packages/phaser/test/reveal.test.ts`，19 例）。
+
+| 规则                        | 行为                                                                    |
+| --------------------------- | ----------------------------------------------------------------------- |
+| 目标能装进视口              | 只对齐**被破坏的那条边**，滚最短距离                                    |
+| 目标比视口还高              | 对齐起始边（对齐尾部会把用户正在读的开头藏起来）                        |
+| 目标已经盖住整个可见带      | **不动**：移动内容什么也揭示不了，看起来只是随机跳动                    |
+| `revealMargin` 大于一半余量 | 夹到一半，否则两条边会互相打架（目标在"太高/太低"之间来回弹）           |
+| 缩放（`zoom`）              | 内容矩形乘 `zoomScale`：偏移是屏幕像素，`appliedRect` 不是（`setZoom`） |
+| 到界但请求被夹回            | 返回 `false`（"没动"），否则焦点系统会为一次没发生的滚动白跑一趟布局    |
+
+---
+
+## 2. 验收矩阵
+
+### 2.1 垂直口：`Tab` 前进 / `Shift+Tab` 后退
+
+| #   | 操作                   | 判据（实测）                                                                                                              |
+| --- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| S1  | `Tab` ×14（进垂直口）  | 偏移 **0 → 0 → … → 23 → 61 → 99 → 137**（每次正好一行 38px），每一步 `focus.y ≥ v.top && focus.y+h ≤ v.top+v.height` 为真 |
+| S2  | `Shift+Tab` ×8（往回） | 偏移 **137 → 111 → 73 → 35 → 0**（一行一行往回），被聚焦的行停在 `y=100`（= 带顶 92 + 边距 8）                            |
+| S3  | 已可见的控件           | 焦点在带内移动时偏移**不变**（`r000 → r008` 连续 9 步全为 0；往回时 `r011 → r004` 连续 8 步停在 137）                     |
+
+> 边距 8 的证据（默认值）：带底 448，行高 24 → 448 − 24 − 8 = **416**，实测往下走时被聚焦行的 `focus.y` 恒为 416；往回走时恒为 **100** = 带顶 92 + 8。
+
+### 2.2 横向口：`Tab` 走过 chip 条（顺带验证 `revealMargin` 是**每个口**自己的选项）
+
+| #   | 操作      | 判据（实测）                                                                                                                                                       |
+| --- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S4  | `Tab` ×10 | `chip.5` 起偏移 **0 → 52**，之后每步 **+104**（chip 宽 96 + 间距 8），焦点停在 `localX=468`（468+96 = 564 = 588 − **24**）                                         |
+| S5  | 边距证据  | 横向口设 `revealMargin: 24`，垂直口用默认 8（S1 的 416 = 448 − 24 − 8 就是默认值的证据）——**两个口同时对**，所以"边距是口自己的属性"是被测到的，不是把默认值当结论 |
+
+实现同一段走查时如果去掉 `revealMargin: 24`，读数会退回 `localX=484`、`0 → 36`（第 67 轮加这个选项之前的历史读数），这正是它真的被读了的证据。
+
+### 2.3 手柄：`D-Pad` 走滚动区内部
+
+| #   | 操作                    | 判据（实测，`#/a11y` 的 72px 高滚动区，`maxOffset=126`）                                                           |
+| --- | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| S6  | `D-Pad 下` ×5           | 焦点 `button1 → button2 → button3 → button4 → button5 → button6`，偏移 **0 → 32 → 66 → 100 → 126**，每一步都在带内 |
+| S7  | 最后一行再按 `D-Pad 下` | 什么都不发生（下面没有控件），**焦点留在 `button6`**，不会被口吞掉                                                 |
+| S8  | 口到界时按 `D-Pad 下`   | 焦点**离开**口：`scroll.v`（`End` 滚到底 offset 8000）→ `row.delete.r215` → `row.delete.r216`                      |
+
+### 2.4 指针：拖动不算点击（新加的可点 chip 条）
+
+第 67 轮把横向口里的 30 个 chip 从装饰性 `Panel` 改成**可聚焦的 `Button`**：这样横向轴才真的有可聚焦内容（此前整条横向 reveal 路径根本无法到达），也才有了"在按钮条上拖动"这个手势用例。
+
+| #   | 操作                         | 判据（实测）                                    |
+| --- | ---------------------------- | ----------------------------------------------- |
+| S9  | 在 chip 条上按下并拖动 300px | `chip=none`（**没有误触**），`h.offset 0 → 660` |
+| S10 | 空白点击 chip 8              | `chip=8`，偏移不变（点击不滚动）                |
+
+### 2.5 日志
+
+```
+dev:      reveal: scroll.h offset 0 -> 36 for chip.5
+          reveal: scroll.h offset 36 -> 140 for chip.6
+release:  （setDevMode(false) 后同样的 4 次 Tab → 0 行）
+```
+
+每次**真的移动**才一行，带口名、前后偏移与目标控件名；被夹回未移动的不打（早期版本会打印 `0 -> 0`，那是请求不是事实）。
+
+---
+
+## 3. 顺带修掉的两处导航缺陷
+
+两处都是"焦点卡在滚动容器里"，与 S6/S8 同一条验收路径暴露出来的。
+
+| 编号 | 现象（实测）                                                                                                   | 根因                                                                                               | 修法                                                                                                                                  |
+| ---- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| V34  | `D-Pad 下` 从口内按钮出发，**焦点跳到口本身**（`a11y.region.button1 → a11y.region`），此后只滚动、不再移动焦点 | 容器盒子包含里面的一切，几何上它常常是"下方最近的候选"（口中心 542 vs 下一个按钮 554-520=34 更远） | `containsWidget(candidate, focused)` + `pickDirectional(..., skip)`：**先排除包围当前焦点的祖先**，一轮无果才带上它们（保证不丢目标） |
+| V35  | 口滚到尽头后继续按方向键**毫无反应**（offset 停在 126/126）——手柄没有 `Tab` 可退，等于"进得去出不来"           | `applyScrollStep()` 无条件 `return true`，即使偏移没变                                             | 比较滚动前后偏移，**没动就 `false`**（拒绝这个动作），让焦点管理器接管——于是焦点能离开口（S8）                                        |
+
+两处都有 Node 单测：`pickDirectional` 的 `skip` 用例、`containsWidget` 用例（`packages/phaser/test/focus.test.ts`，+3 例）。
+
+---
+
+## 4. `#/scroll` 新增的可断言读数
+
+| 键（`#demo-state`）                           | 含义                                        |
+| --------------------------------------------- | ------------------------------------------- |
+| `focus.x` / `focus.y` / `focus.w` / `focus.h` | 当前焦点控件的 **stage 矩形**               |
+| `v.top` / `v.left` / `v.width` / `v.height`   | 垂直口可见带（stage 坐标）                  |
+| `h.top` / `h.left` / `h.width` / `h.height`   | 横向口可见带                                |
+| `nested.top` / …                              | 嵌套口可见带                                |
+| `chip`                                        | 最后一次激活的 chip 序号（`none` = 没点过） |
+
+页面**只发布原始几何，不下结论**：判据是"整个 Tab 走查里焦点从不落在带外"，那是走查者（验收脚本）的不变量，不是单帧能从页面里读出来的东西。
+
+`window.scrollDemo` 原有 API 不变（`offsets()` / `visibleRowKey()` / `owners()` / `zoom()` / `setZoom()` / `viewports()`）。
+
+---
+
+## 5. 门禁（第 67 轮实跑）
+
+| 命令                            | 结果                                                                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pnpm -r run typecheck`         | 5/5 通过                                                                                                                                                                       |
+| `pnpm -r run test`              | **1118 通过**（layout 313 / core 281 / phaser **191** / widgets 333；phaser +22）                                                                                              |
+| `pnpm exec prettier --check .`  | 通过                                                                                                                                                                           |
+| `pnpm docs:check`               | 通过（9 篇指南片段）                                                                                                                                                           |
+| `pnpm run build:examples`       | 通过                                                                                                                                                                           |
+| `pnpm size`                     | core+layout 18.5 KB、phaser+widgets **20.5 KB** min+gzip（预算内）                                                                                                             |
+| `node scripts/visual-check.mjs` | 5 场景全绿（`m0`/`probe`/`stack`/`hud`/`modal`）                                                                                                                               |
+| 18 场景扫描（Playwright MCP）   | 全部 `ok`、`errors=0`、每个场景都建了 UI 根                                                                                                                                    |
+| `#/modal` 手柄矩阵回归          | `右→openConfirm`、`右→openForm`、`下→pageB`、`A→page.clicks 0→1`、`上→openForm`、`左×6→停在 openConfirm`（与 [`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md) 记录逐条一致） |
+| `#/scroll` 既有键位回归         | `D-Pad 下` ×2 → 0/40/80；`PageDown` → 400；`Home` → 0                                                                                                                          |
+
+---
+
+## 6. 未验证 / 已知边界
+
+- **真实触摸设备**：本轮所有手势都在鼠标与假手柄上跑过；触摸拖动与 reveal 无直接交互（触摸按下只是让焦点跟随，而按下的东西一定可见），但**真机触摸**仍未验（见 [`ACCEPTANCE-touch.md`](./ACCEPTANCE-touch.md) §4）。
+- **缩放中的口**（`#/scroll` 的 `nested` 开了 pinch zoom）：数学上按 `zoomScale` 折算，但**没有端到端的焦点用例**（嵌套口里没有可聚焦控件）。`revealOffset` 的单测覆盖的是未缩放几何。
+- **焦点已持有、内容布局随后变化**（窗口 resize、上面的卡片折叠把焦点挤出视野）：本轮只在**焦点变化**时 reveal，不在每帧重算。这样的场景焦点会留在视野外，直到下一次焦点移动。
+- **`zoom` 与偏移的单位一致性**：`measureContentExtent()` 用 `extent × zoomScale` 算上限，与 `applyOffsets()` 把 `left = -offset`（子节点再被 scale 放大）自洽，尚未单独验收（不在本轮范围）。

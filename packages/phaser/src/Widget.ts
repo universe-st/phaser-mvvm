@@ -289,6 +289,23 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     this.focusManager?.blur(this);
   }
 
+  /**
+   * Scrolls this widget's own viewport so that `target` — a descendant — becomes visible.
+   *
+   * The `scrollIntoView` of this framework, and the answer to "the focus ring is somewhere I cannot
+   * see": the focus system walks the container chain of whatever just took focus and asks each widget
+   * in turn (`revealInViewports` in `reveal.ts`), so a keyboard or gamepad user is never left
+   * focusing something a mask has clipped away.
+   *
+   * `false` is the honest default — a plain box has no viewport to move, and a widget that *does*
+   * have one (`ScrollView`) overrides this. The parameter is typed as `Widget` because that is what
+   * callers have; an implementation must still check that it really contains the target
+   * (`contentRectOf` returns `null` when it does not).
+   */
+  revealDescendant(_target: Widget): boolean {
+    return false;
+  }
+
   /** @internal used by the focus manager. */
   setFocusedInternal(value: boolean): void {
     if (this._focused === value) {

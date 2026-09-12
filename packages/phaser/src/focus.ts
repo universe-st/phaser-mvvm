@@ -151,6 +151,27 @@ export function stageRectsOf(widgets: readonly RectSourceLike[]): Rect[] {
 }
 
 /**
+ * Whether `candidate` contains `focused` somewhere up its container chain — i.e. it is an ancestor.
+ *
+ * Directional navigation needs this because a container's box overlaps everything inside it: the
+ * `ScrollView` holding the focused button is usually the *nearest* thing "below" it, so it won by
+ * distance and focus moved off the button onto a container that only scrolls (round 67).
+ */
+export function containsWidget(
+  candidate: AnchorLike,
+  focused: AnchorLike | null | undefined,
+): boolean {
+  let node: AnchorLike | null | undefined = focused?.parentContainer;
+  while (node) {
+    if (node === candidate) {
+      return true;
+    }
+    node = node.parentContainer;
+  }
+  return false;
+}
+
+/**
  * Funnel width used by `FocusManager.move()`: 60% of the tangential size of the current rect, but
  * never less than 64 design pixels (a 40px-tall row in a list would otherwise be unreachable
  * sideways).
@@ -168,12 +189,20 @@ export function directionalTolerance(current: Rect, direction: NavDirection): nu
  * qualifying candidates the winner is the one with the smallest primary-axis distance; ties are
  * broken by the smaller tangential offset. The current rect never wins: its primary distance is 0,
  * which is not "strictly inside" the half-plane.
+ *
+ * `skip` marks candidates to ignore for this call (index-aligned with `candidates`). The focus
+ * manager uses it to try the least surprising options first — see {@link containsWidget}: an ancestor
+ * of the focused widget (the `ScrollView` a focused button sits in) is often the nearest box in the
+ * requested direction, and letting it win moves the ring onto the container, where the D-Pad only
+ * scrolls and focus stops moving (measured on `#/a11y` in round 67). The manager asks again without
+ * `skip` when nothing else answered, so no target becomes unreachable.
  */
 export function pickDirectional(
   current: Rect,
   candidates: readonly Rect[],
   direction: NavDirection,
   tolerance: number,
+  skip?: readonly boolean[],
 ): number | null {
   const currentX = current.x + current.width / 2;
   const currentY = current.y + current.height / 2;
@@ -186,6 +215,9 @@ export function pickDirectional(
   for (let index = 0; index < candidates.length; index++) {
     const candidate = candidates[index];
     if (!candidate) {
+      continue;
+    }
+    if (skip?.[index] === true) {
       continue;
     }
 
@@ -523,12 +555,14 @@ export class FocusManager implements FocusTarget {
       return false;
     }
 
-    const picked = pickDirectional(
-      currentRect,
-      rects,
-      direction,
-      directionalTolerance(currentRect, direction),
-    );
+    const tolerance = directionalTolerance(currentRect, direction);
+    // Two passes: first without the containers that enclose the focused widget (a scroll port must not
+    // steal the direction from the button inside it), then — only if that found nothing — with them, so
+    // a port that is genuinely the next thing in that direction stays reachable.
+    const enclosing = scope.widgets.map((widget) => containsWidget(widget, current));
+    const picked =
+      pickDirectional(currentRect, rects, direction, tolerance, enclosing) ??
+      pickDirectional(currentRect, rects, direction, tolerance);
     if (picked === null) {
       return false;
     }

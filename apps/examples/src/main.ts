@@ -69,6 +69,15 @@ const requested = window.location.hash.replace(/^#\/?/, '');
 const initial = requested in SCENES ? (requested as keyof typeof SCENES) : 'm0';
 document.title = `phaser-mvvm examples · ${initial}`;
 
+// The scene is chosen **once**, at boot. Changing the hash afterwards (typing a URL, the browser's
+// back button, an in-page link) used to leave the old scene running while the address bar showed the
+// new one — a silent trap for anyone navigating by hash, and an acceptance run that reads
+// `location.hash` would assert against the wrong scene (round 67 hit exactly that: `#/scroll` was
+// requested and `compose` answered). Everything these scenes depend on is wired at module load
+// (`installFactories`, the game-wide `MVVMPlugin.configure`, the Game Config), so a reload is the
+// honest way to switch.
+window.addEventListener('hashchange', () => window.location.reload());
+
 // Game-wide plugin options. Phaser instantiates scene plugins as
 // `new Plugin(scene, pluginManager, mapKey)` — a config object in the Game Config entry is never
 // passed — so this static call is *the* way to configure the framework before the first scene boots.

@@ -28,6 +28,7 @@ import { InputRouter, type InputRouterOptions } from './input';
 import { A11yBridge, type A11yOptions } from './a11y';
 import { ModalHost } from './modal';
 import { planBack } from './back-plan';
+import { revealInViewports } from './reveal';
 import { PageHost } from './pages';
 import {
   NavRepeat,
@@ -556,6 +557,13 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       devLog(`focus: ${focused ? focused.name || focused.constructor.name : 'none'}`);
       // A screen reader has no way to see a focus ring on a canvas, so focus moves are announced.
       this.a11yBridge?.announceFocus(focused);
+      if (focused) {
+        // Keyboard/gamepad focus can land on a widget the mask has clipped away, and then the ring is
+        // painted where nobody can see it (round 67). Asking the ports above it to scroll it into view
+        // is the browser's answer, and this is the place it can run: the layout pass above has just
+        // arranged every rect, so the ports compute against real geometry rather than last frame's.
+        revealInViewports(focused, { flushLayout: () => this.uiRoot?.flushLayout() });
+      }
     }
 
     // Re-collect only when the tree actually changed: visibility or state changes do not need it, and
