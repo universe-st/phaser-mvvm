@@ -198,3 +198,13 @@ OK       backdrop / card / badge / footer
 ## 本轮发现并修复的框架缺陷
 
 **挂载子树时结构通知丢失**：`Widget.addWidget` 先调用 `child.setEngineRecursive(...)`，而 `structureListener` 是在该递归里**向下**赋值的，于是新挂载子树中每个节点的 `structureListener` 都是 `null`（只有 `UIRoot` 自己有）→ `UIRoot.structureVersion` 永不变化 → 插件不再 `refreshInteraction()` → **运行期新建的控件不会被 `InputRouter` 注册，点击被丢弃**。修复：在 `addWidget` 中于递归之前先 `child.structureListener = this.structureListener`。这是「列表增删行后按钮点不动」类问题的根因，只有真浏览器 + 动态数据才能暴露。
+
+## M6 遗留：增量 arrange 与 relayout boundary 的交互（已知限制，未修）
+
+**现象**：当一个会持续变化的子树（例如 `Repeat` 的行容器）位于**固定尺寸控件**（`Widget.isRelayoutBoundary === true`）内部时，从 root 到该 boundary 之间的祖先不会被标脏，而 `LayoutEngine.placeChildOf()` 又会跳过「rect 未变且自身不脏」的子树 —— 于是顶层 arrange 在祖先处就提前跳过，boundary 内部的脏子树永远拿不到 `applyRect`（新行为 0×0、不可见、不可点击）。实测 stats：一次 layout 只有 `arrange+1 / placed+1 / skipped+1`，即只走了根。
+
+**为什么 `hasDirtyNodes` 不足**：它只解决「宿主是否要跑一趟 layout」，解决不了「arrange 自顶向下的走法能否到达脏节点」。
+
+**当前规避**：`Repeat` 在结构变化时沿 `parent` 链对每个祖先 `markDirty()`。
+
+**建议根治**（属 M7 范围内的引擎改动）：`invalidate()` 走到 relayout boundary 后，把其上的祖先加入一个独立的 `dirtyPath` 集合（**不参与测量缓存失效**，只影响 arrange 的跳过判断），再把 `placeChildOf()` 的条件改为 `!dirty.has(node) && !dirtyPath.has(node)`；或让 arrange 支持「从脏子根开始」，即记录 arrange roots 并在主 pass 之后逐个从该节点继续排布。两种都需要补一组针对性测试（固定尺寸 Panel 内的子树变更、boundary 上下同时变更、性能对照）。

@@ -347,13 +347,20 @@ export class Repeat<Item> extends Widget {
   }
 
   /**
-   * Tells the layout root that this subtree gained or lost widgets.
+   * Tells the tree that this subtree gained or lost widgets.
    *
-   * `Widget.setEngineRecursive()` hands its `structureListener` to the children it walks, and
-   * `Widget.addWidget()` runs it on the *child*, so a widget that adds children **later** — exactly
-   * what a `Repeat` does — ends up with no listener of its own when it was mounted as part of a
-   * subtree. The nearest listener up the parent chain is notified instead (the layout root installs
-   * one; the scene plugin turns the bumped version into a router/focus refresh on the next frame).
+   * Two things have to happen, and neither is automatic for a widget that grows children **after**
+   * it was mounted (which is exactly what a `Repeat` does):
+   *
+   * 1. **input/focus re-collection** — `Widget.setEngineRecursive()` hands a `structureListener` to
+   *    the children it walks, so a widget added as part of a subtree ends up without one of its own.
+   *    The nearest listener up the parent chain is notified instead (the layout root installs one;
+   *    the scene plugin turns the bumped version into a router/focus refresh on the next frame).
+   * 2. **the layout path** — `LayoutEngine.invalidate()` stops at the first relayout boundary (a
+   *    fixed-size panel above the list) and the arrange pass skips *clean* subtrees, so a new row
+   *    below such a boundary would never receive an `applyRect` (it would stay 0×0: invisible,
+   *    unclickable). Marking every ancestor on the path dirty keeps the arrange pass descending all
+   *    the way to this widget.
    */
   private notifyStructureChange(): void {
     let node: Widget | null = this;
@@ -361,9 +368,19 @@ export class Repeat<Item> extends Widget {
       const listener = node.structureListener;
       if (typeof listener === 'function') {
         listener();
-        return;
+        break;
       }
       node = (node.parent as Widget | null) ?? null;
+    }
+
+    const engine = this.engine;
+    let ancestor = this.parent as Widget | null;
+    this.markDirty();
+    while (ancestor !== null) {
+      if (engine === null || !engine.isDirty(ancestor)) {
+        ancestor.markDirty();
+      }
+      ancestor = ancestor.parent as Widget | null;
     }
   }
 
