@@ -34,6 +34,7 @@ import { textMetricsOf } from './text-metrics';
 import {
   CARET_BLINK_MS,
   MIN_CONTENT_WIDTH,
+  canEditValue,
   caretAtX,
   caretRectOf,
   clampCaret,
@@ -557,7 +558,7 @@ export abstract class TextInputBase extends Widget {
    * a stale element value.
    */
   insertText(text: string): this {
-    if (text.length === 0 || !this.enabled || this.readOnly) {
+    if (text.length === 0 || !canEditValue(this)) {
       return this;
     }
     this.applyEdit(insertText(this.value, this.caret, this.anchor, text));
@@ -572,7 +573,7 @@ export abstract class TextInputBase extends Widget {
    * selection, otherwise it deletes the code point before the caret.
    */
   deleteText(direction: 'backward' | 'forward' = 'backward'): this {
-    if (!this.enabled || this.readOnly) {
+    if (!canEditValue(this)) {
       return this;
     }
     this.applyEdit(deleteRange(this.value, this.caret, this.anchor, direction));
@@ -1105,6 +1106,15 @@ export abstract class TextInputBase extends Widget {
   }
 
   private applyEdit(result: EditResult): void {
+    // The single funnel for every *edit*, so the permission rule lives here rather than at each
+    // caller: `Ctrl+X`/`Ctrl+V` go straight to `cutSelection()`/`pasteClipboard()` instead of through
+    // the key switch, which is how a `readOnly` canvas field could be cut to pieces and pasted over
+    // while typing, Backspace and Enter were all correctly refused (measured in round 88: a
+    // `dom: false, readOnly: true` field went `locked value` → `` → `ZZZ`, V59). The DOM path never
+    // showed this because the element's own `readonly` attribute does the work there.
+    if (!canEditValue(this)) {
+      return;
+    }
     const next = this.sanitizedEdit(result);
     this.commit(next.value, next.caret, next.anchor);
   }

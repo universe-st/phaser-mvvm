@@ -199,3 +199,24 @@
 第二种写法**能用**，但键表里没有它，审计就会把用户写对了的选项报成拼错的键（实测：`TextField`/`TextArea` 的 `onChange`/`onSubmit`/`onFocus`/`onBlur` 四个回调都不在 `TEXT_INPUT_KEYS` 里，而 `onSubmit` 按 Enter 时确实被调用）。**框架自己的审计喊错比没有审计更糟** —— 它教用户忽略这条警告，而这条警告正是抓 V51（拼错的 `pading`）的东西。
 
 **纪律**：新增选项时，不论从哪里读，都把它加进该控件的 `*_KEYS`；`packages/widgets` 里已有 `Button` 的 `onClick`、`Slider` 的 `onChange` 作为正确样例。门禁是 `scripts/visual-check.mjs` 的逐场景审计 + `#/options` 页面（它同时是"审计抓自己"的用例）。
+
+## 8.46 编辑权限要判在唯一漏斗上，别判在每个调用点（第 88 轮 V59）
+
+文本框的"这次改动能不能落地"有两条来源：**DOM 桥**由元素自己的 `readonly`/`disabled` 属性负责（浏览器拦住一切，包括粘贴），**纯 Canvas 路径**必须自己判。而 Canvas 路径的编辑入口不止一个：
+
+- `handleKeyEvent()` 的按键分支（打字 / `Backspace` / `Delete` / `Enter`）—— 这里逐个判了 `readOnly`；
+- `Ctrl+X`/`Ctrl+V` 走的 `cutSelection()` / `pasteClipboard()` —— **不经过按键分支**，于是漏判。
+
+实测（`dom: false, readOnly: true`，值 `locked value`）：打字、`Backspace`、`Enter` 全被正确拒绝，但 `Ctrl+V` 把它改成 `ZZZ`、`Ctrl+X` 把它清成 `''`。两者最终都写进 `applyEdit()`。
+
+**纪律**：状态权限（`readOnly`/`enabled`）判在**唯一的编辑漏斗**里，公共命令（`insertText`/`deleteText`）与键盘/剪贴板路径共用同一条判定 —— 现在是 `canEditValue({ enabled, readOnly })`（`packages/widgets/src/text-edit.ts`，纯函数，有 Node 单测）。判在每个调用点的写法会随"新增一个入口"而失效，而新入口往往正是捷径（剪贴板就是）。
+
+**顺带记住剪切的两半**：剪切 = "复制 + 删除"。只读字段应当**仍然能复制**（浏览器也是这个语义），所以 `cutSelection()` 先写剪贴板、由 `applyEdit()` 拒绝删除 —— 修完的实测是「值不变、剪贴板得到 `locked value`」，这比"剪切什么都不做"更正确。
+
+## 8.47 一次性几何探针会在布局变化后撒谎（第 88 轮）
+
+`reportControl()`/`reportWidget()` 是**创建时采样一次**（AGENTS §5 有纪律），一旦页面在创建之后又长高/上移（本例：给 `#/form` 加了一个字段，面板 466px → 514px，整块上移 24px），快照里的中心点就落在控件外面了。
+
+现象：点击 `canvas` 字段后 `focus = none`，看起来像"输入框之间点击会丢焦点"——实际是点在空白处，框架正确地释放了焦点。改用 `window.game.scene.getScene(<scene>).mvvm.input.widgets` 里每个控件的**实时** `rect`（或逐帧发布的 `pt.*`）后，六个字段逐个点击全部正常。
+
+**纪律**：验收脚本里的坐标要么取逐帧 `pt.*`，要么当场读实时 `rect`；`#status` 只用来核对"布局本身对不对"，不要拿它当点击坐标。**先怀疑探针、再怀疑框架**——这条和 §8.41（文档数字滞后）是同一类错误：读数过期比读数错误更常见。

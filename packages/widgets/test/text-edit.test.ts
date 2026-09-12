@@ -16,6 +16,7 @@ import {
   codePointCount,
   computeLineHeight,
   computeScrollX,
+  canEditValue,
   computeScrollY,
   deleteRange,
   displayOffset,
@@ -510,5 +511,25 @@ describe('metrics', () => {
     expect(rowsForHeight(76, 20, padding)).toBe(3);
     expect(rowsForHeight(79, 20, padding)).toBe(3);
     expect(rowsForHeight(0, 20, padding)).toBe(1);
+  });
+});
+
+/**
+ * The Canvas path has no `<input readonly>` to lean on, so "may this edit land?" is decided in code —
+ * by one rule, used by the one funnel every edit goes through. The per-caller variant of this rule is
+ * what let `Ctrl+X`/`Ctrl+V` edit a read-only field (V59).
+ */
+describe('canEditValue', () => {
+  it('refuses a read-only field', () => {
+    expect(canEditValue({ enabled: true, readOnly: true })).toBe(false);
+  });
+
+  it('refuses a disabled field', () => {
+    expect(canEditValue({ enabled: false, readOnly: false })).toBe(false);
+    expect(canEditValue({ enabled: false, readOnly: true })).toBe(false);
+  });
+
+  it('allows an ordinary field', () => {
+    expect(canEditValue({ enabled: true, readOnly: false })).toBe(true);
   });
 });

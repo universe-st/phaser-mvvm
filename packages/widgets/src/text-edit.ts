@@ -736,3 +736,30 @@ export function rowsForHeight(height: number, lineHeight: number, insets: Insets
   const usable = height - insets.top - insets.bottom;
   return Math.max(1, Math.floor(usable / lineHeight));
 }
+
+// ---------------------------------------------------------------------------- permissions
+
+/** The two pieces of control state that decide whether an *edit* may land. */
+export interface EditPermission {
+  /** `Widget#enabled` — a disabled control accepts nothing. */
+  enabled: boolean;
+  /** The `readOnly` option — the value is shown and selectable, but the user cannot change it. */
+  readOnly: boolean;
+}
+
+/**
+ * Whether an editing command may change the value.
+ *
+ * The DOM path gets this for free from the element (`readonly` / `disabled` attributes), so the Canvas
+ * path has to decide it itself — and it has to decide it **once**, in the one funnel every edit goes
+ * through (`TextInputBase#applyEdit`). Deciding it per caller is exactly how `Ctrl+X`/`Ctrl+V` slipped
+ * past the `readOnly` check that typing, Backspace and Enter all honoured: those two are handled by
+ * their own clipboard path rather than by the key switch (round 88, V59).
+ *
+ * Copying is deliberately **not** covered: reading the selection out of a read-only field is what a
+ * browser allows too, so a cut on a read-only field still fills the clipboard and only its delete half
+ * is refused.
+ */
+export function canEditValue(state: EditPermission): boolean {
+  return state.enabled && !state.readOnly;
+}
