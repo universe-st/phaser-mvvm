@@ -141,10 +141,13 @@ DOM 桥路径不受影响（浏览器原生选择）。要补这条得先有"拖
 
 ## 6. 门禁
 
-| 命令                           | 第 57 轮                                                          | 第 88 轮                                                          |
-| ------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `pnpm -r run test`             | **1070** 通过（layout 313 / core 281 / phaser 146 / widgets 330） | **1276** 通过（core 281 / layout 313 / phaser 320 / widgets 362） |
-| `pnpm -r run typecheck`        | 5/5                                                               | 5/5                                                               |
-| `pnpm exec prettier --check .` | 通过                                                              | 通过                                                              |
-| `pnpm docs:check`              | 通过                                                              | 通过                                                              |
-| `pnpm run build:examples`      | 通过                                                              | 通过                                                              |
+| 命令                            | 第 57 轮                                                          | 第 88 轮                                                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run test`              | **1070** 通过（layout 313 / core 281 / phaser 146 / widgets 330） | **1276** 通过（core 281 / layout 313 / phaser 320 / widgets 362）                                                                                                                |
+| `pnpm -r run typecheck`         | 5/5                                                               | 5/5                                                                                                                                                                              |
+| `pnpm exec prettier --check .`  | 通过                                                              | 通过                                                                                                                                                                             |
+| `pnpm docs:check`               | 通过                                                              | 通过                                                                                                                                                                             |
+| `pnpm run build:examples`       | 通过                                                              | 通过                                                                                                                                                                             |
+| `pnpm size`                     | 未记录                                                            | **26.9 KB** min+gzip（`phaser`+`widgets`，预算 45）✓                                                                                                                             |
+| `node scripts/visual-check.mjs` | 未记录                                                            | 通过（几何 + 像素 + AX 树 + 每场景未知选项审计）✓                                                                                                                                |
+| 22 场景扫场 + 泄漏门禁          | 未记录                                                            | 0 异常 / 0 警告 / 0 未知选项；`lifecycle` 101 轮逐项一致，`modal`/`pages`/`router`/`list`/`uiscene`/`showcase`/`keyboard` churn 前后相同，`#/scroll` 归 `{drag:null,bar:null}` ✓ |
