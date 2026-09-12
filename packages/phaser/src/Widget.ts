@@ -424,6 +424,29 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     return this;
   }
 
+  /**
+   * Sets the scroll factor on this widget **and every descendant**.
+   *
+   * Phaser's hit test restores the pointer with the *hit object's own* scroll factor
+   * (`InputManager.js:905` overwrites `worldX/Y` from `camera.getWorldPoint`, `:924` then applies
+   * `worldX + scrollX * object.scrollFactorX - scrollX`). A camera-pinned UI therefore has to be pinned on
+   * **every** widget: pinning only the root leaves the leaves at factor 1, the restored coordinate lands in
+   * a different space than the world-matrix inverse, and every hit test misses (measured: `hitTest` returns
+   * 0 with only the root pinned, 1 with the whole tree pinned).
+   */
+  override setScrollFactor(x: number, y: number = x): this {
+    return this.setScrollFactorAll(x, y);
+  }
+
+  /** Propagates a scroll factor down the widget tree; see `setScrollFactor`. */
+  setScrollFactorAll(x: number, y: number = x): this {
+    super.setScrollFactor(x, y);
+    for (const child of this.widgetChildren) {
+      child.setScrollFactorAll(x, y);
+    }
+    return this;
+  }
+
   override destroy(fromScene?: boolean): void {
     for (let i = this.widgetChildren.length - 1; i >= 0; i--) {
       const child = this.widgetChildren[i];

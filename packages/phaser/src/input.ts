@@ -485,14 +485,29 @@ export class InputRouter {
    * with a hit area can swallow its child buttons. Walking the widget tree front-to-back (last child
    * is drawn on top) gives the semantics a UI needs.
    */
+  /**
+   * The pointer in the space the widget tree is laid out in.
+   *
+   * Layout rects are in the space the UI root lives in - the world, unless the UI is pinned to the camera
+   * (`root.setScrollFactor(0)`, the HUD recipe). With a scrolled camera `pointer.worldX/Y` is then the wrong
+   * space: the hit test *and* this walk disagree by exactly the camera offset. `resolveTarget` is the gate
+   * that runs after Phaser's own hit test, so both have to agree.
+   */
+  private pointerInUiSpace(pointer: Phaser.Input.Pointer): { x: number; y: number } {
+    const root = this.rootWidget;
+    if (root !== null && root.scrollFactorX === 0 && root.scrollFactorY === 0) {
+      return { x: pointer.x, y: pointer.y };
+    }
+    return { x: pointer.worldX, y: pointer.worldY };
+  }
+
   private resolveTarget(pointer: Phaser.Input.Pointer): Widget | null {
     const root = this.rootWidget;
     if (!root) {
       return null;
     }
 
-    const x = pointer.worldX;
-    const y = pointer.worldY;
+    const { x, y } = this.pointerInUiSpace(pointer);
 
     const visit = (widget: Widget, offsetX: number, offsetY: number): Widget | null => {
       const children = widget.getWidgetChildren();
@@ -549,7 +564,8 @@ export class InputRouter {
     if (!widget.enabled) {
       return;
     }
-    this.pressedAt.set(widget, { x: pointer.worldX, y: pointer.worldY, pointer });
+    const origin = this.pointerInUiSpace(pointer);
+    this.pressedAt.set(widget, { x: origin.x, y: origin.y, pointer });
     widget.setPressed(true);
 
     // Pressing a control gives it focus, the way every desktop toolkit behaves: the focus ring appears
@@ -577,7 +593,7 @@ export class InputRouter {
     }
     // Phaser only emits `pointerup` on an object when the pointer is still over it, so "released
     // inside the widget" is already guaranteed here; only the travel has to be checked.
-    if (!isClickGesture(down, { x: pointer.worldX, y: pointer.worldY }, this.dragThreshold)) {
+    if (!isClickGesture(down, this.pointerInUiSpace(pointer), this.dragThreshold)) {
       return;
     }
 
