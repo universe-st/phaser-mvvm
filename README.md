@@ -262,6 +262,7 @@ phaser-mvvm/
 | [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                 | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                        |
 | [`docs/ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)       | 验收记录：PLAN §8 性能与体积预算的实测（1000 节点 0.06 ms、无变化帧零测量、缓存 95.6%、体积 18.3/14.7 KB）                                                   |
 | [`docs/ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)           | 验收记录：`render()` 入口、控制流演示、DSL 优先的快速开始与文档对齐                                                                                          |
+| [`docs/ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)                 | 验收记录：命令绑定的指针可达性（V4 复现+修复）与 `#/showcase` 迁移到 DSL 的等价性核对                                                                        |
 | [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                       | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
 | [`docs/adr/`](./docs/adr/README.md)                                        | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
 | `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                             | 生成的 API 参考                                                                                                                                              |

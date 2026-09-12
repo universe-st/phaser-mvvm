@@ -43,9 +43,33 @@ await frame();
 
 ---
 
-## 2. `#/showcase` 迁移到 DSL
+## 2. `#/showcase` 迁移到 DSL（1589 → 1740 行）
 
-（本节在子代理完成迁移、父会话用 Playwright 逐分区核对后填写。）
+`apps/examples/src/scenes/showcase.ts` 是最后一个用 `this.add.ui*` 工厂写的大页面（1598→1740 行属于内容 lambda 的缩进与括号，不是功能增加）。迁移由子代理完成，父会话用 Playwright MCP 独立核对。
+
+### 2.1 等价性（实测，与迁移前基线逐项比对）
+
+| 检查                      | 结果                                                                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 每个分区的 `widgets` 计数 | text **39** / buttons **43** / inputs **35** / decoration **71** / box **161** / grid **81** / stack **83** / params **110** / repeat **107** / focus **39** —— **与基线完全一致，零差异** |
+| 启动几何                  | `page=@12,12 1176x619`、`nav=@24,62 232x595`、`stage=@268,62 908x595`（与基线一致）                                                                                                        |
+| Show all                  | 751 个控件（与基线一致）                                                                                                                                                                   |
+| `pt.*` 键                 | 全部保留：`header.showAll/next/theme`、`nav.<10 个分区>`、`section.<id>`、`buttons.toggle/click/reset`、`inputs.*`、`params.visibility`、`repeat.*`、`focus.*` 等                          |
+| 真实交互                  | 主题按钮 dark → light → dark；反馈按钮点两次 `clicks=2`，Reset 归 0；滚动、chips 横滚、Add row、虚拟化 Reverse、`visible` 折叠均由子代理逐项驱动通过                                       |
+| 控制台                    | 0 error                                                                                                                                                                                    |
+
+### 2.2 迁移中的判断（已在子代理报告中逐条说明，非静默差异）
+
+1. **透明面板 → `Row`/`Column`**：几何完全一致；差别是 `Panel` 默认装 `blockPointer` 命中区而 `BoxWidget` 不装。本页无人需要该命中区、UI 后面也没有游戏对象，因此节点数与交互读数都无变化。若日后要求指针拓扑完全一致，把这些换回 `Panel({ variant: 'plain', … })` 即可。
+2. **色块**：DSL 没有 `Rect` composable（`RectWidget` 是适配层的 M0 探针控件），因此按指南 §7 的「自定义控件加入 DSL 树」协议写：`new RectWidget(...)` + `scene.add.existing` + `emitWidget()`，外层用 `Row`/`Text` 组合。
+3. **模板绑定 → 反应式槽位**：头部摘要/底部读数/实时值标签改为 `Text(() => …)`；**唯一保留** `bindTemplateText` 的是列表行名标签（`{{ $index }}` 是活状态，重排后必须重算行号）。
+4. **`setText`/`setVisible` → 反应式槽位**：`Button(() => …)`、`{ visible: () => … }`；发布键与取值不变，唯一理论差异是标签在帧刷新时重绘而不是在点击回调里同步重绘（不影响任何读数）。
+5. **`onValueChange` 取代手写 `change` 监听**：同一事件、同一发布键。
+6. `controls()` 的插入顺序被刻意保持（含 chips 端口先于行按钮这一处），以免 `pt.*` 顺序变化。
+
+### 2.3 未验证
+
+- 本页**未做像素级验收**：该环境里 `Page.captureScreenshot` 与 `canvas.toDataURL()` 对 WebGL 表面返回空白图（子代理报告），因此等价性证据是几何/状态/控件树层面的。`chromium` + `?capture=1` 的像素路径本轮未跑。
 
 ---
 
