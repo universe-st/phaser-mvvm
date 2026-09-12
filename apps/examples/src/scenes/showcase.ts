@@ -63,7 +63,7 @@ import {
   TextField,
   ui,
 } from '@phaser-mvvm/widgets/compose';
-import { makeTileTexture, setDemoState } from '../demo';
+import { makeTexture, makeTileTexture, setDemoState } from '../demo';
 import type { Label } from '@phaser-mvvm/widgets';
 import {
   appendStatus,
@@ -157,6 +157,8 @@ const SECTIONS: readonly SectionDef[] = [
 const NAV_WIDTH = 232;
 const PAGE_MARGIN = 12;
 const TILE_TEXTURE = 'showcase.tile';
+/** A control-sized icon, next to the deliberately oversized {@link TILE_TEXTURE}. */
+const ICON_TEXTURE = 'showcase.icon';
 
 /** Row of the sample list in the `repeat` section. */
 interface SampleRow {
@@ -219,6 +221,12 @@ export class ShowcaseScene extends Phaser.Scene {
 
   create(): void {
     makeTileTexture(this, TILE_TEXTURE, 64);
+    makeTexture(this, ICON_TEXTURE, 16, 16, (graphics) => {
+      graphics.fillStyle(0x3fb950, 1);
+      graphics.fillCircle(8, 8, 7);
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillCircle(8, 8, 3);
+    });
     this.reported.clear();
     this.tracked.clear();
 
@@ -507,7 +515,70 @@ export class ShowcaseScene extends Phaser.Scene {
        * `trunc.single`), which is how a check confirms the width actually applied.
        */
       truncation: () => this.truncation(),
+      /**
+       * Where every icon button's glyph ended up, relative to the button that owns it.
+       *
+       * "The icon never leaves its button" is a claim about two different spaces (the layout's rect for
+       * the *button*, the Game Object transform for the *icon*), so neither `rects()` nor a state read
+       * can answer it: this reports the icon's own drawn box and whether it is inside the button. The
+       * widgets are the two named ones of the `buttons` section's icon card, plus the small-icon
+       * counter-example (round 106).
+       */
+      iconFit: () =>
+        ['iconTextButton', 'iconOnlyButton', 'smallIconButton']
+          .map((name) => this.iconFitOf(name))
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
     };
+  }
+
+  /** One row of `window.showcase.iconFit()`. */
+  private iconFitOf(name: string): {
+    name: string;
+    button: { width: number; height: number };
+    glyph: { width: number; height: number };
+    /** Glyph box inside the button's own coordinates. */
+    x: number;
+    y: number;
+    inside: boolean;
+  } | null {
+    const button = this.findWidget(name);
+    const icon = button?.icon as
+      { displayWidth?: number; displayHeight?: number } | null | undefined;
+    if (!button || !icon) {
+      return null;
+    }
+    const glyph = { width: icon.displayWidth ?? 0, height: icon.displayHeight ?? 0 };
+    const x = (icon as unknown as { x: number }).x;
+    const y = (icon as unknown as { y: number }).y;
+    return {
+      name,
+      button: { width: button.appliedRect.width, height: button.appliedRect.height },
+      glyph,
+      x,
+      y,
+      inside:
+        x >= 0 &&
+        y >= 0 &&
+        x + glyph.width <= button.appliedRect.width &&
+        y + glyph.height <= button.appliedRect.height,
+    };
+  }
+
+  /** Depth-first search for a widget by `name` below the page; `null` when the section is not up. */
+  private findWidget(name: string): (Widget & { icon?: unknown }) | null {
+    const visit = (widget: Widget): (Widget & { icon?: unknown }) | null => {
+      if (widget.name === name) {
+        return widget as Widget & { icon?: unknown };
+      }
+      for (const child of widget.getWidgetChildren()) {
+        const found = visit(child);
+        if (found) {
+          return found;
+        }
+      }
+      return null;
+    };
+    return this.page ? visit(this.page) : null;
   }
 
   /** See `window.showcase.truncation()` — the painted state of the truncation card's two labels. */
@@ -651,7 +722,13 @@ export class ShowcaseScene extends Phaser.Scene {
 
   /** Body: the navigator on the left, the clipped stage on the right. */
   private buildBody(): void {
-    Row({ gap: 12, alignItems: 'stretch', width: 'fill', grow: 1 }, () => {
+    // `height: 'fill'` and not `grow: 1`: on the page's *main* axis a `fill` child has a base size of
+    // 0, so this row takes exactly what the header and the footer leave over (`flex: 1 1 0`). With
+    // `grow: 1` the row kept its *measured* size — and it measured as tall as the page content box,
+    // because the stage inside it asks for `height: 'fill'` — so the row overflowed the page by the
+    // height of the header, the footer and the two gaps. That is why the nav's bottom corners and the
+    // last card of a scrolled section were drawn past the bottom of the canvas (round 106).
+    Row({ gap: 12, alignItems: 'stretch', width: 'fill', height: 'fill' }, () => {
       // The nav is built empty and filled by `rebuildNav()`, exactly like the factory version: its
       // content is replaced on every section switch, and the panel itself must survive that.
       this.nav = Panel({
@@ -707,6 +784,11 @@ export class ShowcaseScene extends Phaser.Scene {
    *
    * `ui()` returns one root, so `navItems()` composes the items into a `Column` that is attached to
    * the (mounted, surviving) nav panel: the nav's own box never changes, only its content does.
+   *
+   * The list lives in a `Scroll` port because the rail is only as tall as what the page leaves it:
+   * eleven sections plus four group headings are 572 px, which fits a 720 px window and does not fit a
+   * shorter one — and a `Panel` does not clip what sticks out of it, so an unscrolled list drew its
+   * last rows over the panel's rounded bottom corners and past the canvas (round 106).
    */
   private rebuildNav(): void {
     const nav = this.nav;
@@ -715,7 +797,20 @@ export class ShowcaseScene extends Phaser.Scene {
     }
     nav.removeAllWidgets(true);
     this.clearTrackedGroup('nav');
-    nav.addWidget(ui(this, () => this.navItems()));
+    nav.addWidget(
+      ui(this, () =>
+        Scroll(
+          {
+            direction: 'vertical',
+            width: 'fill',
+            height: 'fill',
+            scrollbar: 'auto',
+            name: 'showcase.navScroll',
+          },
+          () => this.navItems(),
+        ),
+      ),
+    );
   }
 
   /** Content of the nav, as composables; runs once per rebuild (and once for the first build). */
@@ -757,9 +852,9 @@ export class ShowcaseScene extends Phaser.Scene {
           onClick: () => this.setShowAll(true),
         }),
       );
-      Text('Every card uses the public widget API. The stage is a ScrollView.', {
+      Text('Every card uses the public API.', {
         tone: 'muted',
-        maxLines: 4,
+        maxLines: 2,
         width: NAV_WIDTH - 20,
       });
     });
@@ -1153,12 +1248,51 @@ export class ShowcaseScene extends Phaser.Scene {
           });
         });
 
-        this.card('Button · icon', 'a texture key icon, with or without a label', () => {
-          this.row(() => {
-            Button('With icon', { icon: TILE_TEXTURE, variant: 'secondary' });
-            Button('', { icon: TILE_TEXTURE, variant: 'primary', name: 'iconOnlyButton' });
-          });
-        });
+        this.card(
+          'Button · icon',
+          'a 64 px texture in a 36 px control: the icon is capped to its button and never drawn outside it',
+          () => {
+            this.row(() => {
+              this.track(
+                'section',
+                'buttons.iconText',
+                Button('With icon', {
+                  icon: TILE_TEXTURE,
+                  variant: 'secondary',
+                  name: 'iconTextButton',
+                }),
+              );
+              this.track(
+                'section',
+                'buttons.iconOnly',
+                Button('', {
+                  icon: TILE_TEXTURE,
+                  variant: 'primary',
+                  name: 'iconOnlyButton',
+                  label: 'icon only',
+                }),
+              );
+              // The cap follows the control height (`controlHeight` sm/md/lg = 28/36/44), so the same
+              // 64 px texture comes out a different size in each step — and still inside the button.
+              Button('sm', { icon: TILE_TEXTURE, variant: 'secondary', size: 'sm' });
+              Button('lg', { icon: TILE_TEXTURE, variant: 'secondary', size: 'lg' });
+              // A button shorter than the theme's smallest step: the cap shrinks the icon further.
+              Button('20 px tall', {
+                icon: TILE_TEXTURE,
+                variant: 'secondary',
+                size: 'sm',
+                height: 20,
+              });
+              // An icon that is already small is left exactly as it is: the cap never scales an icon
+              // *up*, which is the other half of "the button owns the size".
+              Button('16 px icon', {
+                icon: ICON_TEXTURE,
+                variant: 'secondary',
+                name: 'smallIconButton',
+              });
+            });
+          },
+        );
 
         this.card(
           'Button · feedback',

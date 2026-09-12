@@ -213,7 +213,8 @@ export class ComposeScene extends Phaser.Scene {
     // tell "the frame changed" from "the texture changed" (round 100 closes the gap left by round 98,
     // where only the `texture` half of the pair was exercised).
     makeAtlasTexture(this, ATLAS_TEXTURE, { red: 0xf85149, green: 0x3fb950 });
-    // A control-sized icon: the 64px tile overflows a 36px button, which looks like a layout bug.
+    // A control-sized icon, on purpose: an icon that already fits its button is left exactly as it is
+    // (`Button` caps a too-large one, `#/showcase`'s icon card shows that half).
     makeTexture(this, ICON_TEXTURE, 16, 16, (graphics) => {
       graphics.fillStyle(0x2f6feb, 1);
       graphics.fillCircle(8, 8, 7);
