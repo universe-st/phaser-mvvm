@@ -298,6 +298,29 @@ export function keepsHoverAfterPress(pointer: { wasTouch?: boolean } | null | un
 }
 
 /**
+ * Whether a widget can *do* anything with the pointer states (`hover`/`pressed`).
+ *
+ * A hit area alone does not make a control: `Panel` keeps one by default for a different reason —
+ * `blockPointer` is the interception layer that stops a press from reaching the game behind the UI —
+ * and such a layer is decoration. Painting pointer states on it made every container *flash* as the
+ * pointer crossed its children: the router points at the deepest target, so a panel lost `hover` the
+ * moment the cursor entered one of its buttons and regained it in the gap between two of them (the
+ * showcase's nav column, round 106). The rule is therefore "hover and press belong to controls":
+ * focusable, activatable, or explicitly flagged `interactive`.
+ */
+export function takesPointerStates(widget: {
+  focusable?: boolean;
+  onActivate?: unknown;
+  interactive?: unknown;
+}): boolean {
+  return (
+    widget.focusable === true ||
+    (widget.onActivate !== null && widget.onActivate !== undefined) ||
+    widget.interactive === true
+  );
+}
+
+/**
  * True when `node` is `ancestor` itself or one of its descendants in the container chain.
  *
  * This is the containment test behind input capture: events that reach a widget outside the capture
@@ -516,17 +539,21 @@ export class InputRouter {
   }
 
   /**
-   * Re-derives the pointer state of the tree: hover is *the deepest widget under the pointer*, and a
+   * Re-derives the pointer state of the tree: hover is *the deepest control under the pointer*, and a
    * press whose pointer is no longer down is stale.
    *
    * Both are states rather than event streams, which is what makes them self-correcting: a widget
    * that scrolls, is hidden, is rebuilt or is disabled under a stationary pointer drops its hover on
    * the next frame, and a press released outside every widget (Phaser delivers no `pointerup` to a
    * Game Object the pointer is not over) cannot stay pressed.
+   *
+   * The target is resolved first (that is what decides interception and activation) and then walked
+   * *up* to the nearest control: a pure interception layer never lights up, and a control that
+   * contains such a layer still does — the CSS `:hover` an author expects.
    */
   private syncPointerState(): void {
     const pointer = this.hoverPointer();
-    const target = pointer ? this.resolveTarget(pointer) : null;
+    const target = pointer ? this.pointerStateTarget(this.resolveTarget(pointer)) : null;
     if (target !== this.hoveredWidget) {
       const previous = this.hoveredWidget;
       this.hoveredWidget = target;
@@ -547,6 +574,24 @@ export class InputRouter {
         widget.setPressed(false);
       }
     }
+  }
+
+  /**
+   * The control that owns the pointer states for a resolved target: the deepest ancestor-or-self
+   * that can actually do something with them (see {@link takesPointerStates}).
+   *
+   * `null` when nothing in the chain is a control — the pointer is over a decoration, and no widget
+   * should look pressed or hovered.
+   */
+  private pointerStateTarget(target: Widget | null): Widget | null {
+    let current: Widget | null = target;
+    while (current) {
+      if (takesPointerStates(current)) {
+        return current;
+      }
+      current = current.parentContainer as unknown as Widget | null;
+    }
+    return null;
   }
 
   /**
@@ -731,7 +776,12 @@ export class InputRouter {
     }
     const origin = this.pointerInUiSpace(pointer, widget);
     this.pressedAt.set(widget, { x: origin.x, y: origin.y, pointer });
-    widget.setPressed(true);
+    // The *press* is recorded for every target (that is what decides activation), but only a control
+    // shows it: a pure interception layer that darkened on every click is the same defect as the
+    // hover flash (see `takesPointerStates`).
+    if (takesPointerStates(widget)) {
+      widget.setPressed(true);
+    }
 
     // Pressing a control gives it focus, the way every desktop toolkit behaves: the focus ring appears
     // where the user clicked and the next `Tab`/arrow continues from there. A press that turns into a
@@ -776,14 +826,17 @@ export class InputRouter {
       // `resetInteraction` cleared hover above; a mouse click leaves the cursor inside the widget, so the
       // hover state has to be restored right away (the next frame's poll would do it a frame later,
       // which is visible as a flicker on a click). A *touch* has no cursor to leave behind - see
-      // `keepsHoverAfterPress`.
+      // `keepsHoverAfterPress`. Which widget shows it is the same question the poll answers: the
+      // nearest control (and nothing at all when the target is a decoration).
+      const hovered = this.pointerStateTarget(widget);
       if (
+        hovered &&
         widget.enabled &&
         keepsHoverAfterPress(pointer) &&
         this.resolveTarget(pointer) === widget
       ) {
-        widget.setHovered(true);
-        this.hoveredWidget = widget;
+        hovered.setHovered(true);
+        this.hoveredWidget = hovered;
       }
     }
   }

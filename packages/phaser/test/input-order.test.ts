@@ -21,6 +21,7 @@ import {
   keepsHoverAfterPress,
   pointerInWidgetSpace,
   shouldFocusOnPress,
+  takesPointerStates,
 } from '../src/input';
 
 /* ------------------------------------------------------------------ fakes */
@@ -266,6 +267,26 @@ describe('shouldFocusOnPress', () => {
     // A disabled control is skipped by traversal; focusing it would put the ring on a control the user
     // cannot use and would break `Tab` (it would have to skip back out).
     expect(shouldFocusOnPress({ focusable: true, enabled: false })).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ takesPointerStates */
+
+describe('takesPointerStates', () => {
+  it('accepts every widget that can act on a press', () => {
+    expect(takesPointerStates({ focusable: true })).toBe(true);
+    expect(takesPointerStates({ onActivate: () => undefined })).toBe(true);
+    // A widget library control may declare the marker instead of focus/activation (a clickable card).
+    expect(takesPointerStates({ interactive: true })).toBe(true);
+  });
+
+  it('rejects a pure interception layer', () => {
+    // `Panel` keeps a hit area by default so that a press cannot reach the game behind the UI. That
+    // layer is decoration: painting `hover`/`pressed` on it made every container flash while the
+    // pointer crossed its children (the nav column of `#/showcase`), so it must stay out.
+    expect(takesPointerStates({})).toBe(false);
+    expect(takesPointerStates({ focusable: false, onActivate: null })).toBe(false);
+    expect(takesPointerStates({ interactive: false })).toBe(false);
   });
 });
 
