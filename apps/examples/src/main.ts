@@ -20,6 +20,7 @@ import { KeyboardScene } from './scenes/keyboard';
 import { ProbeScene } from './scenes/probe';
 import { ScrollScene } from './scenes/scroll';
 import { StatesScene } from './scenes/states';
+import { OptionsScene } from './scenes/options';
 import { UiSceneScene } from './scenes/uiscene';
 import { ShowcaseScene } from './scenes/showcase';
 import { StackScene } from './scenes/stack';
@@ -65,6 +66,7 @@ const SCENES = {
   compose: ComposeScene,
   lifecycle: LifecycleScene,
   states: StatesScene,
+  options: OptionsScene,
   uiscene: UiSceneScene,
   hud: HudScene,
   router: RouterScene,

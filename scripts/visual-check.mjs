@@ -42,7 +42,18 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y', 'compose', 'keyboard'];
+const scenes = [
+  'm0',
+  'probe',
+  'stack',
+  'hud',
+  'modal',
+  'uiscene',
+  'a11y',
+  'compose',
+  'options',
+  'keyboard',
+];
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.

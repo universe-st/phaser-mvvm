@@ -177,3 +177,25 @@
 
 - `clampToLimits()` **硬钳制**（`clampOffset(x, limit, false)`），它在 `onRectChanged()` 里被调用，而拖拽的每一步都会让 holder 重新排布 —— 修之前顺序是「拖出边界 → 布局 → 钳回边界」，于是 `bounce` 看起来完全没生效（实测：从顶端下拉 60px，偏移全程 0，每步两次 `scroll` 事件）。现在橡皮筋打开时它直接返回，回弹交给 `step()` 的 `springBack()`（每帧 30%，`!dragging && outOfRange()` 才跑），后者同时负责原本那个「视口变大/内容变短后停在范围外」的场景。
 - **给 `ScrollView` 加任何"纠正偏移"的逻辑之前**，先确认 `bounceEnabled` 下它不会被误伤；`packages/widgets/test/scroll-plan.test.ts` 的 `clampOffset` 用例钉住了曲线本身（饱和于 `BOUNCE_LIMIT`、随拉力变硬），但**控件级**的这条纪律只能靠 `#/scroll` 的橡皮筋口（`scroll.bounce`）验收。
+
+## 8.44 数据槽位会"每帧写回同一个值"，这类写入必须是空操作（第 87 轮 V56）
+
+`Scroll({ offset: ref })` 这样的双向槽位，内部是「控件变化 → 写 `ref`」+「`ref` 变化 → 写控件」两条边。第二条边**每一帧都会执行一次**（`ref` 一变，绑定就重放），写进去的通常正是控件当前的值。
+
+所以任何"设置值"的 API 都要把**目标与当前一致**当成空操作处理，不要在里面做有副作用的收尾动作：
+
+- `ScrollView.setScrollOffset(同一个位置)` 曾经无条件 `stopScroll()` —— 于是槽位每帧清零 `dragVelocity`/`coasting`，带槽位的口**拖完不会滑行**（实测：拖动中 `velocity` 恒为 `{0,0}`，`coasting` 永远 `false`）。现在先比目标，一致就 `return`；只有真的要换位置才停惯性（V54 的语义保留）。
+- 同族纪律见 §8.33（`setValue` 与 `change` 的两条通道）、§8.38（偏移只有一个写入口）。**给双向槽位加 setter 时先问**：它会不会被绑定每帧重放？重放时做的事有没有副作用？
+
+验收方式：`#/options` 把「带槽位 + `inertia: true`」与「带槽位 + `inertia: false`」并排，同一次快速拖拽下前者必须滑行、后者必须立刻停 —— 两个口都带槽位，所以任何"槽位掐掉动量"的回归都会让第一列同时失去滑行。
+
+## 8.45 从"原始选项"读的选项，也要进 `*_KEYS`（第 87 轮 V57）
+
+`splitOptions()` 只把**键表里写着**的键搬进控件包，其余的归进 `layout` 参数（`normalizeParams` 会忽略）。于是有两种写法：
+
+- 从**拆出来的**控件包读：`widget.onClick`（前提是键表里有 `onClick`）；
+- 从**原始选项对象**读：`this.onSubmit = options.onSubmit ?? null`。
+
+第二种写法**能用**，但键表里没有它，审计就会把用户写对了的选项报成拼错的键（实测：`TextField`/`TextArea` 的 `onChange`/`onSubmit`/`onFocus`/`onBlur` 四个回调都不在 `TEXT_INPUT_KEYS` 里，而 `onSubmit` 按 Enter 时确实被调用）。**框架自己的审计喊错比没有审计更糟** —— 它教用户忽略这条警告，而这条警告正是抓 V51（拼错的 `pading`）的东西。
+
+**纪律**：新增选项时，不论从哪里读，都把它加进该控件的 `*_KEYS`；`packages/widgets` 里已有 `Button` 的 `onClick`、`Slider` 的 `onChange` 作为正确样例。门禁是 `scripts/visual-check.mjs` 的逐场景审计 + `#/options` 页面（它同时是"审计抓自己"的用例）。

@@ -74,3 +74,75 @@ $ node scripts/visual-check.mjs
 - **不改运行时行为**：拼错的键仍然被忽略（只是现在会说出来），因此**发布模式下的表现与第 82 轮完全一致**。
 - **`as` 断言的对象仍然后知后觉**：审计只看构造时收到的那个包，`.filter()`/展开之后丢了键的写法它管不了。
 - `#/compose` 的 `typo()` 仪器会临时注册 `onDevWarning` 并随即注销（否则 `warn()` 会把消息交给处理器而不再落 `console.warn`，整个示例页的警告就都看不见了）；验收脚本因此用 CDP 的 `Runtime.consoleAPICalled` 收集，而不是在页内挂钩子。
+
+---
+
+## 7. 选项覆盖：`#/options`（第 87 轮）
+
+§1 的审计检查的是「**拼错**的选项」，第 87 轮把同一份键表反过来用：把 `packages/widgets` 里每个 `*_KEYS` 与示例应用对照，找出**只出现在控件源码里**的选项 —— 也就是从来没有任何 demo 走过的路径。候选是 `Repeat.update`、`ScrollView.inertia`/`wheelSpeed`、`TextArea.submitOnEnter`、`Grid.autoFlow`/`minRowHeight`、`Box.alignContent`、`Slider.knobRadius`/`trackThickness`。
+
+它们**按代码看都没坏** —— 而 `bounce` 当年按代码看也没坏，第 86 轮一加 demo 就发现它从未生效（V55）。所以本轮新建 `#/options`，一卡一族、尽量做成 **A/B**（开了这个选项的一侧 vs 没开的一侧），读数进 `#demo-state`、几何进 `window.optionsDemo.rects()`。
+
+### 7.1 `Repeat.update`（原地刷新 vs 销毁重建）
+
+两个列表、同样的三个 key；「换数据」把每一项换成**同 key 的新对象**。`Repeat` 用 `Object.is` 比对象身份，所以这是与"同一项"可区分的一类变化。
+
+| 观测点                       | with `update`                  | without `update`           |
+| ---------------------------- | ------------------------------ | -------------------------- |
+| 第一次换数据后 `update` 调用 | **3**                          | 0（选项没给）              |
+| 模板构建次数（初始 3）       | **3**（没有重建 ✓）            | **6**（三项全部重建 ✓）    |
+| 第二次换数据后               | `updCalls` 6、构建数仍 **3**   | 构建数 **9**               |
+| 行上**画出来的文字**         | `A 1 → A1 1 → A2 1` ✓ 原地刷新 | `B 1 → B1 1 → B2 1` ✓ 重建 |
+
+「画出来的文字」是这一条的关键：两个列表的**数据源**都变了，只有读行控件的文本才能区分"原地刷新"与"重建"（`state().updatedPainted`/`plainPainted` 就是这么读的）。这条同时关掉了 `DEFECT-BACKLOG.md` §3.6 里登记了很久的「`Repeat` 的 `options.update` 路径没有 demo」。
+
+### 7.2 `TextArea.submitOnEnter`
+
+| 输入（真实键盘）    | `submitOnEnter: true`        | 默认                     |
+| ------------------- | ---------------------------- | ------------------------ |
+| 输入 `ab` + `Enter` | 提交 **1** 次、换行 **0** 个 | 换行 **1** 个、提交 0 次 |
+| 再按 `Ctrl+Enter`   | —                            | 提交 **1** 次            |
+
+### 7.3 `inertia` / `wheelSpeed`
+
+| 观测点                | 默认口（`inertia: true`） | `inertia: false`   |
+| --------------------- | ------------------------- | ------------------ |
+| 拖动中 `dragVelocity` | `{0, 0.901}` px/ms        | `{0, 0.917}` px/ms |
+| 松手瞬间 `coasting`   | **`true`**                | **`false`**        |
+| 松手 120 ms 后偏移    | 50 → **116**（滑到尽头）  | 50（纹丝不动）     |
+| 720 ms 后             | 116                       | 50                 |
+
+`wheelSpeed`（滚轮一格的距离倍率，同一个口一次 1 单位的滚轮）：默认口 **+2**、`wheelSpeed: 2` 口 **+4**；一次 3 单位：**+6** vs **+12**（比值精确为 2 ✓）。
+
+> 第一次量 `wheelSpeed` 时两个口都读到 116 —— 那是**我的测量饱和**（100 单位的滚轮一次性推到底，两个口都撞上 `maxOffset = 116`），不是缺陷。改成小步长后才看出真实比值。记在这里因为它是"读数像缺陷、其实是探针问题"的典型。
+
+### 7.4 布局参数（几何断言，不是看截图）
+
+| 断言                                           | 实测                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `autoFlow: 'column'`                           | 四个 30px 高的 tile：`tile0/tile1` 同列（x=26，y=428/524）、`tile2/tile3` 在第二列（x=179）       |
+| `minRowHeight: 90` + `rows: 2`                 | 行距 **96** = 90 + `rowGap` 6，tile 被拉高到 **90**                                               |
+| `minRowHeight: 140` + `rows: 2`                | 行距 **146** = 140 + 6，tile 高 **140**                                                           |
+| `Row({ wrap, alignContent: 'space-between' })` | 6 个 chip 折成 3 行（y 404/449/494），行距 15 = (120 − 3×30) / 2 ✓，最后一行底边 524 = 容器底边 ✓ |
+
+`minRowHeight` 那一对是 A/B 的意义所在：它**只在 `rows` 固定时生效**（[指南 02](../guide/02-layout.md) §grid 已写明），所以只写 `minRowHeight` 而不写 `rows` 的 demo 什么也证明不了 —— 第一版就是这样，量到的行距是子节点自己的高度。
+
+### 7.5 本轮顺带修掉的缺陷（V56）
+
+给 `inertia` 做 A/B 时发现：**`Scroll({ offset })` 的槽位会掐掉拖拽动量与惯性**。槽位把每一次 `scroll` 事件写进 `ref`，绑定下一帧再把同一个值写回控件 —— 而 `setScrollOffset()` 会先 `stopScroll()`（第 85 轮 V54 的修法），于是 `dragVelocity`/`coasting` 每帧被清零：实测拖动中 `velocity` 恒为 `{0,0}`、松手后 `coasting` 永远是 `false`，两个口都**不会滑行**（`#/options` 的两个口都带槽位，而 `#/scroll` 不带槽位的口照常滑行 —— 这就是定位它的关键对照）。
+
+修法：`setScrollOffset()` 在目标位置**与当前一致**时直接返回（"别动"不是一个请求），只有真的要求换位置才 `stopScroll()`。修后同一 A/B：默认口拖动中 `velocity {0, 0.901}`、松手 `coasting: true`、120 ms 后 50 → 116；`inertia: false` 口同样拖法 `coasting: false`、720 ms 后仍是 50。
+
+### 7.6 审计抓到的一次自造错误（V57）
+
+新页面上线第一次跑 `visual-check` 就红了：
+
+```
+[visual-check] options: 2 unknown-option warning(s): unknown option "onSubmit" on "options.submitArea" — it is ignored. | unknown option "onSubmit" on "options.defaultArea" ...
+```
+
+而同一个 `onSubmit` **确实被调用了**（§7.2 的 `enterSubmits` 0 → 1）。原因是 `TextField`/`TextArea` 从**原始选项对象**读 `onChange`/`onSubmit`/`onFocus`/`onBlur`，但 `TEXT_INPUT_KEYS` 里没有这四个键 —— 它们被 `splitOptions()` 归进布局参数，于是审计把它们当成拼错的键。把四个回调补进键表后页面转绿。详见 [`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md) §3.29。
+
+### 7.7 仍是代码级、没有 demo 的选项
+
+`Slider.knobRadius` / `trackThickness`（纯外观，验证需要像素采样）与 `Label.selectable`（只作为类型层面的"接受 `false`"，没有运行期行为）。前者留待需要像素门禁时补；后者不是行为选项。

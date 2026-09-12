@@ -521,15 +521,29 @@ export class ScrollView extends Widget {
    * (or a screen) away from where it asked to be — the state write `offset.value = 0` has to mean 0.
    */
   setScrollOffset(value: number | { x?: number; y?: number }): this {
-    this.stopScroll();
-    if (typeof value === 'number') {
-      const axis = this.primaryAxis();
-      return this.setOffset(
-        axis === 'x' ? value : this.currentX,
-        axis === 'y' ? value : this.currentY,
-      );
+    const axis = this.primaryAxis();
+    const nextX =
+      typeof value === 'number'
+        ? axis === 'x'
+          ? value
+          : this.currentX
+        : (value.x ?? this.currentX);
+    const nextY =
+      typeof value === 'number'
+        ? axis === 'y'
+          ? value
+          : this.currentY
+        : (value.y ?? this.currentY);
+    if (nextX === this.currentX && nextY === this.currentY) {
+      // "Stay where you are" is not a request for anything, and it must not disturb momentum: the DSL's
+      // `offset` slot mirrors every offset change back into the widget, so a drag or a fling would have
+      // its `dragVelocity`/`coasting` cleared once per frame — the port moved while the finger was down
+      // and then stopped dead instead of coasting (measured: a fast 50 px drag on `#/options` ended with
+      // `velocity { x: 0, y: 0 }` and no fling at all).
+      return this;
     }
-    return this.setOffset(value.x ?? this.currentX, value.y ?? this.currentY);
+    this.stopScroll();
+    return this.setOffset(nextX, nextY);
   }
 
   /** Moves the offset by a delta (the axes the view does not scroll are ignored). */

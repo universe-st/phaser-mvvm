@@ -135,6 +135,15 @@ export const TEXT_INPUT_KEYS = [
   'clearable',
   'dom',
   'validate',
+  // The callbacks. `TextField`/`TextArea` read them straight off the option bag, so they have always
+  // worked — but they were missing from this list, which means `splitOptions()` filed them under
+  // *layout* params and the option audit reported every one of them as an unknown key (found in round 87
+  // by the first page that passed `onSubmit` to a `TextArea`: `#/options`). A working option that the
+  // framework's own audit calls a typo is worse than no audit.
+  'onChange',
+  'onSubmit',
+  'onFocus',
+  'onBlur',
 ] as const;
 
 /** Events a text input emits on the Phaser emitter. */
