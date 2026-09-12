@@ -2,8 +2,8 @@
 
 基于 **Phaser 4**（`phaser@4.2.1 "Giedi"`）的 **MVVM UI 框架**：在 Phaser 4 渲染管线上提供「响应式数据 + 声明式视图 + 自动布局 + 基础控件」的完整方案 —— 不 fork Phaser，只用公开 API 与插件/工厂注册，游戏逻辑照常使用原生 Phaser。
 
-> **当前状态：M0–M6 已完成并通过验收（2026-09），API 仍未冻结。**
-> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（175 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（251 个单测，含黄金快照）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/主题令牌/绑定切片，98 个单测）、基础控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Spacer/Divider + TextField/TextArea 与 DOM 输入桥，171 个单测）、六个示例场景（含 `#/gallery`、`#/dashboard`、`#/bindings` 三个可交互 demo）与「几何 + 像素」验收脚本。**合计 828 个单测。**
+> **当前状态：M0–M7 已完成并通过验收（2026-09），API 仍未冻结。**
+> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（175 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（251 个单测，含黄金快照）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/主题令牌/绑定切片，98 个单测）、基础控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Spacer/Divider + TextField/TextArea 与 DOM 输入桥，171 个单测）、六个示例场景（含 `#/gallery`、`#/dashboard`、`#/bindings` 三个可交互 demo）与「几何 + 像素」验收脚本。**合计 883 个单测。**
 > 验收证据与已知边界见 [`docs/ACCEPTANCE-M0-M2.md`](./docs/ACCEPTANCE-M0-M2.md)。
 > **API 仍可能调整**（绑定层 M6、控件库 M4/M5 尚未落地），未实现的部分在文中均标注了对应里程碑编号。
 

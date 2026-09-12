@@ -1,4 +1,4 @@
-# M0–M6 验收记录
+# M0–M7 验收记录
 
 > 对应 `docs/PLAN.md` 的 M0（骨架与基线）、M1（响应式内核）、M2（布局引擎）。
 > 验收环境：macOS / Node `v24.18.1` / pnpm `10.34.5` / 无头 Chrome `153.0.8010.36`（CDP 驱动，视口固定 1280×720）。
@@ -208,3 +208,33 @@ OK       backdrop / card / badge / footer
 **已实施修复**：`LayoutEngine` 新增独立的 `dirtyPath` 集合（只放宽 arrange 的跳过判断，**不参与测量缓存失效**）；`invalidate()` 越过 relayout boundary 后继续把祖先收进 `dirtyPath`，`placeChildOf()` 的跳过条件加入 `!dirtyPath.has(node)`，每趟 layout 结束与 `dirty` 一起清空。`Repeat` 中的 `markDirty` 补偿已删除。新增 `test/engine-dirty-path.test.ts` **9 例**（其中 5 例在修复前失败），浏览器 14 项断言在无补偿下全绿。
 
 **建议根治**（属 M7 范围内的引擎改动）：`invalidate()` 走到 relayout boundary 后，把其上的祖先加入一个独立的 `dirtyPath` 集合（**不参与测量缓存失效**，只影响 arrange 的跳过判断），再把 `placeChildOf()` 的条件改为 `!dirty.has(node) && !dirtyPath.has(node)`；或让 arrange 支持「从脏子根开始」，即记录 arrange roots 并在主 pass 之后逐个从该节点继续排布。两种都需要补一组针对性测试（固定尺寸 Panel 内的子树变更、boundary 上下同时变更、性能对照）。
+
+---
+
+# M7 验收记录（滚动与裁剪，2026-09）
+
+## 交付
+
+- `packages/widgets/src/ScrollView.ts`：滚轮（按 `deltaMode` 归一化）、指针拖拽（带位移阈值，避免与点击冲突）、惯性衰减、可选边界回弹、`auto` 滚动条（thumb 夹取与最小长度）、键盘滚动、`setScrollOffset/scrollBy/scrollTo` 与 `offset/maxOffset/viewport`。
+- `packages/widgets/src/scroll-plan.ts`：纯函数 `clampOffset`/`normalizeWheel`/`applyInertia`/`thumbGeometry`/`isScrollable`/`planScrollDrag`/重新夹取，**46 个单测**。
+- **裁剪**：按 PLAN §2 的结论（Phaser 4 中 `GeometryMask` 仅 Canvas 可用）走 WebGL `Components.Filters#addMask` 的滤镜遮罩路径。
+- `#/scroll` demo：垂直 `ScrollView` 内嵌虚拟化 `Repeat`（200+ 行）、水平 chip 条、以及**固定尺寸 Panel 内的 ScrollView**（同时回归 dirtyPath 修复）。
+
+## 门禁
+
+`pnpm -r typecheck` 5/5；`pnpm -r test` **883 passed**（layout 260 / core 262 / phaser 98 / widgets 263）；`build` 与 `prettier --check .` 通过。
+
+## Playwright 实测（真实 WebGL + 真实滚轮）
+
+| 断言       | 实测                                                                                          |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| 几何       | `v=@126,61 604x372                                                                            | h=@126,481 604x92 | nested=@742,93 332x320` |
+| 首帧       | `v.offset=0 v.maxOffset=8000 v.rows=13`（虚拟化）、`h.maxOffset=2524`、`nested.maxOffset=976` |
+| 滚轮 600   | `v.offset=600`、`v.rows=16`（仍远小于 200 行，虚拟化保持）                                    |
+| 再滚 2000  | `v.offset=2600`（单调、未越界）                                                               |
+| 滚动后命中 | 行内删除按钮的页面坐标随内容移动（`@523,86 → @523,94 → @523,70`），即滚动后点击坐标仍正确     |
+| 页面错误   | `#status` 无 ERROR/REJECTION                                                                  |
+
+## 缺陷 B 修复的回归
+
+`#/scroll` 中"固定尺寸 Panel 内的 ScrollView"可正常滚动，且独立测试 `packages/layout/test/engine-dirty-path.test.ts`（9 例，其中 5 例在修复前失败）持续为绿。
