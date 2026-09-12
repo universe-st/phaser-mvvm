@@ -22,6 +22,7 @@ import { Label, type LabelOptions } from './Label';
 import { Panel, type PanelOptions } from './Panel';
 import { Repeat, type RepeatOptions } from './Repeat';
 import { ScrollView, type ScrollViewOptions } from './ScrollView';
+import { Slider, type SliderOptions } from './Slider';
 import { Spacer, type SpacerOptions } from './Spacer';
 import { TextArea, type TextAreaOptions } from './TextArea';
 import { TextField, type TextFieldOptions } from './TextField';
@@ -125,6 +126,13 @@ export function uiScroll(
   return widget;
 }
 
+/** Creates a slider widget and adds it to the Scene. */
+export function uiSlider(scene: Phaser.Scene, options: SliderOptions = {}): Slider {
+  const widget = new Slider(scene, options);
+  scene.add.existing(widget);
+  return widget;
+}
+
 /**
  * Creates a keyed, optionally virtualised list and adds it to the Scene.
  *
@@ -157,6 +165,7 @@ export const WIDGET_FACTORY_KEYS = [
   'uiImage',
   'uiSpacer',
   'uiDivider',
+  'uiSlider',
   'uiTextField',
   'uiTextArea',
   'uiRepeat',
@@ -232,6 +241,10 @@ export function installWidgetFactories(): void {
       (options as DividerOptions) ?? {},
       (children as Widget[] | undefined) ?? [],
     );
+  });
+
+  registry.register('uiSlider', function (this: unknown, options) {
+    return uiSlider(sceneOf(this), (options as SliderOptions) ?? {});
   });
 
   registry.register('uiTextField', function (this: unknown, options, children) {

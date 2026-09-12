@@ -37,6 +37,7 @@ import {
   AbsoluteWidget,
   type AbsoluteWidgetOptions,
   bindModel,
+  bindNumberModel,
   bindText,
   bindValue,
   BoxWidget,
@@ -61,6 +62,7 @@ import { Label, type LabelOptions, type LabelTone } from './Label';
 import { Panel as PanelWidget, type PanelOptions } from './Panel';
 import { Repeat, type RepeatOptions } from './Repeat';
 import { ScrollView, type ScrollViewOptions } from './ScrollView';
+import { Slider as SliderWidget, SLIDER_EVENTS, type SliderOptions } from './Slider';
 import { Spacer as SpacerWidget, type SpacerOptions } from './Spacer';
 import { TextArea as TextAreaWidget, type TextAreaOptions } from './TextArea';
 import { TextField as TextFieldWidget, type TextFieldOptions } from './TextField';
@@ -473,6 +475,49 @@ export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
   emitWidget(field);
   wireFieldModel(field, value, onValueChange);
   return field;
+}
+
+/**
+ * Options of `Slider`: the widget's bag with a reactive two-way `value`.
+ *
+ * `value` accepts a `Ref` (edits write straight back into it, no converter glue) or a getter (one-way);
+ * `onValueChange` fires on every user change, so a caller that keeps state in a store can write it back.
+ */
+export interface SliderDslOptions extends Omit<SliderOptions, 'value' | 'onChange'>, DslOptions {
+  value?: ReactiveSource<number>;
+  onValueChange?: (value: number, slider: SliderWidget) => void;
+}
+
+/**
+ * A draggable value control — the touch-native one.
+ *
+ * ```ts
+ * Slider({ value: volume, min: 0, max: 1, step: 0.05, width: 200 });
+ * Slider({ value: () => settings.brightness, onValueChange: (next) => save(next) });
+ * ```
+ */
+export function Slider(options: SliderDslOptions = {}): SliderWidget {
+  const scene = currentUiScene();
+  const { value, onValueChange, visible, ...rest } = options;
+  const slider = new SliderWidget(scene, {
+    ...rest,
+    ...(value === undefined ? {} : { value: readReactive(value) }),
+  });
+  scene.add.existing(slider);
+  applyDslOptions(slider, { visible });
+  emitWidget(slider);
+
+  if (value !== undefined) {
+    const store = isWritableSource(value)
+      ? (next: number): void => writeReactive(value, next)
+      : (next: number): void => onValueChange?.(next, slider);
+    bindNumberModel(slider, sourceGetter(value) as () => number, store);
+  }
+  if (onValueChange && (value === undefined || isWritableSource(value))) {
+    // A getter source already routes user changes to `onValueChange` through the binding above.
+    slider.on(SLIDER_EVENTS.CHANGE, (next: number) => onValueChange(next, slider));
+  }
+  return slider;
 }
 
 // --------------------------------------------------------------------- lists

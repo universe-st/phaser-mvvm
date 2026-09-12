@@ -30,6 +30,7 @@ import {
   Panel,
   Row,
   Scroll,
+  Slider,
   Spacer,
   Text,
   TextArea,
@@ -61,6 +62,9 @@ export class StatesScene extends Phaser.Scene {
   private readonly invalid = ref('');
   private readonly notes = ref('');
   private readonly commandClicks = ref(0);
+  /** Bound to the first slider (two-way): the readout next to it must follow the drag. */
+  private readonly volume = ref(40);
+  private readonly stepped = ref(30);
   private readonly rows = ref<RowItem[]>(
     Array.from({ length: 30 }, (_, index) => ({ id: `r${index}`, label: `第 ${index + 1} 行` })),
   );
@@ -98,6 +102,7 @@ export class StatesScene extends Phaser.Scene {
           Scroll({ direction: 'vertical', width: 'fill', height: 'fill', name: 'stage' }, () => {
             Column({ gap: 10, width: 'fill', alignItems: 'stretch' }, () => {
               this.buttonsRow();
+              this.slidersRow();
               this.fieldsRow();
               this.panelsRow();
               this.listRow();
@@ -157,9 +162,51 @@ export class StatesScene extends Phaser.Scene {
     this.publish('field.invalid', this.invalid.value);
     this.publish('field.notes', this.notes.value.length);
     this.publish('cmd.clicks', this.commandClicks.value);
+    this.publish('slider.volume', Math.round(this.volume.value));
+    this.publish('slider.stepped', this.stepped.value);
   }
 
   // ------------------------------------------------------------------ rows
+
+  private slidersRow(): void {
+    this.card(
+      'Slider',
+      '绑定 ref 的连续滑杆 · step=10 的量化滑杆 · disabled（拖动可离开控件范围）',
+      () => {
+        Row({ gap: 12, alignItems: 'center', wrap: true }, () => {
+          const volume = Slider({
+            value: this.volume,
+            min: 0,
+            max: 100,
+            width: 200,
+            name: 'slider.volume',
+          });
+          this.probe('slider.volume', volume, 'normal');
+          Text(() => `volume=${Math.round(this.volume.value)}`, { tone: 'muted' });
+        });
+        Row({ gap: 12, alignItems: 'center', wrap: true }, () => {
+          const stepped = Slider({
+            value: this.stepped,
+            min: 0,
+            max: 100,
+            step: 10,
+            width: 200,
+            name: 'slider.stepped',
+          });
+          this.probe('slider.stepped', stepped, 'normal');
+          Text(() => `stepped=${this.stepped.value}`, { tone: 'muted' });
+        });
+        Row({ gap: 12, alignItems: 'center', wrap: true }, () => {
+          this.probe(
+            'slider.disabled',
+            Slider({ value: 60, width: 200, disabled: true, name: 'slider.disabled' }),
+            'disabled',
+          );
+          Text('disabled', { tone: 'muted' });
+        });
+      },
+    );
+  }
 
   private buttonsRow(): void {
     this.card(
@@ -412,6 +459,8 @@ export class StatesScene extends Phaser.Scene {
       state: () => ({
         clicks: this.clicks.value,
         commandClicks: this.commandClicks.value,
+        volume: this.volume.value,
+        stepped: this.stepped.value,
         toggled: this.toggled.value,
         text: this.text.value,
         invalid: this.invalid.value,

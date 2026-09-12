@@ -350,6 +350,62 @@ export interface ModelBindingHost extends BindingScope {
 export const MODEL_CHANGE_EVENT = 'change';
 
 /**
+ * Host shape of a control whose value is a **number** (a slider, a stepper, a spinner).
+ *
+ * Same protocol as {@link ModelBindingHost}, minus the text conversion: `bindModel` stringifies, which
+ * would write `"42"` back into a numeric `ref`.
+ */
+export interface NumberModelHost extends BindingScope {
+  /** Programmatic, *silent* write: it must not emit `change`. */
+  setValue(value: number): unknown;
+  /** Current value of the control. */
+  getValue(): number;
+  /** Subscribes to the control's `change` event. */
+  on(event: string, callback: (value: number) => void): unknown;
+  /** Unsubscribes (Phaser's `GameObject.off`). */
+  off?(event: string, callback: (value: number) => void): unknown;
+}
+
+/**
+ * Two-way binding for a numeric control.
+ *
+ * `bindModel`'s twin: the value keeps its type in both directions (`Object.is` is the change test, so
+ * `-0`/`NaN` cannot produce an endless write-back loop).
+ */
+export function bindNumberModel(
+  host: NumberModelHost,
+  read: () => number,
+  write: (value: number) => void,
+  options: BindingOptions = {},
+): StopBinding {
+  const stopDown = createBinding<number, NumberModelHost>({
+    host,
+    read,
+    apply: (value) => {
+      if (Object.is(host.getValue(), value)) {
+        return;
+      }
+      host.setValue(value);
+    },
+    flush: flushOf(options),
+  });
+
+  const listener = (value: number): void => {
+    if (Object.is(value, read())) {
+      return;
+    }
+    write(value);
+  };
+
+  host.on(MODEL_CHANGE_EVENT, listener);
+
+  return () => {
+    stopDown();
+    host.off?.(MODEL_CHANGE_EVENT, listener);
+  };
+}
+
+/**
  * Two-way binding for text controls: view model ⇄ `TextField`/`TextArea`.
  *
  * - **down**: `read()` is applied through the control's *silent* `setValue`, so a programmatic write

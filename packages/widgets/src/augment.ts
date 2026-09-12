@@ -18,6 +18,7 @@ import type { Label, LabelOptions } from './Label';
 import type { Panel, PanelOptions } from './Panel';
 import type { Repeat, RepeatOptions } from './Repeat';
 import type { ScrollView, ScrollViewOptions } from './ScrollView';
+import type { Slider, SliderOptions } from './Slider';
 import type { Spacer, SpacerOptions } from './Spacer';
 import type { TextArea, TextAreaOptions } from './TextArea';
 import type { TextField, TextFieldOptions } from './TextField';
@@ -36,6 +37,8 @@ declare global {
         /** Creates a texture image widget and adds it to the Scene. */
         uiImage(options: ImageOptions, children?: Widget[]): UIImage;
         /** Creates a layout spacer widget and adds it to the Scene. */
+        /** Creates a slider widget and adds it to the Scene. */
+        uiSlider(options?: SliderOptions, children?: Widget[]): Slider;
         uiSpacer(options?: SpacerOptions, children?: Widget[]): Spacer;
         /** Creates a divider widget and adds it to the Scene. */
         uiDivider(options?: DividerOptions, children?: Widget[]): Divider;

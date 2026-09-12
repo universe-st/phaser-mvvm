@@ -35,6 +35,7 @@ import {
   Panel,
   Row,
   Scroll,
+  Slider,
   Spacer,
   Stack,
   Text,
@@ -79,6 +80,7 @@ export class LifecycleScene extends Phaser.Scene {
     Array.from({ length: ROWS }, (_, index) => ({ id: `r${index}`, label: `行 ${index + 1}` })),
   );
   private readonly clicks = ref(0);
+  private readonly slider = ref(30);
 
   private page: Widget | null = null;
   /** Controls whose page coordinates are republished every frame (`pt.<key>`), like `#/compose`. */
@@ -120,6 +122,9 @@ export class LifecycleScene extends Phaser.Scene {
             Button('开关', { toggle: true, value: false });
             Button('禁用', { disabled: true });
             Button('加载', { loading: true });
+            // The slider is the one widget that listens to the *scene* pointer stream while dragging;
+            // it is here so the leak gate covers its listener bookkeeping.
+            Slider({ value: this.slider, min: 0, max: 100, width: 160, name: 'slider' });
             Button('图标', { icon: TILE });
             Text('文本', { tone: 'muted' });
             Spacer({ width: 12 });

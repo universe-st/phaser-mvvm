@@ -234,6 +234,51 @@ save.setLoading(true);
 
 ---
 
+## 4.5 `Slider`：拖动取值（触摸优先）
+
+```ts
+// 工厂写法
+const volume = this.add.uiSlider({ min: 0, max: 100, value: 40, width: 200 });
+volume.on('change', (v: number) => console.log('volume', v));
+
+// DSL（推荐）：`value` 可以直接绑 ref，双向生效
+const volume = ref(40);
+Slider({ value: volume, min: 0, max: 100, width: 200 });
+Text(() => `volume=${Math.round(volume.value)}`); // 拖动时实时跟着变
+```
+
+### 选项
+
+| 选项             | 类型                                      | 默认         | 说明                                                                                |
+| ---------------- | ----------------------------------------- | ------------ | ----------------------------------------------------------------------------------- |
+| `value`          | `number`                                  | `min`        | 初值；会先按 `min`/`max`/`step` 归位                                                |
+| `min` / `max`    | `number`                                  | `0`/`100`    | 取值区间；`max < min` 时按 `min` 处理                                               |
+| `step`           | `number`                                  | `0`          | 量化步长，`0`（默认）为连续；网格**以 `min` 为锚点**（`min:5, step:10` → 5/15/25…） |
+| `disabled`       | `boolean`                                 | `false`      | 初始禁用（拖不动、拿不到焦点）                                                      |
+| `trackThickness` | `number`                                  | `6`          | 轨道厚度（设计像素）                                                                |
+| `knobRadius`     | `number`                                  | `9`          | 滑块半径（拖拽中会 +1，作为触摸反馈）                                               |
+| `onChange`       | `(value: number, slider: Slider) => void` | —            | **用户**改变时回调（`setValue` 不触发）                                             |
+| `width`/`height` | —                                         | `180`/`2r+4` | 常规布局参数；不写时用默认尺寸                                                      |
+
+### 方法 / 事件
+
+| 成员                         | 说明                                            |
+| ---------------------------- | ----------------------------------------------- |
+| `getValue()` / `setValue(v)` | 读写值；`setValue` 会归位但**不** emit `change` |
+| `value`（get/set）           | 同上，属性形式                                  |
+| `setRange(min, max)`         | 改区间，当前值重新归位                          |
+| `setStep(step)`              | 改步长（`0` 为连续），当前值重新归位            |
+| `change`（事件）             | 用户拖动/点击时 emit，载荷 `value: number`      |
+
+### 坑
+
+- **键盘暂不支持**：方向键被焦点管理器用于导航，滑杆的键盘操作需要先和它达成约定（见 `docs/DEFECT-BACKLOG.md`）。鼠标与触摸是当前支持的输入。
+- **拖动会跟出控件**：手指/指针滑出滑杆范围时仍继续控制（超出两端按端点钳制），这是刻意的触摸行为；不要用 `pointerleave` 之类的逻辑去打断它。
+- **`step` 不是"只允许这些值"**：调用方 `setValue(37)` 时若 `step=10` 会被吸附到 40，绑定到 `ref` 的值永远是网格上的值。
+- **值永远是有限数**：`NaN`/`±Infinity` 会被归位到 `min`，不会传到绑定的 `ref` 里。
+
+---
+
 ## 5. `Image`：把贴图放进矩形
 
 ```ts

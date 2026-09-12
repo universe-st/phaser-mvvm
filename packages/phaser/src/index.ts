@@ -97,6 +97,7 @@ export {
   collectInteractive,
   diffInteractionState,
   isClickGesture,
+  pointerInWidgetSpace,
   isWithinTree,
   type ContainerLike,
   type InputRouterOptions,
@@ -124,6 +125,7 @@ export {
   bindEnabled,
   bindError,
   bindModel,
+  bindNumberModel,
   bindPath,
   bindTemplate,
   bindTemplateText,
@@ -138,6 +140,7 @@ export {
   type CommandBindingOptions,
   type CommandGetter,
   type ModelBindingHost,
+  type NumberModelHost,
   type PathCommandBindingOptions,
   type StopBinding,
 } from './binding';

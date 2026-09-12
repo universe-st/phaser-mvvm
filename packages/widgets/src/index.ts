@@ -26,6 +26,8 @@ export { Image, Image as UIImage, type ImageOptions } from './Image';
 export { Spacer, type SpacerOptions } from './Spacer';
 export { Divider, type DividerOptions, type DividerOrientation } from './Divider';
 export { TextField, type TextFieldOptions } from './TextField';
+export { Slider, SLIDER_EVENTS, type SliderOptions } from './Slider';
+export { clampSliderValue, sliderFraction, sliderValueFromPosition } from './slider-geometry';
 export { Repeat, DEFAULT_OVERSCAN, repeat, type RepeatOptions } from './Repeat';
 export {
   ScrollView,

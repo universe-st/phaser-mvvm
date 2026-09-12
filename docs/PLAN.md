@@ -321,7 +321,7 @@ this.mvvm.mount(page);
 
 单人全职估算；标 ★ 的里程碑可与前一项局部并行。
 
-**执行状态（2026-09）**：**M0 / M1 / M2 / M3 / M4 / M5 / M6 / M7 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3（适配层：文本测量器、主题、状态机、输入/焦点/导航、绑定切片）与 M4（基础控件库 `@phaser-mvvm/widgets`：Label/Panel/Button/Image/Spacer/Divider）已完成，并在 `#/gallery`、`#/dashboard`、`#/bindings` 三个 demo 上用 Playwright 实测交互通过。M5（`TextField`/`TextArea` + 隐藏 DOM 输入桥，中文 IME 已实测）已完成；M6（绑定上下文 + 路径编译 + 转换器 + `Repeat` 键控复用与虚拟化）已完成；M7（`ScrollView` + WebGL 滤镜裁剪 + 手势/惯性/滚动条，并与 `Repeat` 虚拟化协同）已完成；M8 起为未开始状态。
+**执行状态（2026-09）**：**M0 / M1 / M2 / M3 / M4 / M5 / M6 / M7 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3（适配层：文本测量器、主题、状态机、输入/焦点/导航、绑定切片）与 M4（基础控件库 `@phaser-mvvm/widgets`：Label/Panel/Button/Image/Spacer/Divider）已完成，并在 `#/gallery`、`#/dashboard`、`#/bindings` 三个 demo 上用 Playwright 实测交互通过。M5（`TextField`/`TextArea` + 隐藏 DOM 输入桥，中文 IME 已实测）已完成，其后按需增补了 **`Slider`**（拖动取值，鼠标+触摸均验收，见 [`ACCEPTANCE-slider.md`](./ACCEPTANCE-slider.md)）；M6（绑定上下文 + 路径编译 + 转换器 + `Repeat` 键控复用与虚拟化）已完成；M7（`ScrollView` + WebGL 滤镜裁剪 + 手势/惯性/滚动条，并与 `Repeat` 虚拟化协同）已完成；M8 起为未开始状态。
 
 | 里程碑 | 内容 | 交付物 | 验收标准 | 估算 |
 |--------|------|--------|----------|------|
