@@ -188,3 +188,41 @@ holder.C       x=74   width=60  visible=true    ← 左移 142-74 = 68 = 60 + 8 
 | `sizing.height.max.box`       | `fx 0.5, fy 0.12`  | `#2f6feb` | `#2f6feb` | 被 clamp 的盒子本身（`fy 0.12` 取在文字上方；`fy 0.5` 会读到字形边缘，第一版就是这么错的） |
 
 **正对照（门禁到底抓不抓得住）**：把参数拿掉再跑一次，两处都如期转红——① 去掉三个 `shrink: 1`：`sizing.shrink.on.c=@932,144 120x44`（而不是 76 宽），`sizing.shrink.on` 采到 `#2f6feb`，明暗两半都 MISMATCH；② 去掉 `maxHeight: 40`：盒子变成 `70x84`，`sizing.height.stretch.frame` 采到 `#2f6feb`，两半都 MISMATCH。恢复后 12 项全绿。（正对照是纪律：一条门禁不能只在"什么都没坏"的时候绿。）
+
+## 8. 第 98 轮：`Label · truncation` 卡原来什么都没裁（V66）
+
+### 8.1 现象
+
+给 `Text` 补 `maxLines`/`ellipsis` 数据槽时顺手把这一页的两张标签读了出来，发现 **两张都 `truncated: false`**：
+
+| 标签                            | 写的宽度 | 实际盒子宽 | 画出来的行数  | `truncated` | 结尾有 `…` |
+| ------------------------------- | -------- | ---------- | ------------- | ----------- | ---------- |
+| `maxLines: 2 with ellipsis …`   | 340      | **964**    | 2             | false       | 否         |
+| `wrap: false — a single line …` | 220      | **964**    | 1（414px 宽） | false       | 否         |
+
+根因是**默认的 `alignItems: 'stretch'` 会覆盖子节点自己的 cross 轴长度**（[指南 02](../guide/02-layout.md) §199 早写明，本轮只是没人照着做）：两张标签被撑到卡片的 964px，段落两行就装下了、单行 414px 也没超，于是这张卡的标题（"maxLines + ellipsis，以及 wrap: false 的单行裁剪"）承诺的行为**在屏幕上根本不存在**。而它"看起来没坏"——两张标签本身画得毫无毛病，只有读 `truncated` 与画出来的文字才看得出来。
+
+### 8.2 修法与新的常驻读数
+
+两处加 `alignSelf: 'start'`（让 `width` 真的生效），`wrap: false` 那张补上 `ellipsis: true`（同时修掉了它背后的 V65：不换行的标签此前拿不到裁剪宽度，长单行只会溢出）。新增 `window.showcase.truncation()`：
+
+```
+{ lines:  { rows, truncated, ellipsis, text, width },
+  single: { rows, truncated, ellipsis, text, width } }
+```
+
+`rows`/`ellipsis`/`text` 读的都是**画出来的文字**（`Label#getDisplayText()`，本轮新增），`width` 是**实际生效的**宽度——这是这条教训的核心读数："我写的是 340"不是证据。`#demo-state` 在 `text` 分区逐帧发布 `trunc.lines.rows` / `trunc.lines.truncated` / `trunc.lines.ellipsis` 与 `trunc.single.*`。
+
+### 8.3 实测（真实页面，`showAndReport('text')` 之后）
+
+| 读数                                     | 修前                     | 修后                                                              |
+| ---------------------------------------- | ------------------------ | ----------------------------------------------------------------- |
+| `lines.width`                            | 964                      | **340**                                                           |
+| `lines.rows` / `truncated` / `ellipsis`  | 2 / false / false        | 2 / **true** / **true**                                           |
+| `lines.text` 结尾                        | `…and trim` 之后还有整段 | `…for the wrapped lines and trim…`                                |
+| `single.width`                           | 964                      | **220**                                                           |
+| `single.rows` / `truncated` / `ellipsis` | 1 / false / false        | 1 / **true** / **true**                                           |
+| `single.text`                            | 整句 414px               | `wrap: false — a single line, el…`                                |
+| `rects()`（页面坐标）                    | 340 / 220 都拿不到       | `trunc.lines` `@280,608 340x37`、`trunc.single` `@280,651 220x20` |
+
+两张标签的高度（37 / 20）与卡片其余部分**没有移动**：修的是标签自己的裁剪，不是布局。

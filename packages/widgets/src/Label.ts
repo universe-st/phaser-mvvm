@@ -102,6 +102,14 @@ export class Label extends Widget {
   /** Serialised once: it is part of both the style key and the text-metrics key. */
   private readonly userStyleKey: string;
   private wrapWidth: number | null = null;
+  /**
+   * Width the parent offered (measure) or assigned (arrange), or `null` while unknown.
+   *
+   * Only the **non-wrapping** ellipsis uses it — a wrapping label clips to `wrapWidth`, which is also
+   * what Phaser wraps at. Both values come from an ancestor's constraint, never from this label's own
+   * size, so feeding one back into the other cannot oscillate.
+   */
+  private availableWidth: number | null = null;
   private styleKey = '';
   /** Last glyph padding applied, so the canvas is only re-sized when it changes. */
   private glyphPad = -1;
@@ -138,6 +146,17 @@ export class Label extends Widget {
     return this.rawText;
   }
 
+  /**
+   * The text actually on the canvas — the logical text after wrapping and `maxLines`/`ellipsis`.
+   *
+   * Exists because "what the label shows" is the observable half of truncation: a check that only reads
+   * `getText()` cannot tell a label that dropped three lines from one that dropped none, and the display
+   * text is a layout decision (wrapping depends on the width the parent assigned).
+   */
+  getDisplayText(): string {
+    return this.displayedText;
+  }
+
   setText(value: string): this {
     if (this.rawText === value) {
       return this;
@@ -163,8 +182,41 @@ export class Label extends Widget {
     return this.clipped;
   }
 
+  /**
+   * Changes the line limit.
+   *
+   * Truncation is state, not configuration: "show 2 lines" collapses a long description and "show all"
+   * expands it, which is why the compose `Text()` slot accepts a `Ref` here. Re-measures, because the
+   * visible height is part of the label's own size (see `measureContent`).
+   */
+  setMaxLines(maxLines: number): this {
+    const next = Number.isFinite(maxLines)
+      ? Math.max(0, Math.floor(maxLines))
+      : Number.POSITIVE_INFINITY;
+    if (next === this.maxLines) {
+      return this;
+    }
+    this.maxLines = next;
+    this.updateDisplayedText();
+    this.markDirty();
+    return this;
+  }
+
+  /** Appends (or stops appending) `…` to the last visible line when lines were dropped. */
+  setEllipsis(ellipsis: boolean): this {
+    const next = ellipsis === true;
+    if (next === this.ellipsis) {
+      return this;
+    }
+    this.ellipsis = next;
+    this.updateDisplayedText();
+    this.markDirty();
+    return this;
+  }
+
   override measureContent(constraint: BoxConstraints): Size {
     this.setWrapWidth(this.wrap ? constraint.maxWidth : null);
+    this.availableWidth = Number.isFinite(constraint.maxWidth) ? constraint.maxWidth : null;
     this.updateDisplayedText();
     return { width: this.textObject.width, height: this.textObject.height };
   }
@@ -174,6 +226,7 @@ export class Label extends Widget {
     // The engine re-measures against the final, tight constraint before `applyRect`, so this is a
     // no-op in the normal flow; it keeps the display correct for direct `applyRect` calls in tests.
     this.setWrapWidth(this.wrap && box.width > 0 ? box.width : null);
+    this.availableWidth = box.width > 0 ? box.width : null;
     this.updateDisplayedText();
     this.positionText(box);
   }
@@ -263,10 +316,15 @@ export class Label extends Widget {
       this.wrap && Number.isFinite(wrapWidth)
         ? rewrapOverflowingLines(lines, wrapWidth, (value) => this.measureTextWidth(value))
         : lines;
+    // A **non-wrapping** label still needs a width to clip *to*: `wrap: false` means "one line, no
+    // reflow", not "overflow the box". `wrapWidth` is `null` there (Phaser would wrap), so the limit
+    // comes from the width the parent offered/assigned instead — without it `ellipsis: true` had
+    // nothing to measure against and a long single line simply overflowed its box (round 98).
+    const limitWidth = this.wrap ? wrapWidth : (this.availableWidth ?? Number.POSITIVE_INFINITY);
     const result = applyLineLimit(wrapped, {
       maxLines: this.maxLines,
       ellipsis: this.ellipsis,
-      maxWidth: wrapWidth,
+      maxWidth: limitWidth,
       measureWidth: (value) => this.measureTextWidth(value),
     });
     const joined = result.lines.join('\n');

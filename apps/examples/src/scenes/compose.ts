@@ -90,6 +90,19 @@ const NAV_WIDTH = 236;
 const PAGE_MARGIN = 12;
 const TILE_TEXTURE = 'compose.tile';
 const ICON_TEXTURE = 'compose.icon';
+/** The two solid textures the reactive `Image.texture` slot swaps between (round 98). */
+const TEXTURE_A = 'compose.slot.a';
+const TEXTURE_B = 'compose.slot.b';
+/**
+ * The paragraph the reactive `maxLines`/`ellipsis` slot collapses.
+ *
+ * Long enough that two lines have to drop something at the card's width (420 design px) — a "show more"
+ * demo whose text already fits proves nothing.
+ */
+const STATE_PARAGRAPH =
+  '这一段文字由 maxLines 与 ellipsis 两个数据槽控制：折叠时只画两行并在结尾补省略号，展开时整段都在。' +
+  '两个槽都接受字面量、ref 或 getter，所以“展开 / 收起”是一行状态，而不是重建一棵子树——重建会丢掉' +
+  '滚动位置、焦点和选区，而这些恰恰是长文段落里最贵的东西。';
 
 interface SampleRow {
   id: string;
@@ -132,6 +145,11 @@ export class ComposeScene extends Phaser.Scene {
   private readonly stateVariant = ref<PanelVariant>('surface');
   private readonly stateName = ref('张三');
   private readonly stateVolume = ref(40);
+  /** Round 98's slots: `readOnly`, `maxLines`/`ellipsis` and a reactive `Image.texture`. */
+  private readonly frozen = ref(false);
+  private readonly expanded = ref(false);
+  private readonly altTexture = ref(false);
+  private readonly stateNote = ref('这段文字可以选中、可以复制，但改不了');
   /** The `Scroll` slot of the `list` section: the scroll position as state (two-way). */
   private readonly listOffset = ref(0);
   /** Which branch the `Branch()` demo shows ('a' | 'b' | 'missing'). */
@@ -175,6 +193,16 @@ export class ComposeScene extends Phaser.Scene {
 
   create(): void {
     makeTileTexture(this, TILE_TEXTURE);
+    // Two flat textures for the reactive `texture` slot: literals, so the pixel gate reads the swap
+    // itself rather than a theme token (the light half of the matrix must show the same colours).
+    makeTexture(this, TEXTURE_A, 44, 44, (graphics) => {
+      graphics.fillStyle(0x2f6feb, 1);
+      graphics.fillRect(0, 0, 44, 44);
+    });
+    makeTexture(this, TEXTURE_B, 44, 44, (graphics) => {
+      graphics.fillStyle(0x3fb950, 1);
+      graphics.fillRect(0, 0, 44, 44);
+    });
     // A control-sized icon: the 64px tile overflows a 36px button, which looks like a layout bug.
     makeTexture(this, ICON_TEXTURE, 16, 16, (graphics) => {
       graphics.fillStyle(0x2f6feb, 1);
@@ -242,6 +270,17 @@ export class ComposeScene extends Phaser.Scene {
     );
     this.publish('state.variant', this.stateVariant.value);
     this.publish('state.volume', Math.round(this.stateVolume.value));
+    // The round-98 slots. `state.lines`/`state.ellipsis`/`state.truncated` come from the painted text,
+    // so a `maxLines` slot that fires but never repaints shows up as "painted lines still 2".
+    if (this.section.value === 'state') {
+      const slots = this.slotReadings();
+      this.publish('state.expanded', slots.expanded);
+      this.publish('state.lines', slots.paintedLines);
+      this.publish('state.truncated', slots.truncated === true);
+      this.publish('state.ellipsis', slots.ellipsis);
+      this.publish('state.texture', slots.texture);
+      this.publish('state.frozen', slots.frozen === true);
+    }
     this.publish('rows', this.rows.value.length);
     if (this.listWidget) {
       this.publish('rows.rendered', this.listWidget.renderedCount);
@@ -1110,19 +1149,24 @@ export class ComposeScene extends Phaser.Scene {
    * by node. The comparison result is published as `parity=ok` or `parity=mismatch:…`.
    */
   /**
-   * The reactive *state* slots: `disabled`, `error` and `variant`.
+   * The reactive *state* slots: `disabled`, `error`, `variant`, `readOnly`, `maxLines`/`ellipsis` and
+   * `Image.texture`.
    *
-   * A page's state is not only its data — "is this editable", "is this valid", "is this dangerous" are
-   * state too, and Compose writes them as parameters (`enabled = saving`, `isError = error != null`,
-   * `containerColor = …`). Here they are the same reactive slots as `value`: a literal, a `ref` or a
-   * getter, and the widget follows.
+   * A page's state is not only its data — "is this editable", "is this valid", "is this dangerous",
+   * "is this paragraph expanded", "which picture is this" are state too, and Compose writes them as
+   * parameters (`enabled = saving`, `isError = error != null`, `containerColor = …`,
+   * `maxLines = if (expanded) Int.MAX_VALUE else 2`). Here they are the same reactive slots as `value`:
+   * a literal, a `ref` or a getter, and the widget follows.
    */
   private buildState(): void {
     this.card(
       'State slots',
-      'disabled / error / variant 与 value 一样是数据槽：字面量、ref 或 getter',
+      'disabled / error / variant / readOnly / maxLines / texture 与 value 一样是数据槽：字面量、ref 或 getter',
       () => {
-        Column({ gap: 12, width: 460, alignItems: 'stretch' }, () => {
+        // No `width` on the column: `alignItems: 'stretch'` (the default) gives every child — and this
+        // column itself — the card's content width, so a number here would be ignored and only mislead
+        // the reader (guide 02 §199).
+        Column({ gap: 12, alignItems: 'stretch' }, () => {
           this.track(
             'state.field',
             TextField({
@@ -1142,6 +1186,31 @@ export class ComposeScene extends Phaser.Scene {
                   : String(this.stateError.value)
               } 值=${this.stateName.value || '(空)'}`,
             { tone: 'muted' },
+          );
+
+          // `readOnly` is the *other* half of "not editable", and the one a form wants while it saves:
+          // the text stays readable and selectable, the box paints a different surface, and the value
+          // is still there to submit. The two flags are independent on purpose — a check flips one and
+          // asserts the other did not move.
+          this.track(
+            'state.frozen',
+            TextField({
+              value: this.stateNote,
+              label: 'readOnly 由状态驱动',
+              name: 'state.frozen',
+              readOnly: () => this.frozen.value,
+            }),
+          );
+          this.track(
+            'state.freeze',
+            Button(() => (this.frozen.value ? '解锁' : '锁定文本'), {
+              variant: 'secondary',
+              size: 'sm',
+              name: 'state.freeze',
+              onClick: () => {
+                this.frozen.value = !this.frozen.value;
+              },
+            }),
           );
 
           this.track(
@@ -1172,6 +1241,70 @@ export class ComposeScene extends Phaser.Scene {
           );
           this.reportStateProbes.set('state.panel', statePanel);
           this.reportStateProbes.set('state.field', this.tracked.get('state.field') as Widget);
+          this.reportStateProbes.set('state.frozen', this.tracked.get('state.frozen') as Widget);
+
+          // Truncation as a slot: the same paragraph collapsed to two lines and expanded to all of it.
+          // `maxLines`/`ellipsis` used to be constructor-only, which made the commonest "show more"
+          // pattern require a rebuilt widget — and rebuilding loses the scroll position, the focus and
+          // the selection of everything inside the branch.
+          this.track(
+            'state.text',
+            Text(STATE_PARAGRAPH, {
+              maxLines: () => (this.expanded.value ? 99 : 2),
+              ellipsis: true,
+              // `alignSelf: 'start'` is what makes `width` mean anything inside a stretching column:
+              // without it the label is handed the full card width (980) and the paragraph fits in two
+              // lines, so "collapse to 2 lines" would be a no-op that still looks like it works.
+              width: 420,
+              alignSelf: 'start',
+              name: 'state.text',
+            }),
+          );
+          this.track(
+            'state.more',
+            Button(() => (this.expanded.value ? '收起' : '展开'), {
+              variant: 'secondary',
+              size: 'sm',
+              name: 'state.more',
+              onClick: () => {
+                this.expanded.value = !this.expanded.value;
+              },
+            }),
+          );
+
+          // Which picture is on screen is state too. The two textures are solid literals, so the pixel
+          // gate can assert the swap in both themes without confusing it with a theme token.
+          const stateTex = Image({
+            texture: () => (this.altTexture.value ? TEXTURE_B : TEXTURE_A),
+            width: 44,
+            height: 44,
+            alignSelf: 'start',
+            name: 'state.tex',
+          });
+          this.track('state.tex', stateTex);
+          this.reportStateProbes.set('state.tex', stateTex);
+          this.track(
+            'state.swap',
+            Button('换贴图', {
+              variant: 'secondary',
+              size: 'sm',
+              name: 'state.swap',
+              onClick: () => {
+                this.altTexture.value = !this.altTexture.value;
+              },
+            }),
+          );
+          this.track(
+            'state.frozenPanel',
+            Panel({ variant: 'surfaceAlt', radius: 8, padding: 10, width: 'fill' }, () => {
+              Text(
+                () => `readOnly=${this.frozen.value} texture=${this.altTexture.value ? 'B' : 'A'}`,
+                {
+                  tone: 'muted',
+                },
+              );
+            }),
+          );
 
           Row({ gap: 8, wrap: true }, () => {
             this.track(
@@ -1352,6 +1485,42 @@ export class ComposeScene extends Phaser.Scene {
       name: this.stateName.value,
       volume: Math.round(this.stateVolume.value),
       fieldState: field?.visualState ?? 'gone',
+      ...this.slotReadings(),
+    };
+  }
+
+  /**
+   * The round-98 slots read back from the **widgets**, not from the refs that drive them.
+   *
+   * A slot that never reaches its setter would look perfectly healthy if the reading came from the ref:
+   * what a check needs to know is whether the painted label dropped its lines, whether the image object
+   * really swapped its texture, and whether the field is actually read-only.
+   */
+  private slotReadings(): {
+    expanded: boolean;
+    paintedLines: number;
+    truncated: boolean | null;
+    ellipsis: boolean;
+    texture: string;
+    frozen: boolean | null;
+    frozenValue: string;
+  } {
+    const paragraph = this.tracked.get('state.text') as
+      (Widget & { getDisplayText?: () => string; truncated?: boolean }) | undefined;
+    const painted = paragraph?.getDisplayText?.() ?? '';
+    const image = this.tracked.get('state.tex') as
+      (Widget & { currentTexture?: string }) | undefined;
+    const frozenField = this.tracked.get('state.frozen') as
+      (Widget & { readOnly?: boolean; getValue?: () => string }) | undefined;
+    return {
+      expanded: this.expanded.value,
+      /** Lines actually painted: the observable half of `maxLines` + `ellipsis`. */
+      paintedLines: painted.length === 0 ? 0 : painted.split('\n').length,
+      truncated: paragraph?.truncated ?? null,
+      ellipsis: painted.includes('…'),
+      texture: image?.currentTexture ?? 'none',
+      frozen: frozenField?.readOnly ?? null,
+      frozenValue: frozenField?.getValue?.() ?? '',
     };
   }
 
@@ -1409,9 +1578,21 @@ export class ComposeScene extends Phaser.Scene {
         locked?: boolean;
         error?: string | boolean | null;
         variant?: PanelVariant;
+        frozen?: boolean;
+        expanded?: boolean;
+        altTexture?: boolean;
       }): Record<string, unknown> => {
         if (patch.locked !== undefined) {
           this.locked.value = patch.locked;
+        }
+        if (patch.frozen !== undefined) {
+          this.frozen.value = patch.frozen;
+        }
+        if (patch.expanded !== undefined) {
+          this.expanded.value = patch.expanded;
+        }
+        if (patch.altTexture !== undefined) {
+          this.altTexture.value = patch.altTexture;
         }
         if (patch.error !== undefined) {
           this.stateError.value = patch.error;

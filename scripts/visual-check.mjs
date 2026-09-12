@@ -65,9 +65,12 @@ const scenes = [
  */
 const SCENE_SETUP = {
   hud: 'window.hud.scroll(260, 140)',
-  // The reactive-slot section, with the panel's flavour *changed at runtime*: the expectation below is
-  // the `danger` token, which can only be on screen if the reactive `variant` repainted the panel.
-  compose: 'window.compose.show("state"); window.compose.setState({ variant: "danger" })',
+  // The reactive-slot section, with three of its slots *changed at runtime*: the panel's flavour
+  // (`danger`, built as `surface`), the image's texture (built with texture A) and the field's
+  // `readOnly` flag (built editable). Every expectation below is therefore only on screen if the slot
+  // actually reached its setter and repainted — a slot that silently does nothing cannot pass.
+  compose:
+    'window.compose.show("state"); window.compose.setState({ variant: "danger", altTexture: true, frozen: true })',
   // The modal scene's dialog only exists once it is opened; the scene reports the dialog's own rects
   // into #status on the first open of each kind, so this runs before the status read.
   modal: 'window.modal.open("confirm")',
@@ -366,13 +369,20 @@ const PIXEL_EXPECTATIONS = {
    * - `kb.key.enter` is the `primary` key, sampled left of its label (`fx: 0.12`) so the fill shows.
    */
   /**
-   * `#/compose` with the reactive-slot section up and its panel flavour switched to `danger` at runtime
-   * (`SCENE_SETUP.compose`). The panel was *built* as `surface`, so the sampled `danger` fill is only
-   * there because the reactive `variant` slot repainted it - a variant that silently does nothing (the
-   * V38 family) fails here, in both themes.
+   * `#/compose` with the reactive-slot section up and three of its slots switched at runtime
+   * (`SCENE_SETUP.compose`): the panel was *built* as `surface` and now reads `danger`; the image was
+   * *built* with texture A and now shows texture B; the field was *built* editable and is now read-only,
+   * which paints `surfaceAlt` instead of `surface`. A slot that silently does nothing (the V38 family)
+   * fails all three, in both themes.
+   *
+   * The texture sample is a **literal** colour, so it is the one entry that must read the *same* value
+   * in the light half of the matrix (`LIGHT_EXPECTATIONS` below) — that is what distinguishes "the
+   * texture swapped" from "some theme token changed".
    */
   compose: {
     'state.panel': { rgb: 0xf85149, fx: 0.92, fy: 0.5 },
+    'state.tex': { rgb: 0x3fb950, fx: 0.5, fy: 0.5 },
+    'state.frozen': { rgb: 0x1f2630, fx: 0.92, fy: 0.5 },
   },
   keyboard: {
     'kb.keyboard': { rgb: 0x1f2630, fx: 0.03, fy: 0.5 },
@@ -501,6 +511,9 @@ const LIGHT_EXPECTATIONS = {
   },
   compose: {
     'state.panel': { rgb: 0xcf222e, fx: 0.92, fy: 0.5 },
+    // A texture is a literal, not a token: the swap must show the *same* green in the light theme.
+    'state.tex': { rgb: 0x3fb950, fx: 0.5, fy: 0.5 },
+    'state.frozen': { rgb: 0xeef1f4, fx: 0.92, fy: 0.5 },
   },
   keyboard: {
     'kb.keyboard': { rgb: 0xeef1f4, fx: 0.03, fy: 0.5 },

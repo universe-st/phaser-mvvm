@@ -123,8 +123,8 @@ Text(vm.title); // ref 直接传
 | `style`      | `Phaser.Types.GameObjects.Text.TextStyle`                                 | —           | 覆盖在主题样式**之上**（字体、颜色、描边、阴影…），`style.fontSize` 优先于 `size` |
 | `wrap`       | `boolean`                                                                 | `true`      | 在可用宽度内换行                                                                  |
 | `align`      | `'left' \| 'center' \| 'right'`                                           | `'left'`    | 内容盒内的水平对齐（同时作用于文本样式与对象位置）                                |
-| `maxLines`   | `number`                                                                  | 不限        | 最多显示几行，超出部分丢弃                                                        |
-| `ellipsis`   | `boolean`                                                                 | `false`     | 被截断时在最后一行补 `…`                                                          |
+| `maxLines`   | `number`                                                                  | 不限        | 最多显示几行，超出部分丢弃（**数据槽**：`ref`/getter 可在运行时折叠/展开）        |
+| `ellipsis`   | `boolean`                                                                 | `false`     | **掉了行就一定**在最后一行补 `…`（必要时缩短那一行；**数据槽**）                  |
 | `tone`       | `'default' \| 'muted' \| 'danger' \| 'success' \| 'warning' \| 'primary'` | `'default'` | 语义色，映射到主题令牌（见 §8）                                                   |
 | `selectable` | 只能传 `false`                                                            | —           | 为了表单模板能统一传 `selectable: false`；Canvas 文本本来就不可选中               |
 
@@ -142,19 +142,24 @@ Text(vm.title); // ref 直接传
 
 ### 方法
 
-| 方法              | 说明                                                  |
-| ----------------- | ----------------------------------------------------- |
-| `getText()`       | 逻辑文本（**不是**被截断后的显示文本）                |
-| `setText(value)`  | 改文本，自动重新测量并标脏                            |
-| `setTone(tone)`   | 换语义色                                              |
-| `get truncated()` | 当前显示是否因为 `maxLines`/`ellipsis` 被裁剪         |
-| `textObject`      | 底层 `Text`，用于高级样式（**不要**拿它当布局子节点） |
+| 方法               | 说明                                                                   |
+| ------------------ | ---------------------------------------------------------------------- |
+| `getText()`        | 逻辑文本（**不是**被截断后的显示文本）                                 |
+| `getDisplayText()` | **画出来的**文本：换行 + `maxLines`/`ellipsis` 之后的结果（`\n` 分隔） |
+| `setText(value)`   | 改文本，自动重新测量并标脏                                             |
+| `setTone(tone)`    | 换语义色                                                               |
+| `setMaxLines(n)`   | 改行数上限（重测 + 变脏）—— `Text({ maxLines: … })` 槽位的入口         |
+| `setEllipsis(on)`  | 开关省略号 —— `Text({ ellipsis: … })` 槽位的入口                       |
+| `get truncated()`  | 当前显示是否被裁剪（掉了行，或单行溢出被截断）                         |
+| `textObject`       | 底层 `Text`，用于高级样式（**不要**拿它当布局子节点）                  |
 
 ### 坑
 
 - **宽度从哪来**：`wrap: true` 时按「测量时拿到的最大宽度」换行。放在 `vbox` 里因为默认 `stretch`，它会拿到整行宽度 —— 想让长文案按固定宽度换行，**显式写 `width`**。
 - **中文（以及任何没有空格的长串）也会换行**：Phaser 的换行只在空格处断行，所以框架在它之后补了一道**逐码点兜底断行**（`rewrapOverflowingLines`，等价于 CSS 的 `overflow-wrap: anywhere`）：凡是仍然超过内容宽度的行都按字符切开，单个字形比盒子还宽时独占一行。因此中文长句、长 URL、长英文单词都不会横向溢出；`wrap: false` 时不参与（那是你明确要求不换行）。
-- **`maxLines` 的实现**：先在 `Text` 上换行，再由 `text-truncate.ts` 裁掉多余行并可选补省略号，然后写回显示文本。所以 `getText()` 永远返回完整原文。
+- **`maxLines` 的实现**：先在 `Text` 上换行，再由 `text-truncate.ts` 裁掉多余行并可选补省略号，然后写回显示文本。所以 `getText()` 永远返回完整原文，`getDisplayText()` 才是屏幕上那几行。
+- **`ellipsis` 的意思是「掉了东西就说出来」**，不是「让这一行放得下」：补标记时会把最后一行缩短到放得下 `…`，所以正文被裁掉时读者一定看得见；`wrap: false` 的单行超出宽度走同一条路（按**实际生效的宽度**裁剪）。这两种情况的 `truncated` 都是 `true`。
+- **「展开 / 收起」用数据槽，不要重建子树**：`Text(text, { maxLines: () => (expanded.value ? 99 : 2), ellipsis: true })`。重建会连带丢掉滚动位置、焦点与选区；`#/compose` 的 State slots 分区有常驻演示（读数 `window.compose.slots().paintedLines`/`truncated`）。
 - **主题切换会重新裁行**：字体或字号变了，换行结果也会变，`Label` 已经处理了这一点。
 - **每个文字盒子上下各留一点内边距**（字号 8%、至少 1px）：Phaser 的文本画布高度取自字体度量 `ascent + descent`，而这个值带小数、赋给 `canvas.height` 时会被截断，于是 `g`/`y` 的下伸部会被切掉约 0.6px（同时布局也少留 1px）。框架替所有文字对象补上这点填充，**测量高度里已经包含它**，所以你不用自己加 padding；如果你的自定义控件直接 `new Phaser.GameObjects.Text()`，请照抄 `packages/widgets/src/text-padding.ts` 的做法。
 
@@ -323,13 +328,17 @@ Slider({ value: 60, disabled: true, width: 160 });
 ```ts
 Image({ texture: 'demo-tile', fit: 'contain', width: 120, height: 64 });
 Image({ texture: 'avatar', frame: 'idle' }); // 用贴图自然尺寸
+
+// 贴图是**数据槽**：换头像、换角标只改状态，不重建控件
+const selected = ref(0);
+Image({ texture: () => avatars.value[selected.value] ?? 'avatar.empty', width: 48, height: 48 });
 ```
 
-| 选项      | 类型                                       | 默认        | 说明                       |
-| --------- | ------------------------------------------ | ----------- | -------------------------- |
-| `texture` | `string`                                   | **必填**    | `scene.textures` 里的键    |
-| `frame`   | `string`                                   | —           | 贴图内的帧名               |
-| `fit`     | `'none' \| 'contain' \| 'cover' \| 'fill'` | `'contain'` | 贴图如何映射到分配到的矩形 |
+| 选项      | 类型                                       | 默认        | 说明                                                       |
+| --------- | ------------------------------------------ | ----------- | ---------------------------------------------------------- |
+| `texture` | `string`                                   | **必填**    | `scene.textures` 里的键（**数据槽**：`ref`/getter 可换图） |
+| `frame`   | `string`                                   | —           | 贴图内的帧名（同样是数据槽）                               |
+| `fit`     | `'none' \| 'contain' \| 'cover' \| 'fill'` | `'contain'` | 贴图如何映射到分配到的矩形                                 |
 
 `fit` 语义（`computeFit`）：
 
@@ -340,7 +349,7 @@ Image({ texture: 'avatar', frame: 'idle' }); // 用贴图自然尺寸
 | `'fill'`    | 不保持比例，拉伸到正好填满                                             |
 | `'none'`    | 不缩放，按原始像素居中原样绘制                                         |
 
-方法：`setTexture(texture, frame?)`、`setFit(fit)`、`get naturalSize`（当前帧的原始尺寸）、`get imageFit`、`image`（底层 `Phaser.GameObjects.Image`，用于 tint 等）。
+方法：`setTexture(texture, frame?)`、`setFit(fit)`、`get naturalSize`（当前帧的原始尺寸）、`get imageFit`、`get currentTexture` / `get currentFrame`（当前贴图与帧名，`texture` 与 `frame` 两个槽位靠它们互不覆盖）、`image`（底层 `Phaser.GameObjects.Image`，用于 tint 等）。
 
 要点：
 

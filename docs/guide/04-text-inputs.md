@@ -86,25 +86,25 @@ TextField({
 });
 ```
 
-| 选项            | 类型                                                      | 默认     | 说明                                                                                    |
-| --------------- | --------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
-| `label`         | `string`                                                  | `''`     | 字段标签。**不会**渲染成可见文字，只作为隐藏元素的 accessible name（无障碍读屏用）      |
-| `value`         | `string`                                                  | `''`     | 初始值（会先过一遍输入类型过滤与 `maxLength`）                                          |
-| `placeholder`   | `string`                                                  | `''`     | 值为空时以弱化色显示                                                                    |
-| `maxLength`     | `number`                                                  | 不限     | 最大**码点**数（emoji 不会被截成半个）                                                  |
-| `inputType`     | `'text' \| 'number' \| 'password' \| 'email' \| 'search'` | `'text'` | `password` 显示 `•`；`number` 过滤掉非数字字符；`email`/`search` 只影响移动端键盘       |
-| `align`         | `'left' \| 'center' \| 'right'`                           | `'left'` | 文本水平对齐                                                                            |
-| `readOnly`      | `boolean`                                                 | `false`  | 保留文本但拒绝一切编辑（仍可聚焦选中）                                                  |
-| `disabled`      | `boolean`（**DSL 里可以是 `ref`/getter**）                | `false`  | 不可聚焦、不可编辑，显示 `disabled` 状态；`disabled: () => saving.value` 会跟着状态翻转 |
-| `error`         | `string \| boolean \| null`（**DSL 槽位**）               | `null`   | 直接给错误文案（显示在字段下方）；`null`/`false` 清除                                   |
-| `clearable`     | `boolean`                                                 | `false`  | 右侧出现可点击的 `×`，点它清空                                                          |
-| `dom`           | `boolean`                                                 | `true`   | 是否允许使用 DOM 输入桥                                                                 |
-| `validate`      | `(value: string) => string \| null`                       | —        | 校验器：返回错误文案即进入 `error` 状态，返回 `null` 表示通过                           |
-| `onChange`      | `(value, field) => void`                                  | —        | **用户**编辑后回调（`setValue` 不触发）                                                 |
-| `onValueChange` | `(value, field) => void`（**DSL 槽位**）                  | —        | 值变化的回调：`value` 传 `ref` 时它是写回通道，传 getter 时它是唯一的写回出口           |
-| `onSubmit`      | `(value, field) => void`                                  | —        | 提交时回调（Enter，`TextArea` 见 §5）                                                   |
-| `onFocus`       | `(field) => void`                                         | —        | 获得焦点时回调                                                                          |
-| `onBlur`        | `(field) => void`                                         | —        | 失焦时回调（**在校验之后**执行）                                                        |
+| 选项            | 类型                                                      | 默认     | 说明                                                                                                                        |
+| --------------- | --------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `label`         | `string`                                                  | `''`     | 字段标签。**不会**渲染成可见文字，只作为隐藏元素的 accessible name（无障碍读屏用）                                          |
+| `value`         | `string`                                                  | `''`     | 初始值（会先过一遍输入类型过滤与 `maxLength`）                                                                              |
+| `placeholder`   | `string`                                                  | `''`     | 值为空时以弱化色显示                                                                                                        |
+| `maxLength`     | `number`                                                  | 不限     | 最大**码点**数（emoji 不会被截成半个）                                                                                      |
+| `inputType`     | `'text' \| 'number' \| 'password' \| 'email' \| 'search'` | `'text'` | `password` 显示 `•`；`number` 过滤掉非数字字符；`email`/`search` 只影响移动端键盘                                           |
+| `align`         | `'left' \| 'center' \| 'right'`                           | `'left'` | 文本水平对齐                                                                                                                |
+| `readOnly`      | `boolean`（**DSL 里可以是 `ref`/getter**）                | `false`  | 保留文本但拒绝一切编辑（仍可聚焦选中）；`readOnly: () => saving.value` 会跟着状态翻转，皮肤同时从 `surface` 变 `surfaceAlt` |
+| `disabled`      | `boolean`（**DSL 里可以是 `ref`/getter**）                | `false`  | 不可聚焦、不可编辑，显示 `disabled` 状态；`disabled: () => saving.value` 会跟着状态翻转                                     |
+| `error`         | `string \| boolean \| null`（**DSL 槽位**）               | `null`   | 直接给错误文案（显示在字段下方）；`null`/`false` 清除                                                                       |
+| `clearable`     | `boolean`                                                 | `false`  | 右侧出现可点击的 `×`，点它清空                                                                                              |
+| `dom`           | `boolean`                                                 | `true`   | 是否允许使用 DOM 输入桥                                                                                                     |
+| `validate`      | `(value: string) => string \| null`                       | —        | 校验器：返回错误文案即进入 `error` 状态，返回 `null` 表示通过                                                               |
+| `onChange`      | `(value, field) => void`                                  | —        | **用户**编辑后回调（`setValue` 不触发）                                                                                     |
+| `onValueChange` | `(value, field) => void`（**DSL 槽位**）                  | —        | 值变化的回调：`value` 传 `ref` 时它是写回通道，传 getter 时它是唯一的写回出口                                               |
+| `onSubmit`      | `(value, field) => void`                                  | —        | 提交时回调（Enter，`TextArea` 见 §5）                                                                                       |
+| `onFocus`       | `(field) => void`                                         | —        | 获得焦点时回调                                                                                                              |
+| `onBlur`        | `(field) => void`                                         | —        | 失焦时回调（**在校验之后**执行）                                                                                            |
 
 默认尺寸与内边距：高度 `theme.controlHeight.md`（36），内边距 `[8, 12, 8, 12]`；写了 `height`/`padding` 就用你的。宽度 `auto` 时按内容量宽（内容宽度下限 96，再加内边距才是控件宽度），所以**表单里通常显式写 `width`**（或 `'fill'`）。
 
@@ -114,21 +114,22 @@ TextField({
 
 ### 方法
 
-| 方法                                                                                     | 说明                                                                                                          |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `getValue()`                                                                             | 当前值                                                                                                        |
-| `setValue(value)`                                                                        | 程序化写入：值/显示/DOM 镜像/**模型绑定**全部跟上，但**不调 `onChange` 选项**（"用户编辑"才算数）             |
-| `insertText(text)` / `deleteText(dir)` / `setCaretIndex(i)`                              | 按"一次编辑"写入（与真实按键同一条 `applyEdit` 路径，`maxLength`/数字过滤照常生效）——屏幕键盘用这三个         |
-| `clear()`                                                                                | 清空（保留焦点、选项与校验状态）                                                                              |
-| `getSelection()` / `setSelection(a, b)`                                                  | 选区 `[start, end)`（码元偏移，与 `HTMLInputElement.selectionStart` 同口径）                                  |
-| `caretIndex` / `selectionAnchor`                                                         | 光标位置 / 选区锚点                                                                                           |
-| `scrollLeft` / `scrollTop`                                                               | 文本在框内滚了多远（设计像素，与 `HTMLTextAreaElement` 同名）：打字越过边缘、或**把指针拖到框外按住**时都会变 |
-| `isFocused()`                                                                            | 是否持有框架焦点                                                                                              |
-| `getError()` / `setError(v)`                                                             | 读/写错误状态；`setError('文案')` 显示消息，`setError(null)` 清除                                             |
-| `validateNow()`                                                                          | 立刻跑一次 `validate`                                                                                         |
-| `focus()` / `blur()`                                                                     | 聚焦/失焦（会联动 DOM 桥与校验）                                                                              |
-| `composing` / `bridged` / `bridgeElement`                                                | 输入法组合中 / 是否走 DOM 桥 / 隐藏元素                                                                       |
-| `inputType` / `align` / `maxLength` / `readOnly` / `clearable` / `placeholder` / `label` | 只读配置项                                                                                                    |
+| 方法                                                                        | 说明                                                                                                            |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `getValue()`                                                                | 当前值                                                                                                          |
+| `setValue(value)`                                                           | 程序化写入：值/显示/DOM 镜像/**模型绑定**全部跟上，但**不调 `onChange` 选项**（"用户编辑"才算数）               |
+| `insertText(text)` / `deleteText(dir)` / `setCaretIndex(i)`                 | 按"一次编辑"写入（与真实按键同一条 `applyEdit` 路径，`maxLength`/数字过滤照常生效）——屏幕键盘用这三个           |
+| `clear()`                                                                   | 清空（保留焦点、选项与校验状态）                                                                                |
+| `getSelection()` / `setSelection(a, b)`                                     | 选区 `[start, end)`（码元偏移，与 `HTMLInputElement.selectionStart` 同口径）                                    |
+| `caretIndex` / `selectionAnchor`                                            | 光标位置 / 选区锚点                                                                                             |
+| `scrollLeft` / `scrollTop`                                                  | 文本在框内滚了多远（设计像素，与 `HTMLTextAreaElement` 同名）：打字越过边缘、或**把指针拖到框外按住**时都会变   |
+| `isFocused()`                                                               | 是否持有框架焦点                                                                                                |
+| `getError()` / `setError(v)`                                                | 读/写错误状态；`setError('文案')` 显示消息，`setError(null)` 清除                                               |
+| `validateNow()`                                                             | 立刻跑一次 `validate`                                                                                           |
+| `focus()` / `blur()`                                                        | 聚焦/失焦（会联动 DOM 桥与校验）                                                                                |
+| `composing` / `bridged` / `bridgeElement`                                   | 输入法组合中 / 是否走 DOM 桥 / 隐藏元素                                                                         |
+| `setReadOnly(on)`                                                           | 运行期切换「保留文本但拒绝编辑」：同步 DOM 桥的 `readonly`、换皮肤、放开正在进行的拖选（`readOnly` 槽位的入口） |
+| `inputType` / `align` / `maxLength` / `clearable` / `placeholder` / `label` | 只读配置项                                                                                                      |
 
 ### 事件
 

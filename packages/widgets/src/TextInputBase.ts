@@ -193,8 +193,8 @@ export abstract class TextInputBase extends Widget {
   readonly align: TextInputAlign;
   /** Character limit (`null` = unlimited). Counted in code points. */
   readonly maxLength: number | null;
-  /** Whether edits are rejected. */
-  readonly readOnly: boolean;
+  /** Whether edits are rejected. Mutable through {@link TextInputBase.setReadOnly}. */
+  readOnly: boolean;
   /** Whether a clear button is painted and clickable. */
   readonly clearable: boolean;
   /** Placeholder shown while the value is empty. */
@@ -806,6 +806,35 @@ export abstract class TextInputBase extends Widget {
     return this.scrollY;
   }
 
+  /**
+   * Turns "keep the text, reject every edit" on or off at runtime.
+   *
+   * `readOnly` is **state**, not configuration: a form locks its fields while a save is in flight and
+   * unlocks them when it fails, which is why the compose `TextField()`/`TextArea()` slot accepts a `Ref`
+   * here (round 98). Three things have to follow the flag, and all three are the same funnel the
+   * constructor uses:
+   *
+   * - the DOM bridge element (`readonly` attribute) — the browser path would otherwise keep editing;
+   * - the skin — a read-only field paints `surfaceAlt` instead of `surface`, so the repaint is visible;
+   * - any drag in flight: a selection drag that was claimed while the field was editable must let go, or
+   *   a held pointer would keep extending a selection in a field the user can no longer edit.
+   */
+  setReadOnly(readOnly: boolean): this {
+    const next = readOnly === true;
+    if (next === this.readOnly) {
+      return this;
+    }
+    this.readOnly = next;
+    if (next) {
+      this.endDrag();
+      this.releaseAllDrags();
+    }
+    this.bridge?.setReadOnly(next);
+    this.skinCache = null;
+    this.paintAll();
+    return this;
+  }
+
   /** True while the field holds the framework focus. */
   isFocused(): boolean {
     return this.focused;
@@ -1174,7 +1203,12 @@ export abstract class TextInputBase extends Widget {
     return theme.colors.text;
   }
 
-  /** Background skin of the box; rebuilt only when the theme changes. */
+  /**
+   * Background skin of the box; rebuilt when the theme changes **or** `readOnly` flips.
+   *
+   * The cache is keyed by theme alone, so any other input to `textInputSkinStyles` has to clear it —
+   * `setReadOnly()` does exactly that (the same shape as V38's panel variant).
+   */
   private skinFor(theme: Theme): ProceduralSkin {
     if (this.skinCache?.theme === theme) {
       return this.skinCache.skin;

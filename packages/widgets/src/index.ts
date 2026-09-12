@@ -166,6 +166,7 @@ export {
 export {
   applyLineLimit,
   ELLIPSIS,
+  ellipsizeAlways,
   ellipsizeLine,
   truncateLines,
   type LineLimitOptions,

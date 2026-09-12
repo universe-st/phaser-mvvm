@@ -44,6 +44,9 @@ export class Image extends Widget {
   private fit: ImageFit;
   private naturalWidth = 0;
   private naturalHeight = 0;
+  /** Texture key on screen; tracked here because Phaser's own `texture.key` is not the widget's slot. */
+  private textureKey: string;
+  private frameName: string | undefined;
 
   constructor(scene: Phaser.Scene, options: ImageOptions) {
     const { layout, widget } = splitWidgetOptions<ImageWidgetOptions>(
@@ -53,10 +56,27 @@ export class Image extends Widget {
     super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.fit = widget.fit ?? 'contain';
+    this.textureKey = widget.texture;
+    this.frameName = widget.frame;
     this.image = new Phaser.GameObjects.Image(scene, 0, 0, widget.texture, widget.frame);
     this.image.setOrigin(0, 0);
     this.add(this.image);
     this.captureNaturalSize();
+  }
+
+  /**
+   * Texture key currently on screen.
+   *
+   * The compose `Image()` texture and frame slots are two data slots over *one* Phaser call
+   * (`setTexture(key, frame)`), so each has to be able to read the other half instead of overwriting it.
+   */
+  get currentTexture(): string {
+    return this.textureKey;
+  }
+
+  /** Frame name currently on screen, or `undefined` when the texture's first frame is used. */
+  get currentFrame(): string | undefined {
+    return this.frameName;
   }
 
   /** How the texture is mapped onto the rect. */
@@ -75,7 +95,12 @@ export class Image extends Widget {
 
   /** Swaps the texture (and optionally the frame), then re-measures. */
   setTexture(texture: string, frame?: string): this {
+    if (texture === this.textureKey && frame === this.frameName) {
+      return this;
+    }
     this.image.setTexture(texture, frame);
+    this.textureKey = texture;
+    this.frameName = frame;
     this.captureNaturalSize();
     this.markDirty();
     return this;

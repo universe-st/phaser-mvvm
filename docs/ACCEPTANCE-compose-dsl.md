@@ -147,6 +147,27 @@ this.mvvm.mount(page);
 
 **像素门禁**：`scripts/visual-check.mjs` 把 `#/compose` 收进常驻矩阵，`SCENE_SETUP` 先切到 `state` 分区、再把面板变体**在运行时**改成 `danger`，然后断言 `state.panel` 采样到 `#f85149`/`#cf222e`。面板是**以 `surface` 构造**的，所以这个颜色只可能来自一次真正的重绘 —— 一个"换了变体但没重绘"的静默缺陷（V38 家族）会在这里红掉。实测：`OK state.panel: #f85149 at (1176,230)`（暗）、`OK state.panel: #cf222e at (1176,230)`（亮）。
 
+### 3.2.1 第 98 轮追加：状态槽位第二批（`readOnly` / `maxLines` + `ellipsis` / `Image.texture`）
+
+同一个分区又加了三个"看起来像配置、其实是状态"的槽位，判据同一条：**槽位必须真的到达控件的 setter 并重绘**。
+
+| 槽位                            | 为什么它是状态                                                  | 控件侧入口                                                                             |
+| ------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `TextField`/`TextArea.readOnly` | 保存中要锁住内容但不隐藏、不放弃可选中（`disabled` 的孪生兄弟） | `TextInputBase#setReadOnly()`（换皮肤 + 同步 DOM 桥 + 放开正在进行的拖选）             |
+| `Text.maxLines` / `ellipsis`    | 段落的"展开 / 收起"就是这两个参数                               | `Label#setMaxLines()` / `#setEllipsis()`（重测 + 变脏）                                |
+| `Image.texture` / `frame`       | 头像随选中的人换、角标随状态换                                  | 既有的 `Image#setTexture()`，新增 `#currentTexture`/`#currentFrame` 让两个槽位互不覆盖 |
+
+| #   | 断言                                           | 实测（`window.compose.slots()`，真鼠标点按钮）                                                                                                                |
+| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S9  | `maxLines` 槽折叠/展开 + `ellipsis` 真的补标记 | 点「展开」：`paintedLines 2 → 6`、`truncated true → false`、标签高 **37 → 108**；点「收起」：回到 `2` / `true` / **37**，画出的文本结尾是 `…`                 |
+| S10 | `texture` 槽换图                               | 点「换贴图」：`slots().texture` `compose.slot.a → compose.slot.b`，像素 `state.tex` 从 `#2f6feb` 变 `#3fb950`（纹理是**字面量**，明暗两半都必须读到同一个绿） |
+| S11 | `readOnly` 槽翻转                              | 点「锁定文本」：`slots().frozen false → true`，`state.frozen` 采样到 `surfaceAlt`（暗 `#1f2630` / 亮 `#eef1f4`），值仍在（`frozenValue` 不变）                |
+| S12 | 三个槽互不影响                                 | 每次只点一个按钮，另外两个读数不变（同一次核对里三个 `slots()` 字段各变一次）                                                                                 |
+
+**像素门禁（本轮扩到三个采样点）**：`SCENE_SETUP.compose` 现在一次改三个槽 —— `{ variant: "danger", altTexture: true, frozen: true }` —— 因为三个控件分别是**以 `surface` / 纹理 A / 可编辑**构造的，采样到的 `danger` / 绿 / `surfaceAlt` 只可能来自真正的重绘。实测：暗 `#f85149` / `#3fb950` / `#1f2630`，亮 `#cf222e` / **`#3fb950`** / `#eef1f4`（中间那个不变，因为它是字面量不是令牌）。
+
+**阳性对照**：把 `Image()` 的 `texture` 槽绑定注释掉再跑 —— `MISMATCH state.tex: expected #3fb950 got #2f6feb`（两半各红一次，`2 check(s) failed`）；恢复后重新 `ok`。
+
 ### 3.3 第 85 轮追加：`Scroll` 的 `offset` 槽位（滚动位置即状态）
 
 `#/compose` 的 `list` 分区把 `Scroll` 的滚动位置绑到一个 `ref` 上（`window.compose.listOffset()` / `setListOffset(v)` 读写它），并逐帧发布两个读数：`list.offset`（控件自己的 `offset`）与 `list.offsetState`（那个 `ref`）。**两者必须一致**，这就是"状态跟着视图走"的证据；另加一个「回到顶部」按钮，它只写 `ref`。

@@ -440,9 +440,23 @@ export type VirtualKeyboardDslOptions = Omit<VirtualKeyboardOptions, 'kind'> & {
 } & DslOptions;
 
 /** Options of `Text`: the label's own bag, plus the DSL's reactive slots. */
-export type TextOptions = Omit<LabelOptions, 'tone'> & {
+export type TextOptions = Omit<LabelOptions, 'tone' | 'maxLines' | 'ellipsis'> & {
   /** Semantic colour; a `Ref`/getter repaints the label when it flips. */
   tone?: ReactiveSource<LabelTone>;
+  /**
+   * Lines shown before the rest is dropped; a `Ref`/getter collapses and expands the label.
+   *
+   * Truncation is the one label option that is *state* rather than configuration — "2 lines, then show
+   * all" is a paragraph's expanded/collapsed mode — so it is a data slot like `tone`:
+   *
+   * ```ts
+   * const expanded = ref(false);
+   * Text(() => vm.notes.value, { maxLines: () => (expanded.value ? 99 : 2), ellipsis: true });
+   * ```
+   */
+  maxLines?: ReactiveSource<number>;
+  /** Append `…` to the last visible line when lines are dropped; reactive for the same reason. */
+  ellipsis?: ReactiveSource<boolean>;
 } & DslOptions;
 
 /**
@@ -455,10 +469,12 @@ export type TextOptions = Omit<LabelOptions, 'tone'> & {
  */
 export function Text(value: ReactiveSource<string>, options: TextOptions = {}): Label {
   const scene = currentUiScene();
-  const { tone, visible, ...rest } = options;
+  const { tone, maxLines, ellipsis, visible, ...rest } = options;
   const label = new Label(scene, {
     ...rest,
     ...(tone === undefined ? {} : { tone: readReactive(tone) }),
+    ...(maxLines === undefined ? {} : { maxLines: readReactive(maxLines) }),
+    ...(ellipsis === undefined ? {} : { ellipsis: readReactive(ellipsis) === true }),
     text: readReactive(value),
   });
   scene.add.existing(label);
@@ -468,6 +484,8 @@ export function Text(value: ReactiveSource<string>, options: TextOptions = {}): 
     bindText(label, sourceGetter(value));
   }
   bindOption(label, tone, (host, next) => host.setTone(next));
+  bindOption(label, maxLines, (host, next) => host.setMaxLines(next));
+  bindOption(label, ellipsis, (host, next) => host.setEllipsis(next === true));
   return label;
 }
 
@@ -525,12 +543,37 @@ export function Button(
 }
 
 /** A texture image. */
-export function Image(options: ImageOptions & DslOptions): ImageWidget {
-  const { visible, rest } = splitDsl(options);
+/** Options of `Image`: the widget's bag with a reactive texture. */
+export type ImageDslOptions = Omit<ImageOptions, 'texture' | 'frame'> & {
+  /**
+   * Texture key, as registered with `scene.textures`; a `Ref`/getter swaps it at runtime.
+   *
+   * Which picture is on screen is state as often as it is configuration — an avatar that changes with
+   * the selected player, a badge that turns into a "new" marker — and `Image#setTexture()` already
+   * re-measures, so the slot is one line of state rather than a rebuilt widget.
+   */
+  texture?: ReactiveSource<string>;
+  /** Frame inside the texture; reactive for the same reason. */
+  frame?: ReactiveSource<string>;
+} & DslOptions;
+
+/** A texture drawn inside a layout rect. */
+export function Image(options: ImageDslOptions): ImageWidget {
+  const { texture, frame, visible, ...rest } = options;
   const scene = currentUiScene();
-  const widget = new ImageWidget(scene, rest);
+  const widget = new ImageWidget(scene, {
+    ...rest,
+    texture: readReactive(texture ?? ''),
+    ...(frame === undefined ? {} : { frame: readReactive(frame) }),
+  });
   scene.add.existing(widget);
   applyDslOptions(widget, { visible });
+  bindOption(widget, texture, (host, next) => host.setTexture(next));
+  // `setTexture(texture, frame)`: a reactive frame keeps the current texture and swaps only the frame,
+  // which is why the two slots cannot share one `bindOption` callback without losing the other half.
+  bindOption(widget, frame, (host, next) => {
+    host.setTexture(host.currentTexture, next);
+  });
   return emitWidget(widget);
 }
 
@@ -598,10 +641,18 @@ export function Divider(options: DividerOptions & DslOptions = {}): DividerWidge
  * state in a store rather than a `ref` can still write it back.
  */
 export interface TextFieldDslOptions
-  extends Omit<TextFieldOptions, 'value' | 'onChange' | 'disabled'>, DslOptions {
+  extends Omit<TextFieldOptions, 'value' | 'onChange' | 'disabled' | 'readOnly'>, DslOptions {
   value?: ReactiveSource<string>;
   /** Reactive enabled state: `disabled: () => saving.value` (a `false` re-enables the field). */
   disabled?: ReactiveSource<boolean>;
+  /**
+   * Reactive "keep the text, reject every edit": `readOnly: () => locked.value`.
+   *
+   * The read-only twin of `disabled`, and the one a form actually wants while it saves: the text stays
+   * readable and selectable, the box paints `surfaceAlt`, and every edit path (typing, paste, the DOM
+   * bridge, the virtual keyboard) goes through the same funnel.
+   */
+  readOnly?: ReactiveSource<boolean>;
   /** Reactive validation state: an error message (shown under the field), or `null`/`false` to clear. */
   error?: ReactiveSource<string | boolean | null>;
   onValueChange?: (value: string, field: TextFieldWidget) => void;
@@ -609,10 +660,12 @@ export interface TextFieldDslOptions
 
 /** {@link TextFieldDslOptions} for the multi-line field. */
 export interface TextAreaDslOptions
-  extends Omit<TextAreaOptions, 'value' | 'onChange' | 'disabled'>, DslOptions {
+  extends Omit<TextAreaOptions, 'value' | 'onChange' | 'disabled' | 'readOnly'>, DslOptions {
   value?: ReactiveSource<string>;
   /** Reactive enabled state; see {@link TextFieldDslOptions.disabled}. */
   disabled?: ReactiveSource<boolean>;
+  /** Reactive read-only state; see {@link TextFieldDslOptions.readOnly}. */
+  readOnly?: ReactiveSource<boolean>;
   /** Reactive validation state; see {@link TextFieldDslOptions.error}. */
   error?: ReactiveSource<string | boolean | null>;
   onValueChange?: (value: string, field: TextAreaWidget) => void;
@@ -621,16 +674,18 @@ export interface TextAreaDslOptions
 /** A single-line text input. */
 export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, disabled, error, visible, ...rest } = options;
+  const { value, onValueChange, disabled, readOnly, error, visible, ...rest } = options;
   const field = new TextFieldWidget(scene, {
     ...rest,
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
+    ...(readOnly === undefined ? {} : { readOnly: readReactive(readOnly) === true }),
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
   applyDslOptions(field, { visible });
   emitWidget(field);
   applyStateSlots(field, disabled, error);
+  bindOption(field, readOnly, (host, next) => host.setReadOnly(next === true));
   wireFieldModel(field, value, onValueChange);
   return field;
 }
@@ -638,16 +693,18 @@ export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
 /** A multi-line text input. */
 export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, disabled, error, visible, ...rest } = options;
+  const { value, onValueChange, disabled, readOnly, error, visible, ...rest } = options;
   const field = new TextAreaWidget(scene, {
     ...rest,
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
+    ...(readOnly === undefined ? {} : { readOnly: readReactive(readOnly) === true }),
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
   applyDslOptions(field, { visible });
   emitWidget(field);
   applyStateSlots(field, disabled, error);
+  bindOption(field, readOnly, (host, next) => host.setReadOnly(next === true));
   wireFieldModel(field, value, onValueChange);
   return field;
 }

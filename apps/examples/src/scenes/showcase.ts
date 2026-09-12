@@ -64,6 +64,7 @@ import {
   ui,
 } from '@phaser-mvvm/widgets/compose';
 import { makeTileTexture, setDemoState } from '../demo';
+import type { Label } from '@phaser-mvvm/widgets';
 import {
   appendStatus,
   displayScale,
@@ -205,6 +206,9 @@ export class ShowcaseScene extends Phaser.Scene {
   private stageContent: Widget | null = null;
   private sectionHost: Widget | null = null;
   private repeatWidget: Repeat<SampleRow> | null = null;
+  /** The two labels of the truncation card, so `truncation()` can read their *painted* text. */
+  private truncLines: Label | null = null;
+  private truncSingle: Label | null = null;
   private readonly tracked: TrackedControls = new Map();
   private readonly trackedGroups = new Map<string, Set<string>>();
   private readonly reported = new Map<string, string>();
@@ -494,7 +498,34 @@ export class ShowcaseScene extends Phaser.Scene {
         }
         return found;
       },
+      /**
+       * The truncation card as numbers, read from the labels' **painted** text.
+       *
+       * `maxLines`/`ellipsis` are a rendering decision, so the only honest reading is what reached the
+       * canvas: how many rows are painted, whether anything was dropped, and whether the visible text
+       * ends in `…`. Both labels are also reported in `rects()` by name (`trunc.lines`,
+       * `trunc.single`), which is how a check confirms the width actually applied.
+       */
+      truncation: () => this.truncation(),
     };
+  }
+
+  /** See `window.showcase.truncation()` — the painted state of the truncation card's two labels. */
+  private truncation(): Record<
+    'lines' | 'single',
+    { rows: number; truncated: boolean; ellipsis: boolean; text: string; width: number }
+  > {
+    const read = (label: Label | null) => {
+      const text = label?.getDisplayText() ?? '';
+      return {
+        rows: text.length === 0 ? 0 : text.split('\n').length,
+        truncated: label?.truncated ?? false,
+        ellipsis: text.endsWith('…') || text.includes('…'),
+        text,
+        width: Math.round(label?.appliedRect.width ?? 0),
+      };
+    };
+    return { lines: read(this.truncLines), single: read(this.truncSingle) };
   }
 
   /** The size the page asks for: the window minus the outer margin, with a floor. */
@@ -549,6 +580,18 @@ export class ShowcaseScene extends Phaser.Scene {
     this.publish('repeat.total', this.rows.value.length);
     this.publish('repeat.rendered', rendered);
     this.publish('scroll.offset', Math.round(this.stageOffset.value));
+    // The truncation card is the one place where the *painted* text is the assertion: `maxLines` and
+    // `ellipsis` are only real if the label dropped lines and said so (round 98 measured both labels
+    // at `truncated=false`, because `alignItems: 'stretch'` had silently widened them).
+    if (this.section.value === 'text') {
+      const truncation = this.truncation();
+      this.publish('trunc.lines.rows', truncation.lines.rows);
+      this.publish('trunc.lines.truncated', truncation.lines.truncated);
+      this.publish('trunc.lines.ellipsis', truncation.lines.ellipsis);
+      this.publish('trunc.single.rows', truncation.single.rows);
+      this.publish('trunc.single.truncated', truncation.single.truncated);
+      this.publish('trunc.single.ellipsis', truncation.single.ellipsis);
+    }
     this.publishControls();
   }
 
@@ -1026,18 +1069,37 @@ export class ShowcaseScene extends Phaser.Scene {
 
         this.card(
           'Label · truncation',
-          'maxLines + ellipsis, and wrap: false for a single clipped line',
+          'maxLines + ellipsis, and wrap: false for a single ellipsized line',
           () => {
             this.column(() => {
-              Text(
+              // `alignSelf: 'start'` is not decoration: without it both labels are handed the card's
+              // width (980) by the default `alignItems: 'stretch'`, so the paragraph fits in two lines
+              // and `width: 340` never applies. That is exactly how this card used to show two ordinary
+              // labels while its captions claimed truncation — measured `truncated=false` on both, with
+              // no ellipsis anywhere (round 98). `truncation()` is the probe that keeps it honest.
+              this.truncLines = Text(
                 'maxLines: 2 with ellipsis — the label asks the text measurer for the wrapped lines and ' +
                   'trims the rest, so truncation is a layout decision rather than a renderer trick.',
-                { maxLines: 2, ellipsis: true, width: 340 },
+                {
+                  maxLines: 2,
+                  ellipsis: true,
+                  width: 340,
+                  alignSelf: 'start',
+                  name: 'trunc.lines',
+                },
               );
-              Text('wrap: false — a single line, clipped at the assigned width.', {
-                wrap: false,
-                width: 220,
-              });
+              this.truncSingle = Text(
+                'wrap: false — a single line, ellipsized at the assigned width.',
+                {
+                  // No `maxLines`: nothing is *dropped* here, the one line is too wide for the box —
+                  // which is the other half of "truncation" and used to overflow instead of clipping.
+                  wrap: false,
+                  ellipsis: true,
+                  width: 220,
+                  alignSelf: 'start',
+                  name: 'trunc.single',
+                },
+              );
             });
           },
         );

@@ -82,11 +82,57 @@ export function ellipsizeLine(
 }
 
 /**
+ * Ends `text` in an ellipsis **whether or not it already fits** — the line-limit case.
+ *
+ * {@link ellipsizeLine} answers "make this line fit", so it returns a short line untouched; but when
+ * `maxLines` dropped something, that short line is precisely the one that has to *say so*. Every
+ * wrapped line fits its own width by construction, so a cut across prose was invisible: `ellipsis: true`
+ * painted no `…` at all on real paragraphs (V64, found by the round-98 `#/compose` card, whose probe
+ * read `truncated: true` with no ellipsis in the painted text).
+ *
+ * Shortening is still only what is needed: when `text + …` fits, the line keeps every character.
+ */
+export function ellipsizeAlways(
+  text: string,
+  measureWidth: MeasureWidth,
+  maxWidth: number,
+  ellipsis: string = ELLIPSIS,
+): string {
+  if (ellipsis.length === 0) {
+    return text;
+  }
+  if (!isFiniteWidth(maxWidth)) {
+    return `${text}${ellipsis}`;
+  }
+  const ellipsisWidth = measureWidth(ellipsis);
+  if (ellipsisWidth > maxWidth) {
+    // No room for the marker itself: the honest answer is the marker alone rather than a line that
+    // silently lies about being complete.
+    return ellipsis;
+  }
+  if (measureWidth(text) + ellipsisWidth <= maxWidth) {
+    return `${text}${ellipsis}`;
+  }
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (measureWidth(text.slice(0, mid)) + ellipsisWidth <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return text.slice(0, snapToCodePoint(text, low)) + ellipsis;
+}
+
+/**
  * Keeps at most `maxLines` lines.
  *
- * When lines are dropped and `ellipsis` is on, the last kept line is shortened so the visible text
- * ends in `…`; without an ellipsis the lines are simply cut. Lines are never re-wrapped here — the
- * caller has already wrapped the text at the final width.
+ * When lines are dropped and `ellipsis` is on, the last kept line **ends in `…`** — shortened only as
+ * far as that needs ({@link ellipsizeAlways}); without an ellipsis the lines are simply cut. Lines are
+ * never re-wrapped here — the caller has already wrapped the text at the final width.
  */
 export function truncateLines(
   lines: readonly string[],
@@ -107,12 +153,7 @@ export function truncateLines(
   const last = kept[limit - 1] ?? '';
   // An empty ellipsis means "cut, do not shorten the kept line": the line keeps whatever width it
   // already has (it may overflow when a single word is wider than the content box).
-  kept[limit - 1] =
-    ellipsis.length === 0
-      ? last
-      : isFiniteWidth(maxWidth)
-        ? ellipsizeLine(last, measureWidth, maxWidth, ellipsis)
-        : `${last}${ellipsis}`;
+  kept[limit - 1] = ellipsizeAlways(last, measureWidth, maxWidth, ellipsis);
   return { lines: kept, truncated: true };
 }
 

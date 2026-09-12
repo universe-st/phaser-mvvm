@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLineLimit,
   ELLIPSIS,
+  ellipsizeAlways,
   ellipsizeLine,
   rewrapOverflowingLines,
   truncateLines,
@@ -53,6 +54,37 @@ describe('ellipsizeLine', () => {
   });
 });
 
+describe('ellipsizeAlways', () => {
+  it('appends the marker even when the text already fits', () => {
+    // This is the difference from `ellipsizeLine`, and the whole point of the function.
+    expect(ellipsizeAlways('abc', width10, 100)).toBe(`abc${ELLIPSIS}`);
+    expect(ellipsizeLine('abc', width10, 100)).toBe('abc');
+  });
+
+  it('shortens until text plus marker fits', () => {
+    // Box 35 = the 10px marker plus at most two 10px characters ('abc…' would be 40 wide).
+    expect(ellipsizeAlways('abcdef', width10, 35)).toBe(`ab${ELLIPSIS}`);
+  });
+
+  it('never splits a surrogate pair', () => {
+    const result = ellipsizeAlways('a😀b', width10, 25);
+    expect(result.endsWith(ELLIPSIS)).toBe(true);
+    expect(result).not.toContain('\ud83d');
+  });
+
+  it('returns the marker alone when not even one character fits beside it', () => {
+    expect(ellipsizeAlways('abcdef', width10, 10)).toBe(ELLIPSIS);
+  });
+
+  it('treats an unbounded width as "nothing to shorten"', () => {
+    expect(ellipsizeAlways('abcdef', width10, Number.POSITIVE_INFINITY)).toBe(`abcdef${ELLIPSIS}`);
+  });
+
+  it('is a no-op when the caller asks for no marker', () => {
+    expect(ellipsizeAlways('abcdef', width10, 20, '')).toBe('abcdef');
+  });
+});
+
 describe('truncateLines', () => {
   const lines = ['one', 'two', 'three', 'four'];
 
@@ -62,22 +94,24 @@ describe('truncateLines', () => {
     expect(result.truncated).toBe(false);
   });
 
-  it('drops the extra lines and reports truncation', () => {
+  it('drops the extra lines, marks the cut, and reports truncation', () => {
+    // The regression V64 is about: every wrapped line fits its own width by construction, so a
+    // `maxLines` cut across prose used to paint no ellipsis at all while still reporting `truncated`.
     const result = truncateLines(lines, 2, width10, 100);
-    expect(result.lines).toEqual(['one', 'two']);
+    expect(result.lines).toEqual(['one', `two${ELLIPSIS}`]);
     expect(result.truncated).toBe(true);
+  });
+
+  it('shortens the kept line only as far as the marker needs', () => {
+    // 'two' is 30 wide and the box is 20, so one character has to go for the 10px ellipsis to fit.
+    const result = truncateLines(lines, 2, width10, 20);
+    expect(result.lines).toEqual(['one', `t${ELLIPSIS}`]);
   });
 
   it('does not mutate the input array', () => {
     const input = ['one', 'two', 'three'];
     truncateLines(input, 1, width10, 100);
     expect(input).toEqual(['one', 'two', 'three']);
-  });
-
-  it('ellipsizes the last kept line when the width is bounded', () => {
-    const result = truncateLines(lines, 2, width10, 20);
-    // 'two' is 30 wide, 20 leaves room for the 10px ellipsis plus one character.
-    expect(result.lines).toEqual(['one', `t${ELLIPSIS}`]);
   });
 
   it('appends a bare ellipsis when the width is unbounded', () => {
