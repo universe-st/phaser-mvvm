@@ -279,6 +279,9 @@ export class ScrollScene extends Phaser.Scene {
       height: 'fill',
       direction: 'vertical',
       content: nestedContent,
+      // Pinch zoom on the nested view (mouse users can call `scrollDemo.setZoom(scale)`), so the
+      // gesture has a home in the demos and `zoom.scale` is published for the acceptance run.
+      zoom: { min: 0.5, max: 2.5 },
       name: 'scroll.nested',
     });
     this.nestedScroll = nestedScroll;
@@ -417,12 +420,33 @@ export class ScrollScene extends Phaser.Scene {
         deleted: this.deleted.value,
       }),
       visibleRowKey: (): string | null => this.visibleRowKey(),
+      /** Scale of the nested view's pinch zoom (1 = natural size). */
+      zoom: (): number => Math.round((this.nestedScroll?.zoom ?? 1) * 100) / 100,
+      setZoom: (scale: number): number => {
+        this.nestedScroll?.setZoom(scale);
+        return this.nestedScroll?.zoom ?? 1;
+      },
       viewports: () => ({
-        v: this.vScroll?.viewport ?? { width: 0, height: 0 },
-        h: this.hScroll?.viewport ?? { width: 0, height: 0 },
-        nested: this.nestedScroll?.viewport ?? { width: 0, height: 0 },
+        v: this.viewportInfo(this.vScroll),
+        h: this.viewportInfo(this.hScroll),
+        nested: this.viewportInfo(this.nestedScroll),
       }),
     };
+  }
+
+  /** Viewport size *and* stage origin, so a check can aim a gesture at the middle of a view. */
+  private viewportInfo(view: ScrollView | null): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const size = view?.viewport ?? { width: 0, height: 0 };
+    if (!view) {
+      return { x: 0, y: 0, ...size };
+    }
+    const origin = stagePosition(view);
+    return { x: origin.x, y: origin.y, ...size };
   }
 
   /** Publishes the scroll numbers once per frame (only what changed). */
@@ -507,6 +531,7 @@ export class ScrollScene extends Phaser.Scene {
     this.publish('h.offset', Math.round(hScroll.offset));
     this.publish('h.maxOffset', Math.round(hScroll.maxOffset));
     this.publish('nested.offset', Math.round(nested.offset));
+    this.publish('nested.zoom', Math.round(nested.zoom * 100) / 100);
     this.publish('nested.maxOffset', Math.round(nested.maxOffset));
 
     const point = this.rowDeletePoint();

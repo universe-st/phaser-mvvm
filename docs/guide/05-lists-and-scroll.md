@@ -26,16 +26,17 @@ const scroll = Scroll({ width: 360, height: 240, direction: 'vertical', scrollba
 
 ## 2. 选项
 
-| 选项            | 类型                                   | 默认         | 说明                                                 |
-| --------------- | -------------------------------------- | ------------ | ---------------------------------------------------- |
-| `direction`     | `'vertical' \| 'horizontal' \| 'both'` | `'vertical'` | 滚动轴；交叉轴内容会被视口宽度/高度约束              |
-| `content`       | `Widget`                               | —            | 初始内容（等价于构造后调 `setContent`）              |
-| `scrollbar`     | `boolean \| 'auto'`                    | `'auto'`     | `'auto'` 只在内容溢出时画；`true` 常显；`false` 不画 |
-| `scrollbarSize` | `number`                               | `8`          | 滚动条粗细（设计像素，最小 2；会被夹到短边的 1/3）   |
-| `wheelSpeed`    | `number`                               | `1`          | 滚轮增量倍率                                         |
-| `drag`          | `boolean`                              | `true`       | 是否允许拖拽滚动                                     |
-| `inertia`       | `boolean`                              | `true`       | 松手后是否继续滑行（甩动）                           |
-| `bounce`        | `boolean`                              | `false`      | 越界橡皮筋回弹（默认到边界就停）                     |
+| 选项            | 类型                                   | 默认         | 说明                                                                    |
+| --------------- | -------------------------------------- | ------------ | ----------------------------------------------------------------------- |
+| `direction`     | `'vertical' \| 'horizontal' \| 'both'` | `'vertical'` | 滚动轴；交叉轴内容会被视口宽度/高度约束                                 |
+| `content`       | `Widget`                               | —            | 初始内容（等价于构造后调 `setContent`）                                 |
+| `scrollbar`     | `boolean \| 'auto'`                    | `'auto'`     | `'auto'` 只在内容溢出时画；`true` 常显；`false` 不画                    |
+| `zoom`          | `boolean \| { min?, max? }`            | `false`      | 双指捏合缩放（默认关闭）；缩放时内容 holder 直接 `setScale`，不触发布局 |
+| `scrollbarSize` | `number`                               | `8`          | 滚动条粗细（设计像素，最小 2；会被夹到短边的 1/3）                      |
+| `wheelSpeed`    | `number`                               | `1`          | 滚轮增量倍率                                                            |
+| `drag`          | `boolean`                              | `true`       | 是否允许拖拽滚动                                                        |
+| `inertia`       | `boolean`                              | `true`       | 松手后是否继续滑行（甩动）                                              |
+| `bounce`        | `boolean`                              | `false`      | 越界橡皮筋回弹（默认到边界就停）                                        |
 
 内部常量（也导出，方便你写测试）：拖拽判定阈值 `SCROLL_DRAG_THRESHOLD = 10`、起甩最小速度 `FLING_MIN_VELOCITY = 0.08`、键盘行步长 `KEY_LINE_STEP = 40`、最小滑块长 `MIN_THUMB = 28`。
 
@@ -244,6 +245,23 @@ const listScroll = Scroll({ width: 'fill', height: 'fill', direction: 'vertical'
 4. 查找会**停在内层 `ScrollView`**：内层列表有自己的窗口，外层不允许越权驱动它。
 
 想手动跳转就用 `scroll.scrollTo('bottom')` / `scroll.setScrollOffset(n)`，列表窗口会自动跟上。
+
+---
+
+## 8.5 双指捏合缩放（移动端）
+
+```ts
+Scroll({ width: 320, height: 300, zoom: { min: 0.5, max: 2.5 } }, () => {
+  Image({ texture: 'map', width: 600, height: 600 });
+});
+```
+
+- **两指落下即开始**：距离决定缩放比，两指中点是锚点——**锚点下的内容点始终留在手指之间**（否则会朝视图角落缩放，手感立刻不对）。
+- **可滚动范围随缩放变化**：内容在屏幕上的尺寸是 `extent × scale`，所以放大后可平移的范围同步变大（实测：内容 1276px、视口 300px，scale 0.75 时 `maxOffset = 1276×0.75−300 = 657`）。
+- **单指仍然是滚动**：捏合结束后立刻回到拖动（这条曾经有缺陷——第二根手指的按下会顺手武装一个属于它的拖动，导致手势结束后视图「死了」，见 `docs/DEFECT-BACKLOG.md` V15）。
+- **不触发布局**：只对内容 holder 做 `setScale`，测量结果不变，因此捏合过程零布局趟。
+- 鼠标用户走 API：`scroll.setZoom(scale, focus?)`（`focus` 是视口坐标，默认视口中心），`get zoom` 读当前值；事件 `'zoom'` 带新 scale。
+- **虚拟化列表不支持**：缩放后的列表需要把 `itemExtent` 也按比例映射才能算对窗口，因此 `zoom` 与虚拟列表同时配置时会 `warn` 一次并忽略手势。
 
 ---
 

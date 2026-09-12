@@ -196,6 +196,7 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 | 触摸点了没反应，鼠标却正常？                     | Phaser 的触摸指针是 `pointers[1]`，需要 `activePointers ≥ 1`（默认值就是 1）；只有真机/模拟出的 `TouchEvent` 才会驱动它，鼠标事件不会                                              |
 | 触摸抬起后控件一直亮着（像 hover）？             | 这是本轮修掉的缺陷 V11：`handleUp` 曾无条件恢复 hover。框架现在只在**鼠标**按压后恢复；自定义控件不要自己在 `pointerup` 里 `setHovered(true)`                                      |
 | 想区分鼠标与触摸（例如只在鼠标下显示悬停提示）？ | 读 `pointer.wasTouch`（框架内部用的就是这个标记：`isHoverPointer`）。`wasTouch === true` 的指针不参与轮询式 hover                                                                  |
+| 想支持双指缩放？                                 | `ScrollView` 的 `zoom: true` / `zoom: { min, max }`（见 [05 §8.5](./05-lists-and-scroll.md)）；虚拟化列表不支持，会 `warn` 并忽略                                                  |
 | 多指会不会互相干扰？                             | 不会：`InputRouter` 的按压按**指针**记账，`ScrollView`/`Slider` 的拖动只认抓住它的那根手指。多指要在游戏配置里开 `input: { activePointers: 2 }`（默认 1 时第二根手指没有指针可用） |
 | 需要双指手势（缩放、旋转）？                     | 目前**未实现**：框架没有 pinch/rotate 语义，也没有「双指滚动」；多指输入本身是通的，手势要自行在 Phaser 层实现（实测见 `docs/ACCEPTANCE-touch.md` §3.5）                           |
 | 字母下伸部（`g`/`y` 的尾巴）被切掉一小条？       | Phaser 文本画布高度取自字体度量并会被截断（见 03 章 `Text` 的坑）；框架已用 `glyphPadding()` 补上，自定义控件直接 `new Phaser.GameObjects.Text()` 时需要自己 `setPadding()`        |

@@ -43,11 +43,19 @@
  */
 
 import Phaser from 'phaser';
-import { devLog, isDevMode } from '@phaser-mvvm/core';
+import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import { stageRectOf, Widget } from '@phaser-mvvm/phaser';
 import type { Theme } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
+import {
+  clampZoomOffset,
+  pinchDistance,
+  pinchMidpoint,
+  pinchOffset,
+  pinchScale,
+  type ZoomPoint,
+} from './zoom-plan';
 import {
   INERTIA_DECELERATION,
   applyInertia,
@@ -83,6 +91,14 @@ export interface ScrollViewOptions extends LayoutParams {
   inertia?: boolean;
   /** Enables rubber-band overscroll that springs back. Defaults to `false`. */
   bounce?: boolean;
+  /**
+   * Enables two-finger pinch zoom (`true`, or `{ min, max }`), default off.
+   *
+   * Not available while a virtualised list is the scroll target: a scaled list would have to map
+   * `itemExtent` through the scale, so the view reports the conflict once and ignores the gesture
+   * instead of scrolling to the wrong rows.
+   */
+  zoom?: boolean | { min?: number; max?: number };
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
@@ -99,6 +115,7 @@ const SCROLL_KEYS = [
   'drag',
   'inertia',
   'bounce',
+  'zoom',
 ] as const;
 
 /** Pointer travel (px) before a press becomes a scroll drag. */
@@ -246,6 +263,20 @@ export class ScrollView extends Widget {
   private currentY = 0;
   private limitX = 0;
   private limitY = 0;
+  /** Current pinch scale (1 = natural size). */
+  private zoomScale = 1;
+  private zoomMin = 0.5;
+  private zoomMax = 3;
+  private zoomEnabled = false;
+  /** Pointers currently down inside the viewport, in order of arrival. */
+  private readonly activePointers: Phaser.Input.Pointer[] = [];
+  /** Pinch state while two pointers are down (`null` outside a pinch). */
+  private pinch: {
+    startDistance: number;
+    startScale: number;
+    anchorX: number;
+    anchorY: number;
+  } | null = null;
   private contentWidth = 0;
   private contentHeight = 0;
 
@@ -281,6 +312,15 @@ export class ScrollView extends Widget {
     this.dragEnabled = widget.drag !== false;
     this.inertiaEnabled = widget.inertia !== false;
     this.bounceEnabled = widget.bounce === true;
+    if (widget.zoom === true || (typeof widget.zoom === 'object' && widget.zoom !== null)) {
+      const zoom = typeof widget.zoom === 'object' ? widget.zoom : {};
+      this.zoomEnabled = true;
+      this.zoomMin = Number.isFinite(zoom.min) ? (zoom.min as number) : 0.5;
+      this.zoomMax = Number.isFinite(zoom.max) ? (zoom.max as number) : 3;
+      if (this.zoomMax < this.zoomMin) {
+        this.zoomMax = this.zoomMin;
+      }
+    }
 
     // The port's container is a `scroll` box: it measures the holder without the viewport's limit on
     // the axis it scrolls, so content can be longer than the viewport instead of being squashed into
@@ -356,6 +396,40 @@ export class ScrollView extends Widget {
     return this.limitY;
   }
 
+  /** Current pinch scale (1 = natural size, so `1` also means "zoom disabled or untouched"). */
+  get zoom(): number {
+    return this.zoomScale;
+  }
+
+  /**
+   * Sets the scale directly, keeping `focus` (a viewport-space point, default the viewport centre) over
+   * the same content point. Clamped to the configured `min`/`max`; the content holder is scaled, so this
+   * costs no layout pass.
+   */
+  setZoom(scale: number, focus?: { x: number; y: number }): this {
+    if (!this.zoomEnabled || !Number.isFinite(scale)) {
+      return this;
+    }
+    const next = Math.min(this.zoomMax, Math.max(this.zoomMin, scale));
+    if (next === this.zoomScale) {
+      return this;
+    }
+    const viewport = this.viewport;
+    const anchor = focus ?? { x: viewport.width / 2, y: viewport.height / 2 };
+    const from = this.zoomScale;
+    this.zoomScale = next;
+    this.holder.setScale(next);
+    this.currentX = clampZoomOffset(pinchOffset(this.currentX, anchor.x, from, next), this.limitX);
+    this.currentY = clampZoomOffset(pinchOffset(this.currentY, anchor.y, from, next), this.limitY);
+    this.measureContentExtent();
+    this.currentX = clampZoomOffset(this.currentX, this.limitX);
+    this.currentY = clampZoomOffset(this.currentY, this.limitY);
+    this.applyOffsets();
+    this.paintScrollbar();
+    this.emit('zoom', next);
+    return this;
+  }
+
   /** `true` while the content is longer than the viewport on the primary axis. */
   get scrollable(): boolean {
     return this.primaryAxis() === 'x'
@@ -380,6 +454,17 @@ export class ScrollView extends Widget {
     this.contentWidget = widget;
     this.holder.addWidget(widget);
     this.virtualTarget = findVirtualTarget(widget);
+    if (this.zoomEnabled && this.virtualTarget !== null) {
+      // A scaled list would have to map `itemExtent` through the scale to know which rows to mount, so
+      // the gesture is refused loudly instead of scrolling to the wrong window.
+      warn(
+        'ScrollView: `zoom` is ignored while a virtualised list is the scroll target; scale the ' +
+          'list itself if that is what you want.',
+      );
+      this.zoomEnabled = false;
+      this.zoomScale = 1;
+      this.holder.setScale(1);
+    }
     this.currentX = 0;
     this.currentY = 0;
     this.clampToLimits();
@@ -603,6 +688,7 @@ export class ScrollView extends Widget {
       this.paintCanvasMask();
     }
 
+    this.prunePinchPointers();
     this.measureContentExtent();
 
     if (this.coasting) {
@@ -642,8 +728,10 @@ export class ScrollView extends Widget {
       height = extent.height;
     }
 
-    this.contentWidth = Math.max(0, width);
-    this.contentHeight = Math.max(0, height);
+    // A scaled holder occupies `extent * scale` on screen, so the scrollable range grows with the zoom
+    // (a zoomed-in image has more to pan through, a zoomed-out one has less).
+    this.contentWidth = Math.max(0, width) * this.zoomScale;
+    this.contentHeight = Math.max(0, height) * this.zoomScale;
     this.limitX = this.scrollsX() ? Math.max(0, this.contentWidth - viewport.width) : 0;
     this.limitY = this.scrollsY() ? Math.max(0, this.contentHeight - viewport.height) : 0;
   }
@@ -900,6 +988,20 @@ export class ScrollView extends Widget {
   }
 
   private readonly onPointerDown = (pointer: Phaser.Input.Pointer): void => {
+    if (this.zoomEnabled && !this.activePointers.includes(pointer)) {
+      // Two fingers down inside the viewport is a pinch; the first one still scrolls until the second
+      // arrives, which is what makes a pinch start feel immediate.
+      if (this.containsPoint(pointer.worldX, pointer.worldY)) {
+        this.activePointers.push(pointer);
+        this.updatePinch();
+      }
+    }
+    // A pinch in progress owns the gesture: without this the *second* finger's press armed a scroll
+    // drag owned by that finger, and every movement after the pinch failed the ownership check below -
+    // the view stayed dead until the page was reloaded.
+    if (this.pinch !== null) {
+      return;
+    }
     if (!this.dragEnabled || this.isDestroyed || this.enabled === false) {
       return;
     }
@@ -938,7 +1040,123 @@ export class ScrollView extends Widget {
     this.dragVelocity = { x: 0, y: 0 };
   };
 
+  /**
+   * Recomputes the pinch state from the pointers currently down.
+   *
+   * Two fingers start a pinch (or re-anchor it when a third one leaves); one finger ends it and hands
+   * control back to the drag; the anchor is the midpoint, so the content point between the fingers
+   * stays under them while the scale changes.
+   */
+  private updatePinch(): void {
+    if (this.activePointers.length < 2) {
+      if (this.pinch !== null) {
+        if (isDevMode()) {
+          devLog(`scroll: pinch end (${this.activePointers.length} pointer(s) down)`);
+        }
+        // The gesture is over: drop whatever drag the fingers left behind, so the next press starts
+        // from a clean slate instead of inheriting an owner that is no longer on the screen.
+        this.dragStart = null;
+        this.dragPointerId = null;
+        this.dragging = false;
+      }
+      this.pinch = null;
+      return;
+    }
+    const [first, second] = this.activePointers;
+    if (!first || !second) {
+      this.pinch = null;
+      return;
+    }
+    const a: ZoomPoint = { x: first.x, y: first.y };
+    const b: ZoomPoint = { x: second.x, y: second.y };
+    const midpoint = pinchMidpoint(a, b);
+    // The pointers are in stage space and the offsets are viewport-local, so the anchor has to be
+    // translated: without it the content zooms towards the view's own origin whenever the view is not
+    // at (0, 0) - which every nested view is.
+    const origin = this.viewportRect();
+    this.pinch = {
+      startDistance: pinchDistance(a, b),
+      startScale: this.zoomScale,
+      anchorX: midpoint.x - origin.x,
+      anchorY: midpoint.y - origin.y,
+    };
+    // A pinch is not a scroll drag: stop the fling and forget the grab so the content does not also
+    // travel with the fingers.
+    this.stopScroll();
+    this.dragStart = null;
+    this.dragPointerId = null;
+    if (isDevMode()) {
+      devLog(`scroll: pinch start at (${Math.round(midpoint.x)}, ${Math.round(midpoint.y)})`);
+    }
+  }
+
+  /**
+   * Forgets pointers that are no longer down.
+   *
+   * `pointerup` is the normal way out of a pinch, but it is not guaranteed to arrive (a browser may
+   * cancel a touch, and an aborted gesture never sends one). Without this poll a stale pair of pointers
+   * would keep `pinch` alive forever and swallow every later drag - the framework's hover state is
+   * derived per frame for the same reason.
+   */
+  private prunePinchPointers(): void {
+    if (this.activePointers.length === 0) {
+      return;
+    }
+    let dropped = 0;
+    for (let i = this.activePointers.length - 1; i >= 0; i--) {
+      const pointer = this.activePointers[i];
+      if (!pointer || pointer.isDown !== true) {
+        this.activePointers.splice(i, 1);
+        dropped += 1;
+      }
+    }
+    if (dropped > 0 && isDevMode()) {
+      devLog(`scroll: dropped ${dropped} released pointer(s) from the pinch`);
+    }
+    if (this.activePointers.length < 2 && this.pinch !== null) {
+      this.pinch = null;
+    } else if (this.activePointers.length >= 2 && this.pinch === null) {
+      this.updatePinch();
+    }
+  }
+
+  /** Applies the current two-finger distance as a scale, keeping the pinch anchor in place. */
+  private applyPinch(): void {
+    const pinch = this.pinch;
+    const [first, second] = this.activePointers;
+    if (pinch === null || !first || !second) {
+      return;
+    }
+    const distance = pinchDistance({ x: first.x, y: first.y }, { x: second.x, y: second.y });
+    const next = pinchScale(
+      pinch.startScale,
+      pinch.startDistance,
+      distance,
+      this.zoomMin,
+      this.zoomMax,
+    );
+    if (next === this.zoomScale) {
+      return;
+    }
+    const from = this.zoomScale;
+    this.zoomScale = next;
+    this.holder.setScale(next);
+    this.currentX = pinchOffset(this.currentX, pinch.anchorX, from, next);
+    this.currentY = pinchOffset(this.currentY, pinch.anchorY, from, next);
+    // The scrollable range follows the scale, so the limits have to be recomputed before clamping.
+    this.measureContentExtent();
+    this.currentX = clampZoomOffset(this.currentX, this.limitX);
+    this.currentY = clampZoomOffset(this.currentY, this.limitY);
+    this.applyOffsets();
+    this.paintScrollbar();
+    this.emit('zoom', next);
+  }
+
   private readonly onPointerMove = (pointer: Phaser.Input.Pointer): void => {
+    if (this.pinch !== null && this.activePointers.length >= 2) {
+      this.applyPinch();
+      return;
+    }
     if (this.barDrag !== null) {
       if (this.barPointerId !== pointer.id) {
         return;
@@ -990,6 +1208,11 @@ export class ScrollView extends Widget {
   };
 
   private readonly onPointerUp = (pointer?: Phaser.Input.Pointer): void => {
+    if (this.activePointers.length > 0) {
+      const index = pointer ? this.activePointers.indexOf(pointer) : 0;
+      this.activePointers.splice(index >= 0 ? index : 0, 1);
+      this.updatePinch();
+    }
     // Another finger lifting must not end this drag (Phaser hands the `pointerup` of every pointer to
     // the same scene listener).
     if (

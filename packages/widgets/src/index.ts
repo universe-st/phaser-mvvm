@@ -42,6 +42,14 @@ export {
   type ScrollViewOptions,
   type VirtualScrollTarget,
 } from './ScrollView';
+export {
+  clampZoomOffset,
+  pinchDistance,
+  pinchMidpoint,
+  pinchOffset,
+  pinchScale,
+  type ZoomPoint,
+} from './zoom-plan';
 export { TextArea, type TextAreaOptions } from './TextArea';
 export {
   TEXT_INPUT_EVENTS,
