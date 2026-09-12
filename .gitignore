@@ -1,9 +1,33 @@
+# 依赖
 node_modules/
+
+# 构建产物（各包的 dist 由 tsup 生成，示例的 dist 由 vite build 生成）
 dist/
-coverage/
 .vite/
 *.tsbuildinfo
-.DS_Store
+coverage/
+
+# 测试与验收产物（scripts/visual-check.mjs 默认输出到 .tmp/visual-check）
 test-results/
 playwright-report/
 .tmp/
+
+# 生成的 API 参考（TypeDoc，M10）
+docs/api/
+
+# 日志（pnpm 安装失败时会写 pnpm-debug.log）
+*.log
+pnpm-debug.log*
+
+# 环境变量与本地覆盖：绝不提交密钥
+.env
+.env.*
+!.env.example
+*.local
+
+# 编辑器与操作系统噪声
+.DS_Store
+._*
+Thumbs.db
+.idea/
+.vscode/
