@@ -16,6 +16,7 @@ import type { Divider, DividerOptions } from './Divider';
 import type { Image as UIImage, ImageOptions } from './Image';
 import type { Label, LabelOptions } from './Label';
 import type { Panel, PanelOptions } from './Panel';
+import type { Repeat, RepeatOptions } from './Repeat';
 import type { Spacer, SpacerOptions } from './Spacer';
 import type { TextArea, TextAreaOptions } from './TextArea';
 import type { TextField, TextFieldOptions } from './TextField';
@@ -41,6 +42,8 @@ declare global {
         uiTextField(options?: TextFieldOptions, children?: Widget[]): TextField;
         /** Creates a multi-line text input widget and adds it to the Scene. */
         uiTextArea(options?: TextAreaOptions, children?: Widget[]): TextArea;
+        /** Creates a keyed, optionally virtualised list widget and adds it to the Scene. */
+        uiRepeat<Item>(options: RepeatOptions<Item>): Repeat<Item>;
       }
     }
   }

@@ -1,20 +1,35 @@
 /**
- * A minimal slice of the binding layer (PLAN §4.4, milestone M6) that the M4 widget library and the
- * demos need: pull-based bindings that keep a widget property in sync with reactive state.
+ * The binding layer of the adapter (PLAN §4.4, milestone M6): views kept in sync with reactive state.
  *
  * Design:
- * - every binding runs as an `effect` owned by the target widget's `scope`, so destroying the widget
+ * - every binding runs as an effect owned by the target widget's `scope`, so destroying the widget
  *   stops its bindings (no stale subscribers, no manual bookkeeping);
  * - the default flush mode is `'frame'`: the scene plugin calls `flushFrame()` once per frame before
  *   layout, so N state changes in a frame cost exactly one repaint and one layout pass (ADR-0008);
- * - bindings are pull-through: the getter is evaluated on every run, and the applied value is written
- *   only when it differs, which keeps two-way-ish flows from oscillating.
+ * - bindings are pull-through and short-circuiting: the getter is evaluated on every run, and the
+ *   applied value is compared with the previous one, so an unchanged value never touches the widget.
  *
- * `repeat`/virtualisation and the template compiler remain M6 work; this module deliberately stays
- * small and dependency-free.
+ * Path resolution comes from `@phaser-mvvm/core`'s binding layer: `compilePath` (plain string
+ * parsing, **no `eval`/`new Function`**) plus `parseInterpolation`/`formatTemplate` for `{{ … }}`
+ * templates. This module is the only Phaser-aware half — it maps a context onto a widget.
  */
 
-import { effect, type EffectHandle } from '@phaser-mvvm/core';
+import {
+  compilePath,
+  createBinding,
+  formatTemplate,
+  isBindingContext,
+  parseInterpolation,
+} from '@phaser-mvvm/core';
+import type {
+  BindingContext,
+  BindingScope,
+  CompiledPath,
+  FlushMode,
+  PathScope,
+  StopBinding,
+  TemplateScope,
+} from '@phaser-mvvm/core';
 import type { Widget } from './Widget';
 
 export type BindingFlush = 'sync' | 'pre' | 'post' | 'frame';
@@ -23,11 +38,56 @@ export interface BindingOptions {
   flush?: BindingFlush;
 }
 
-export type StopBinding = () => void;
+export type { StopBinding };
+
+/** Anything a binding can read paths from: a `BindingContext` or a raw scope object. */
+export type BindingTarget = BindingContext | PathScope;
+
+/** A command getter: returns the function to run, or nothing when the command is unavailable. */
+export type CommandGetter = () => ((...args: unknown[]) => unknown) | null | undefined;
+
+/** `true` when a runtime argument is a binding target (a command getter is always a function). */
+function isBindingTarget(value: unknown): value is BindingTarget {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * The plain scope object the expression compiler walks.
+ *
+ * `BindingContext` already builds (and caches) one per level, so a binding never copies the view
+ * model: reading a path still goes through the original object, which is what keeps reactive
+ * tracking (`ref`, `computed`, `reactive`) working inside the binding effect.
+ */
+export function bindingScopeOf(target: BindingTarget): PathScope {
+  return isBindingContext(target) ? target.scopeNode : target;
+}
+
+/** A `TemplateScope` that compiles each `{{ … }}` path once and reads it through the target. */
+export function templateScopeOf(target: BindingTarget): TemplateScope {
+  const scope = bindingScopeOf(target);
+  const cache = new Map<string, CompiledPath>();
+  return {
+    resolve(path: string): unknown {
+      let compiled = cache.get(path);
+      if (compiled === undefined) {
+        compiled = compilePath(path);
+        cache.set(path, compiled);
+      }
+      return compiled.get(scope);
+    },
+  };
+}
+
+function flushOf(options: BindingOptions): FlushMode {
+  return options.flush ?? 'frame';
+}
 
 /**
  * Runs `apply(read())` inside `host.scope`, immediately and then whenever the reactive state read by
  * `read` changes. Returns a stop function (the widget's destruction also stops it).
+ *
+ * The applied value is compared with the previous one (`Object.is`), so an unchanged value is never
+ * written back — the short-circuit ADR-0008 §5 asks for in two-way flows.
  */
 export function bindValue<T>(
   host: Widget,
@@ -35,13 +95,49 @@ export function bindValue<T>(
   apply: (value: T, host: Widget) => void,
   options: BindingOptions = {},
 ): StopBinding {
-  const handle: EffectHandle = effect(
-    () => {
-      apply(read(), host);
-    },
-    { scope: host.scope, flush: options.flush ?? 'frame' },
-  );
-  return () => handle.stop();
+  return createBinding<T, Widget>({
+    host,
+    read,
+    apply,
+    flush: flushOf(options),
+  });
+}
+
+/**
+ * Binds a single path of a binding context to a widget.
+ *
+ * ```ts
+ * bindPath(rowLabel, context, '$item.name', (value, widget) => widget.setText(String(value)));
+ * ```
+ */
+export function bindPath<T = unknown>(
+  host: Widget,
+  context: BindingTarget,
+  path: string,
+  apply: (value: T, host: Widget) => void,
+  options: BindingOptions = {},
+): StopBinding {
+  const scope = bindingScopeOf(context);
+  const compiled = compilePath(path);
+  return bindValue<T>(host, () => compiled.get(scope) as T, apply, options);
+}
+
+/**
+ * Binds an interpolated template (`'共 {{ items.length }} 项'`) to a widget.
+ *
+ * The template is parsed once; every dependency read while formatting re-runs the binding on the
+ * next flush.
+ */
+export function bindTemplate(
+  host: Widget,
+  context: BindingTarget,
+  template: string,
+  apply: (text: string, host: Widget) => void,
+  options: BindingOptions = {},
+): StopBinding {
+  const segments = parseInterpolation(template);
+  const scope = templateScopeOf(context);
+  return bindValue<string>(host, () => formatTemplate(scope, segments), apply, options);
 }
 
 /** Binds a label's text (works with anything exposing `setText`). */
@@ -55,6 +151,24 @@ export function bindText(
     read,
     (value, widget) => {
       (widget as Widget & { setText(v: string): unknown }).setText(String(value ?? ''));
+    },
+    options,
+  );
+}
+
+/** Binds an interpolated template to anything exposing `setText` (usually a `Label`). */
+export function bindTemplateText(
+  host: Widget & { setText(value: string): unknown },
+  context: BindingTarget,
+  template: string,
+  options: BindingOptions = {},
+): StopBinding {
+  return bindTemplate(
+    host,
+    context,
+    template,
+    (text, widget) => {
+      (widget as unknown as { setText(value: string): unknown }).setText(text);
     },
     options,
   );
@@ -113,6 +227,15 @@ export interface CommandBindingOptions extends BindingOptions {
   canExecute?: () => boolean;
 }
 
+/** Command binding driven by a context: both the command and its `canExecute` are paths. */
+export interface PathCommandBindingOptions extends BindingOptions {
+  /**
+   * Path resolving to the `canExecute` flag (`'form.valid'`), or a plain getter. Either way the
+   * host's enabled state follows it reactively.
+   */
+  canExecute?: string | (() => boolean);
+}
+
 /**
  * Binds an activation callback to a command getter.
  *
@@ -122,8 +245,59 @@ export interface CommandBindingOptions extends BindingOptions {
  */
 export function bindCommand(
   host: Widget,
-  read: () => ((...args: unknown[]) => unknown) | null | undefined,
-  options: CommandBindingOptions = {},
+  read: CommandGetter,
+  options?: CommandBindingOptions,
+): StopBinding;
+/**
+ * Binds an activation callback to a command **path** of a binding context.
+ *
+ * ```ts
+ * bindCommand(saveButton, context, 'commands.save', { canExecute: 'form.valid' });
+ * ```
+ */
+export function bindCommand(
+  host: Widget,
+  context: BindingTarget,
+  source: string | CommandGetter,
+  options?: PathCommandBindingOptions,
+): StopBinding;
+export function bindCommand(
+  host: Widget,
+  contextOrRead: BindingTarget | CommandGetter,
+  sourceOrOptions?: string | CommandGetter | CommandBindingOptions,
+  maybeOptions?: PathCommandBindingOptions,
+): StopBinding {
+  if (isBindingTarget(contextOrRead)) {
+    const scope = bindingScopeOf(contextOrRead);
+    const source = sourceOrOptions as string | CommandGetter;
+    const options = maybeOptions ?? {};
+    const compiledSource = typeof source === 'string' ? compilePath(source) : null;
+    const read: CommandGetter =
+      compiledSource === null
+        ? (source as CommandGetter)
+        : () => compiledSource.get(scope) as ReturnType<CommandGetter>;
+
+    const canExecute = options.canExecute;
+    const compiledCanExecute = typeof canExecute === 'string' ? compilePath(canExecute) : null;
+    return bindCommandWith(host, read, {
+      flush: options.flush,
+      canExecute:
+        compiledCanExecute === null
+          ? (canExecute as (() => boolean) | undefined)
+          : () => Boolean(compiledCanExecute.get(scope)),
+    });
+  }
+  return bindCommandWith(
+    host,
+    contextOrRead,
+    (sourceOrOptions as CommandBindingOptions | undefined) ?? {},
+  );
+}
+
+function bindCommandWith(
+  host: Widget,
+  read: CommandGetter,
+  options: CommandBindingOptions,
 ): StopBinding {
   const previous = host.onActivate;
   host.onActivate = (source) => {
@@ -143,5 +317,74 @@ export function bindCommand(
     if (host.onActivate !== null) {
       host.onActivate = previous;
     }
+  };
+}
+
+/** The slice of a text control `bindModel` needs (satisfied by `TextField` and `TextArea`). */
+export interface ModelBindingHost extends BindingScope {
+  /** Programmatic, *silent* write: it must not emit `change`. */
+  setValue(value: string): unknown;
+  /** Current value of the control. */
+  getValue(): string;
+  /** Subscribes to the control's `change` event. */
+  on(event: string, callback: (value: string) => void): unknown;
+  /** Unsubscribes (Phaser's `GameObject.off`). */
+  off?(event: string, callback: (value: string) => void): unknown;
+  /** `true` while an IME composition is open; write-back is paused then (PLAN §4.4). */
+  readonly composing?: boolean;
+}
+
+/** Event a text control emits after a *user* edit. */
+export const MODEL_CHANGE_EVENT = 'change';
+
+/**
+ * Two-way binding for text controls: view model ⇄ `TextField`/`TextArea`.
+ *
+ * - **down**: `read()` is applied through the control's *silent* `setValue`, so a programmatic write
+ *   never looks like a user edit and the loop stops there (ADR-0008 §5);
+ * - **up**: the control's `change` event (user edits only) writes back, short-circuiting when the
+ *   value already matches `read()`;
+ * - both directions live in `host.scope`, and stopping the binding also detaches the listener.
+ *
+ * While an IME composition is open the write-back is paused: intermediate states would corrupt the
+ * model (PLAN §4.4).
+ */
+export function bindModel(
+  host: ModelBindingHost,
+  read: () => string,
+  write: (value: string) => void,
+  options: BindingOptions = {},
+): StopBinding {
+  const text = (value: unknown): string =>
+    value === null || value === undefined ? '' : String(value);
+
+  const stopDown = createBinding<string, ModelBindingHost>({
+    host,
+    read: () => text(read()),
+    apply: (value) => {
+      if (host.getValue() === value) {
+        return;
+      }
+      host.setValue(value);
+    },
+    flush: flushOf(options),
+  });
+
+  const listener = (value: string): void => {
+    if (host.composing === true) {
+      return;
+    }
+    const next = text(value);
+    if (next === text(read())) {
+      return;
+    }
+    write(next);
+  };
+
+  host.on(MODEL_CHANGE_EVENT, listener);
+
+  return () => {
+    stopDown();
+    host.off?.(MODEL_CHANGE_EVENT, listener);
   };
 }

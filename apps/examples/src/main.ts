@@ -5,6 +5,7 @@ import { BindingsScene } from './scenes/bindings';
 import { DashboardScene } from './scenes/dashboard';
 import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
+import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
 import { StackScene } from './scenes/stack';
@@ -26,6 +27,7 @@ const SCENES = {
   dashboard: DashboardScene,
   bindings: BindingsScene,
   form: FormScene,
+  list: ListScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

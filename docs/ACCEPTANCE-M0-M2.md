@@ -1,4 +1,4 @@
-# M0–M5 验收记录
+# M0–M6 验收记录
 
 > 对应 `docs/PLAN.md` 的 M0（骨架与基线）、M1（响应式内核）、M2（布局引擎）。
 > 验收环境：macOS / Node `v24.18.1` / pnpm `10.34.5` / 无头 Chrome `153.0.8010.36`（CDP 驱动，视口固定 1280×720）。
@@ -170,3 +170,31 @@ OK       backdrop / card / badge / footer
 | 校验                         | 邮箱非法时 `getError()` 返回消息且控件进入 `error` 状态（边框/文案由主题驱动）                                                                                      |
 
 已知边界：DOM 桥依赖 `dom: { createContainer: true }` 与 `parent`；不要与 `DOMElement` 控件同层混用；纯 Canvas 回退模式仅覆盖桌面英文/数字输入。
+
+---
+
+# M6 验收记录（绑定与列表，2026-09）
+
+## 交付
+
+- `packages/core/src/binding/**`：`compilePath`（纯字符串解析 + 闭包，**不用 eval**）、`BindingContext`（`$root`/`$parent`/`$index`/`$item` 作用域链）、`registerConverter`/`applyConverter`（内置 `upper/lower/trim/number/money/join/default/date`）、`parseInterpolation`/`formatTemplate`、`createBinding`。
+- `packages/phaser/src/binding.ts` 扩展：`bindPath`、`bindTemplate`、`bindCommand`（支持路径形式的 `canExecute`）、`bindModel`（双向：控件 `change` 写回 ViewModel，ViewModel 变化静默 `setValue` 写回，避免回环）。
+- `packages/widgets/src/{Repeat.ts,repeat-plan.ts}`：`Repeat` 键控 diff（新增/删除/移动/复用）、`virtualize` + `itemExtent` + `overscan` 只挂载可见区间、`empty` 占位、`getRenderedKeys()/getWidgetForKey()/refresh()`；`diffKeys`、`planRepeatUpdate`、`computeVisibleRange` 为可单测纯函数；工厂 `uiRepeat`。
+
+## 门禁
+
+`pnpm -r typecheck` 5 个项目 0 错误；`pnpm -r test` **828 passed**（layout 251 / core 262 / phaser 98 / widgets 217；M6 新增 133 = core 绑定 87 + widgets Repeat 46）；`pnpm -r build` 与 `prettier --check .` 通过。
+
+## demo `#/list` + Playwright 实测
+
+| 断言             | 实测结果                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------- |
+| 首帧虚拟化       | `total=220 rendered=14 first=p000 last=p013`（220 项只挂载 14 行）                                  |
+| 点击 Add ×3      | `total=223`、`rendered` 仍为 14（数据增长不增加挂载量）                                             |
+| 点击 Shuffle     | `first=p096 last=p169`、`rendered` 不变（键控复用而非全量重建）                                     |
+| 过滤 `Player 01` | `total=10`；`azzz-no-match` → `total=0` 且显示 `empty` 占位（按 keystroke 即时生效，无需回车/失焦） |
+| 列表内删除       | 点击首行 Delete → `total 223→222`、`deleted 0→1`，14 行中 13 个控件实例被复用                       |
+
+## 本轮发现并修复的框架缺陷
+
+**挂载子树时结构通知丢失**：`Widget.addWidget` 先调用 `child.setEngineRecursive(...)`，而 `structureListener` 是在该递归里**向下**赋值的，于是新挂载子树中每个节点的 `structureListener` 都是 `null`（只有 `UIRoot` 自己有）→ `UIRoot.structureVersion` 永不变化 → 插件不再 `refreshInteraction()` → **运行期新建的控件不会被 `InputRouter` 注册，点击被丢弃**。修复：在 `addWidget` 中于递归之前先 `child.structureListener = this.structureListener`。这是「列表增删行后按钮点不动」类问题的根因，只有真浏览器 + 动态数据才能暴露。

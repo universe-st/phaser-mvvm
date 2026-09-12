@@ -1,10 +1,11 @@
 /**
  * Widget factories: the plain functions and the `this.add.*` registrations.
  *
- * All six factories share one signature, `(scene, options?, children?)`, mirroring the declarative
+ * The factories share one signature, `(scene, options?, children?)`, mirroring the declarative
  * container helpers in `@phaser-mvvm/phaser` (`vbox`/`hbox`/…): the widget is constructed, registered
  * with the scene and returned. `children` is only *arranged* by `Panel` (the one container here);
  * leaves accept it so the family stays uniform, and those children simply sit at the widget's origin.
+ * `uiRepeat` is the exception: it builds its rows from `template`, so it takes no children.
  *
  * The `ui*` names are registered on `Phaser.GameObjects.GameObjectFactory` rather than via
  * `scene.add.existing`, so widget creation can be called as `this.add.uiButton({...})` from a Scene.
@@ -19,6 +20,7 @@ import { Divider, type DividerOptions } from './Divider';
 import { Image, type ImageOptions } from './Image';
 import { Label, type LabelOptions } from './Label';
 import { Panel, type PanelOptions } from './Panel';
+import { Repeat, type RepeatOptions } from './Repeat';
 import { Spacer, type SpacerOptions } from './Spacer';
 import { TextArea, type TextAreaOptions } from './TextArea';
 import { TextField, type TextFieldOptions } from './TextField';
@@ -108,6 +110,18 @@ export function textArea(
   return finish(scene, new TextArea(scene, options), children);
 }
 
+/**
+ * Creates a keyed, optionally virtualised list and adds it to the Scene.
+ *
+ * No `children` parameter: a `Repeat` builds its rows from `template`, so there is nothing to attach
+ * by hand.
+ */
+export function uiRepeat<Item>(scene: Phaser.Scene, options: RepeatOptions<Item>): Repeat<Item> {
+  const widget = new Repeat<Item>(scene, options);
+  scene.add.existing(widget);
+  return widget;
+}
+
 // --------------------------------------------------------------------- this.add.*
 
 interface FactoryInternals {
@@ -130,6 +144,7 @@ export const WIDGET_FACTORY_KEYS = [
   'uiDivider',
   'uiTextField',
   'uiTextArea',
+  'uiRepeat',
 ] as const;
 
 let installed = false;
@@ -217,6 +232,10 @@ export function installWidgetFactories(): void {
       (options as TextAreaOptions) ?? {},
       (children as Widget[] | undefined) ?? [],
     );
+  });
+
+  registry.register('uiRepeat', function (this: unknown, options) {
+    return uiRepeat(sceneOf(this), options as RepeatOptions<unknown>);
   });
 }
 

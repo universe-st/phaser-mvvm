@@ -26,6 +26,7 @@ export { Image, Image as UIImage, type ImageOptions } from './Image';
 export { Spacer, type SpacerOptions } from './Spacer';
 export { Divider, type DividerOptions, type DividerOrientation } from './Divider';
 export { TextField, type TextFieldOptions } from './TextField';
+export { Repeat, DEFAULT_OVERSCAN, repeat, type RepeatOptions } from './Repeat';
 export { TextArea, type TextAreaOptions } from './TextArea';
 export {
   TEXT_INPUT_EVENTS,
@@ -56,12 +57,28 @@ export {
   textArea,
   textField,
   uiImage,
+  uiRepeat,
   widgetFactoriesInstalled,
   WIDGET_FACTORY_KEYS,
 } from './factories';
 
 // Pure helpers: they never import Phaser, so they are reusable (and tested) outside a renderer.
 export { computeFit, type FitResult, type ImageFit } from './fit';
+export {
+  computeVisibleRange,
+  describeRepeatFlow,
+  diffKeys,
+  isGridContainerOptions,
+  planRepeatUpdate,
+  planVirtualWindow,
+  resolveRepeatContainer,
+  type KeyDiff,
+  type RepeatFlow,
+  type RepeatUpdatePlan,
+  type VirtualWindow,
+  type VirtualWindowOptions,
+  type VisibleRange,
+} from './repeat-plan';
 export {
   applyLineLimit,
   ELLIPSIS,

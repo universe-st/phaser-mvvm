@@ -75,6 +75,61 @@ export {
 } from './reactivity/dep';
 export type { Subscriber } from './reactivity/dep';
 
+// Bindings (PLAN §4.4): path compiler, scope chain, converters, interpolated templates ------------
+export {
+  PathSyntaxError,
+  SCOPE_VM,
+  compilePath,
+  isPathScope,
+  parsePath,
+} from './binding/expression';
+export type { CompiledPath, PathScope } from './binding/expression';
+
+export { BindingContext, isBindingContext } from './binding/context';
+export type {
+  BindingContextOptions,
+  BindingSource,
+  ChildScopeVars,
+  ScopeNodeFactory,
+} from './binding/context';
+
+export {
+  BUILT_IN_CONVERTERS,
+  applyConverter,
+  converterNames,
+  hasConverter,
+  installBuiltInConverters,
+  registerConverter,
+  resetConverters,
+  unregisterConverter,
+} from './binding/converter';
+export type { Converter } from './binding/converter';
+
+export {
+  TemplateSyntaxError,
+  compileTemplate,
+  formatTemplate,
+  interpolate,
+  parseInterpolation,
+  scopeOfPathScope,
+} from './binding/template';
+export type {
+  ExpressionSegment,
+  TemplateConverter,
+  TemplateScope,
+  TemplateSegment,
+  TemplateSource,
+  TextSegment,
+} from './binding/template';
+
+export { createBinding } from './binding/binding';
+export type {
+  BindingScope,
+  CreateBindingOptions,
+  EffectScopeLike,
+  StopBinding,
+} from './binding/binding';
+
 // Scheduler --------------------------------------------------------------------------------------
 export {
   configureScheduler,

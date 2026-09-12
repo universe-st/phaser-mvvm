@@ -343,6 +343,12 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
 
     child.parent = this;
+    // The listener must be installed *before* the recursive walk: `setEngineRecursive` hands the
+    // parent's listener to the children it visits, so a subtree attached to a widget whose own
+    // listener is still unset (the usual case for a freshly built subtree) would end up with a chain
+    // of `null` listeners — and `UIRoot.structureVersion` would never move, leaving every
+    // dynamically created widget unregistered with the input router.
+    child.structureListener = this.structureListener;
     child.setEngineRecursive(this.engine);
     this.widgetChildren.push(child);
     this.add(child);

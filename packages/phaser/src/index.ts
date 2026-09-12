@@ -106,15 +106,26 @@ export {
   type NavRepeatOptions,
 } from './nav';
 export {
+  MODEL_CHANGE_EVENT,
   bindCommand,
   bindEnabled,
   bindError,
+  bindModel,
+  bindPath,
+  bindTemplate,
+  bindTemplateText,
   bindText,
   bindValue,
   bindVisible,
+  bindingScopeOf,
+  templateScopeOf,
   type BindingFlush,
   type BindingOptions,
+  type BindingTarget,
   type CommandBindingOptions,
+  type CommandGetter,
+  type ModelBindingHost,
+  type PathCommandBindingOptions,
   type StopBinding,
 } from './binding';
 
