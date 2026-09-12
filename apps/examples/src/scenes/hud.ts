@@ -83,6 +83,11 @@ export class HudScene extends Phaser.Scene {
           height: 'fill',
           alignItems: 'stretch',
           name: 'hud.page',
+          // A full-screen panel blocks the game by default (PLAN §9: the interception layer). A HUD is
+          // the case where the world *behind* the transparent page must keep its clicks, so this one
+          // opts out; the bar and footer below keep their default and swallow theirs. Both halves are
+          // asserted in docs/ACCEPTANCE-hud.md §4.
+          blockPointer: false,
         },
         () => {
           const bar = Panel(

@@ -333,15 +333,19 @@ export class InputRouter {
     this.detach();
     this.rootWidget = root;
     this.scene = scene ?? liveSceneOf(root);
-    // Every interactive object must receive the event so `resolveTarget` can choose the deepest one;
-    // with Phaser's default `topOnly` a container and its children are ranked by an undefined order.
-    // Measured (round 39): with `topOnly = true` the click-through to the game objects disappears, but
-    // controls nested in a container that sorts above them stop receiving presses altogether
-    // (`#/scroll`'s step buttons went dead while the buttons that happen to be drawn last kept working).
+    // `topOnly` is left ON so that a press reaching the UI never also reaches the game object painted
+    // underneath it (V9: a click on a HUD button used to fire the ground's handler too, because Phaser
+    // dispatches to every object in the hit list when `topOnly` is off).
+    //
+    // This used to require `topOnly = false`: the router listened for the press *on the target widget*,
+    // and with `topOnly` on, Phaser can hand the event to a container that happens to sort above its own
+    // children (`#/scroll`'s step buttons went dead in the round-39 A/B). The handlers below no longer
+    // care which widget Phaser picked - they resolve the target from the coordinates - so the topmost UI
+    // object is enough to trigger routing, and the game objects never see the press.
     const input = this.scene?.input;
     if (input) {
       this.previousTopOnly = input.topOnly;
-      input.topOnly = false;
+      input.topOnly = true;
     }
     this.refresh();
   }
@@ -502,11 +506,13 @@ export class InputRouter {
 
     const binding: WidgetBinding = {
       widget,
+      // The event is only a *signal* that a press happened inside the UI: which widget it belongs to is
+      // decided by `resolveTarget` (coordinates), never by the object Phaser happened to dispatch to.
       onDown: (pointer) => {
-        this.handleDown(widget, pointer);
+        this.handlePointerDown(pointer);
       },
       onUp: (pointer) => {
-        this.handleUp(widget, pointer);
+        this.handlePointerUp(pointer);
       },
       onDestroy: () => {
         this.unregister(widget);
@@ -631,15 +637,23 @@ export class InputRouter {
     widget.setPressed(false);
   }
 
-  private handleDown(widget: Widget, pointer: Phaser.Input.Pointer): void {
-    if (this.resolveTarget(pointer) !== widget) {
-      return;
+  /**
+   * A press inside the UI subtree.
+   *
+   * The target comes from the coordinates; the widget that received the Phaser event is irrelevant (it
+   * may be an ancestor, because `topOnly` is on). Returns the target so a caller can tell a landed press
+   * from one that fell through to the game.
+   */
+  private handlePointerDown(pointer: Phaser.Input.Pointer): Widget | null {
+    const widget = this.resolveTarget(pointer);
+    if (widget === null) {
+      return null;
     }
     if (this.isBlockedByCapture(widget, pointer)) {
-      return;
+      return widget;
     }
     if (!widget.enabled) {
-      return;
+      return widget;
     }
     const origin = this.pointerInUiSpace(pointer, widget);
     this.pressedAt.set(widget, { x: origin.x, y: origin.y, pointer });
@@ -651,40 +665,48 @@ export class InputRouter {
     if (shouldFocusOnPress(widget)) {
       this.onPointerFocus?.(widget);
     }
+    return widget;
   }
 
-  private handleUp(widget: Widget, pointer: Phaser.Input.Pointer): void {
-    if (this.resolveTarget(pointer) !== widget) {
-      // The pointer was released over a different (or deeper) widget: this one is not activated.
-      widget.setPressed(false);
-      return;
-    }
-    const down = this.pressedAt.get(widget);
-    this.resetInteraction(widget);
+  /** A release inside the UI subtree: activate the widget this pointer pressed, if it is still the target. */
+  private handlePointerUp(pointer: Phaser.Input.Pointer): void {
+    const target = this.resolveTarget(pointer);
+    for (const [widget, down] of [...this.pressedAt]) {
+      if (down.pointer !== pointer) {
+        continue;
+      }
+      if (target !== widget) {
+        // Released over a different (or deeper) widget, or outside every widget: no activation.
+        this.resetInteraction(widget);
+        continue;
+      }
+      this.resetInteraction(widget);
 
-    if (down === undefined || this.isBlockedByCapture(widget, pointer)) {
-      return;
-    }
-    if (!widget.enabled) {
-      return;
-    }
-    // Phaser only emits `pointerup` on an object when the pointer is still over it, so "released
-    // inside the widget" is already guaranteed here; only the travel has to be checked.
-    if (!isClickGesture(down, this.pointerInUiSpace(pointer, widget), this.dragThreshold)) {
-      return;
-    }
+      if (this.isBlockedByCapture(widget, pointer) || !widget.enabled) {
+        continue;
+      }
+      // Phaser only emits `pointerup` on an object when the pointer is still over it, so "released
+      // inside the widget" is already guaranteed here; only the travel has to be checked.
+      if (!isClickGesture(down, this.pointerInUiSpace(pointer, widget), this.dragThreshold)) {
+        continue;
+      }
 
-    if (widget.activate('pointer')) {
-      this.onActivate?.(widget, 'pointer');
-    }
+      if (widget.activate('pointer')) {
+        this.onActivate?.(widget, 'pointer');
+      }
 
-    // `resetInteraction` cleared hover above; a mouse click leaves the cursor inside the widget, so the
-    // hover state has to be restored right away (the next frame's poll would do it a frame later,
-    // which is visible as a flicker on a click). A *touch* has no cursor to leave behind - see
-    // `keepsHoverAfterPress`.
-    if (widget.enabled && keepsHoverAfterPress(pointer) && this.resolveTarget(pointer) === widget) {
-      widget.setHovered(true);
-      this.hoveredWidget = widget;
+      // `resetInteraction` cleared hover above; a mouse click leaves the cursor inside the widget, so the
+      // hover state has to be restored right away (the next frame's poll would do it a frame later,
+      // which is visible as a flicker on a click). A *touch* has no cursor to leave behind - see
+      // `keepsHoverAfterPress`.
+      if (
+        widget.enabled &&
+        keepsHoverAfterPress(pointer) &&
+        this.resolveTarget(pointer) === widget
+      ) {
+        widget.setHovered(true);
+        this.hoveredWidget = widget;
+      }
     }
   }
 
