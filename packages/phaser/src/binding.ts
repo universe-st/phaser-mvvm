@@ -307,6 +307,15 @@ function bindCommandWith(
   };
   host.onActivate = installed;
 
+  // A widget that carries a command has to become a pointer target even when it declares nothing else.
+  // `collectInteractive()` picks a widget up because of `onActivate`, but two things were missing for a
+  // plain `Label`/`Image`/`Divider`: it had no hit area at all, and the router's collection ran when the
+  // tree was mounted - binding a command afterwards changed no structure, so nothing ever re-collected.
+  // Giving it a hit area and nudging the structure listener (the signal the plugin watches for "the
+  // interactive set may have changed") fixes both without the caller writing `interactive: true`.
+  host.enablePointerInput?.();
+  host.structureListener?.();
+
   let stopCanExecute: StopBinding | null = null;
   if (options.canExecute) {
     const canExecute = options.canExecute;

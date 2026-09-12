@@ -266,3 +266,23 @@ describe('shouldFocusOnPress', () => {
     expect(shouldFocusOnPress({ focusable: true, enabled: false })).toBe(false);
   });
 });
+
+/* ------------------------------------------------------------------ interactive collection of commands */
+
+describe('collectInteractive · command hosts', () => {
+  it('collects a plain widget that only carries an activation callback', () => {
+    // This is what `bindCommand()` installs on a widget that declares nothing else: the router has to
+    // treat it as a pointer target, otherwise a command bound to a plain Label or Image never fires.
+    const label = fakeWidget({ onActivate: () => undefined });
+    const root = fakeWidget({ children: [label] });
+
+    expect(collectInteractive(asWidget(root))).toEqual([asWidget(label)]);
+  });
+
+  it('skips a widget with no marker at all', () => {
+    const plain = fakeWidget();
+    const root = fakeWidget({ children: [plain] });
+
+    expect(collectInteractive(asWidget(root))).toEqual([]);
+  });
+});

@@ -11,6 +11,8 @@
 
 **第 5 轮更新**：把 PLAN §8 的性能/体积预算变成可执行门禁（`packages/layout/test/perf.test.ts` + `pnpm size`）并实测；顺带修掉 P3（网格索引未净化）与 P4（`EffectHandle.run()` 文档与行为不符），并登记「文本度量缓存」这条**尚未实现**的预算。见 [`ACCEPTANCE-performance.md`](./ACCEPTANCE-performance.md)。
 
+**第 8 轮更新**：V4（`bindCommand` 的指针可达性）已复现并修复，见 [`ACCEPTANCE-round8.md`](./ACCEPTANCE-round8.md)。
+
 **第 4 轮更新**：新建 `#/states` 交互状态矩阵验收页，用真实指针/键盘输入驱动每个控件的状态机；它抓到 P2（指针按下从不移动焦点，`Tab` 因此总从第一个可聚焦控件重新开始），已修复并带单测，见 [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md)。
 
 **第 3 轮更新**：新建 `#/lifecycle` 门禁（场景重启 100 次 + 8 项泄漏计数），**门禁第一次运行就抓到一个 HIGH 缺陷**（P1，见 §2.1）——`MVVMPlugin` 用 `once` 订阅场景事件又在 `dispose()` 里全部退订，而 `boot()` 每个场景只跑一次，于是 `scene.restart()` 之后插件再也不拆解 UI、`PRE_UPDATE` 也永远不再触发（重启后的 UI 既泄漏又是死的）。已修复，门禁 101 轮全绿，详见 [`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md)。W4（虚拟列表内容长度混用视口）同轮确认并修复。
@@ -63,15 +65,15 @@
 > V5（转换器字符串字面量二次反转义）与 V6（`registerConverter` trim 不一致）在第 2 轮确认成立并修复，回归用例见 `packages/core/test/binding.test.ts`（`converter registry · name handling`、`template literals · escaping`）；W3（`ThumbGeometry.position` 文档）已改为「像素」。
 > 下面保留原始描述；未标注的条目仍未证实，勿按缺陷处理。
 
-| #   | 位置                                                    | 疑点                                                                                                                                                          |
-| --- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V1  | `input.ts` `resolveTarget` / `ScrollView.containsPoint` | 命中测试用 `pointer.worldX/Y`（相机感知）比对场景空间坐标，相机被 scroll/zoom 时失效（插件默认相机是静止的，故未复现）                                        |
-| V2  | `ScrollView.enableClip`                                 | Phaser `Filters` 组件销毁时未显式 `filters.destroy()`，`addMask` 的 Mask filter 未见释放路径（共享 `__WHITE` 纹理，未观察到 GPU 泄漏）                        |
-| V3  | `ScrollView.ts:830`                                     | 最内层不可滚动的 `ScrollView` 也 `preventDefault()`，指针在其上时页面无法滚动（注释显示可能是有意设计，待产品确认）                                           |
-| V4  | `binding.ts` `bindCommand` / 直接赋值 `onActivate`      | 挂载后新绑定的命令不会被输入路由收集（路由器只在结构变化时刷新）；现有控件都带 `focusable/interactive/blockPointer` 标记故未复现                              |
-| V5  | `template.ts:216-238`                                   | **已修复**：转换器字符串字面量曾二次反转义（先解 `\\` 再解 `\n`），`{{ p \| default('C:\\new') }}` 会渲染成换行；现在单趟解转义，回归用例见 `binding.test.ts` |
-| V6  | `converter.ts:103-139`                                  | **已修复**：四个入口统一使用 trim 后的名字（此前 `registerConverter(' money ')` 注册的转换器查不到、也用不了）                                                |
-| V7  | `template.ts`                                           | `}}` 出现在引号内的转换器参数里会截断占位符（报 `TemplateSyntaxError`，是「响亮的错误」而非静默错误）                                                         |
+| #   | 位置                                                    | 疑点                                                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1  | `input.ts` `resolveTarget` / `ScrollView.containsPoint` | 命中测试用 `pointer.worldX/Y`（相机感知）比对场景空间坐标，相机被 scroll/zoom 时失效（插件默认相机是静止的，故未复现）                                                                                                                                                 |
+| V2  | `ScrollView.enableClip`                                 | Phaser `Filters` 组件销毁时未显式 `filters.destroy()`，`addMask` 的 Mask filter 未见释放路径（共享 `__WHITE` 纹理，未观察到 GPU 泄漏）                                                                                                                                 |
+| V3  | `ScrollView.ts:830`                                     | 最内层不可滚动的 `ScrollView` 也 `preventDefault()`，指针在其上时页面无法滚动（注释显示可能是有意设计，待产品确认）                                                                                                                                                    |
+| V4  | `binding.ts` `bindCommand`                              | **已复现并修复（第 8 轮）**：静止页面上后绑定的命令收不到指针输入（控件不在路由集合、也没有命中区）；A/B 实测修复前 0 次点击、修复后 1 次。修法：`bindCommand()` 补 `enablePointerInput()` + 触发 `structureListener` 让路由器重建集合。结构频繁变化的页面会掩盖该缺陷 |
+| V5  | `template.ts:216-238`                                   | **已修复**：转换器字符串字面量曾二次反转义（先解 `\\` 再解 `\n`），`{{ p \| default('C:\\new') }}` 会渲染成换行；现在单趟解转义，回归用例见 `binding.test.ts`                                                                                                          |
+| V6  | `converter.ts:103-139`                                  | **已修复**：四个入口统一使用 trim 后的名字（此前 `registerConverter(' money ')` 注册的转换器查不到、也用不了）                                                                                                                                                         |
+| V7  | `template.ts`                                           | `}}` 出现在引号内的转换器参数里会截断占位符（报 `TemplateSyntaxError`，是「响亮的错误」而非静默错误）                                                                                                                                                                  |
 
 ## 4. 覆盖率缺口（不是缺陷，但值得补门禁）
 

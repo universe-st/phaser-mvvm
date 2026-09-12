@@ -20,7 +20,7 @@
 
 import Phaser from 'phaser';
 import { ref } from '@phaser-mvvm/core';
-import type { Widget } from '@phaser-mvvm/phaser';
+import { bindCommand, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
   Column,
@@ -60,6 +60,7 @@ export class StatesScene extends Phaser.Scene {
   private readonly text = ref('');
   private readonly invalid = ref('');
   private readonly notes = ref('');
+  private readonly commandClicks = ref(0);
   private readonly rows = ref<RowItem[]>(
     Array.from({ length: 30 }, (_, index) => ({ id: `r${index}`, label: `第 ${index + 1} 行` })),
   );
@@ -115,6 +116,12 @@ export class StatesScene extends Phaser.Scene {
     };
     this.publish('clicks', 0);
 
+    // Bound *after* the tree was mounted: the case that used to be silently dead.
+    const target = this.probes.get('cmd.label')?.widget;
+    if (target) {
+      bindCommand(target, () => () => this.commandClicks.value++);
+    }
+
     appendStatus('--- states · layout ---');
     reportWidget('page', page);
     reportCanvas(this.game);
@@ -149,6 +156,7 @@ export class StatesScene extends Phaser.Scene {
     this.publish('field.text', this.text.value);
     this.publish('field.invalid', this.invalid.value);
     this.publish('field.notes', this.notes.value.length);
+    this.publish('cmd.clicks', this.commandClicks.value);
   }
 
   // ------------------------------------------------------------------ rows
@@ -293,6 +301,16 @@ export class StatesScene extends Phaser.Scene {
             'normal',
           );
           this.probe('label.plain', Text('纯展示文本', { name: 'label.plain' }), 'normal');
+          // A command bound to a *plain* widget: no `interactive` marker, no focus. `bindCommand()` has to
+          // give it a hit area and ask the router to re-collect, otherwise the click never arrives.
+          this.probe(
+            'cmd.label',
+            Text(() => `可点击文本（已点击 ${this.commandClicks.value}）`, {
+              name: 'cmd.label',
+              tone: 'primary',
+            }),
+            'normal',
+          );
           Divider({ orientation: 'vertical', height: 48 });
           this.probe('spacer.plain', Spacer({ width: 40, name: 'spacer.plain' }), 'normal');
         });
@@ -393,6 +411,7 @@ export class StatesScene extends Phaser.Scene {
       rest: () => Object.fromEntries([...this.probes].map(([name, probe]) => [name, probe.rest])),
       state: () => ({
         clicks: this.clicks.value,
+        commandClicks: this.commandClicks.value,
         toggled: this.toggled.value,
         text: this.text.value,
         invalid: this.invalid.value,
