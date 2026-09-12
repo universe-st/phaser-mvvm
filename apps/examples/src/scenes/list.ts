@@ -30,7 +30,15 @@ import {
 import type { Widget } from '@phaser-mvvm/phaser';
 import type { Button, Label, Panel, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import { reportControl, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import {
+  appendStatus,
+  displayScale,
+  pageOrigin,
+  pagePoint,
+  reportCanvas,
+  reportWidget,
+  stagePosition,
+} from '../status';
 
 /** One fake row of the list. */
 interface RowItem {
@@ -424,11 +432,10 @@ export class ListScene extends Phaser.Scene {
         if (!scroll) {
           return null;
         }
-        const canvas = this.game.canvas.getBoundingClientRect();
-        const origin = stagePosition(scroll);
+        const origin = pageOrigin(this.game, scroll);
         return {
-          x: Math.round(canvas.left + origin.x),
-          y: Math.round(canvas.top + origin.y),
+          x: Math.round(origin.x),
+          y: Math.round(origin.y),
           width: Math.round(scroll.appliedRect.width),
           height: Math.round(scroll.appliedRect.height),
         };
@@ -546,16 +553,17 @@ export class ListScene extends Phaser.Scene {
     if (!widget || !scroll || widget.appliedRect.width <= 0) {
       return null;
     }
-    const canvas = this.game.canvas.getBoundingClientRect();
-    const origin = stagePosition(widget);
-    const x = Math.round(canvas.left + origin.x + widget.appliedRect.width / 2);
-    const y = Math.round(canvas.top + origin.y + widget.appliedRect.height / 2);
+    const centre = pagePoint(this.game, widget);
+    const x = Math.round(centre.x);
+    const y = Math.round(centre.y);
     if (!insidePort) {
       return { x, y };
     }
-    const port = stagePosition(scroll);
-    const top = canvas.top + port.y;
-    const bottom = top + scroll.appliedRect.height;
+    // The visible band of the port, in the same page pixels.
+    const scale = displayScale(this.game);
+    const portOrigin = pageOrigin(this.game, scroll);
+    const top = portOrigin.y;
+    const bottom = top + scroll.appliedRect.height * scale.y;
     return y >= top && y <= bottom ? { x, y } : null;
   }
 
@@ -767,11 +775,9 @@ export class ListScene extends Phaser.Scene {
       if (button === undefined || button.appliedRect.width <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(button);
       return {
-        x: Math.round(canvas.left + origin.x + button.appliedRect.width / 2),
-        y: Math.round(canvas.top + origin.y + button.appliedRect.height / 2),
+        x: Math.round(pagePoint(this.game, button).x),
+        y: Math.round(pagePoint(this.game, button).y),
       };
     }
     return null;

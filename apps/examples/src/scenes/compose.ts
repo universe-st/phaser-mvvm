@@ -42,7 +42,7 @@ import {
   ui,
 } from '@phaser-mvvm/widgets/compose';
 import { makeTexture, makeTileTexture, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget, stagePosition } from '../status';
 
 type SectionId =
   | 'flow'
@@ -1106,12 +1106,10 @@ export class ComposeScene extends Phaser.Scene {
     if (widget.isDestroyed || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
       return;
     }
-    const canvas = this.game.canvas.getBoundingClientRect();
-    const origin = stagePosition(widget);
     this.publish(
       `pt.${key}`,
-      `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-        canvas.top + origin.y + widget.appliedRect.height / 2,
+      `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+        pagePoint(this.game, widget).y,
       )}`,
     );
   }

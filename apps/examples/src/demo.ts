@@ -5,7 +5,7 @@
  * (Playwright, or the CDP script) can assert on application state — not just on pixels.
  */
 
-import { stagePosition, type Reportable } from './status';
+import { pagePoint, type Reportable } from './status';
 
 const state = new Map<string, string | number | boolean>();
 
@@ -54,11 +54,10 @@ export function reportControl(
   key: string,
   widget: Reportable & { appliedRect: { width: number; height: number } },
 ): void {
-  const canvas = scene.game.canvas.getBoundingClientRect();
-  const origin = stagePosition(widget);
-  const x = Math.round(canvas.left + origin.x + widget.appliedRect.width / 2);
-  const y = Math.round(canvas.top + origin.y + widget.appliedRect.height / 2);
-  setDemoState(`pt.${key}`, `@${x},${y}`);
+  // `pagePoint()` scales the design-space position into CSS pixels, so this stays correct under
+  // `Scale.FIT` as well as the default `Scale.RESIZE` (see `status.ts`).
+  const point = pagePoint(scene.game, widget);
+  setDemoState(`pt.${key}`, `@${Math.round(point.x)},${Math.round(point.y)}`);
 }
 
 /**

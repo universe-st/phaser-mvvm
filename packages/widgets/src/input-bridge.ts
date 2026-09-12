@@ -425,13 +425,58 @@ export class DomInputBridge {
     const containerRect = this.container?.getBoundingClientRect?.() ?? null;
     const originX = containerRect ? canvasRect.x - containerRect.left : canvasRect.x;
     const originY = containerRect ? canvasRect.y - containerRect.top : canvasRect.y;
-    const scaleX = this.displayScale(canvasRect.width, 'width');
-    const scaleY = this.displayScale(canvasRect.height, 'height');
+    // The element's own coordinates are in design pixels whenever its container is scaled (which
+    // Phaser's DOM container always is under `Scale.FIT`), so the display scale is divided by that
+    // container factor — otherwise the overlay is scaled twice: see `containerScale()`.
+    const displayX = this.displayScale(canvasRect.width, 'width');
+    const displayY = this.displayScale(canvasRect.height, 'height');
+    const containerX = this.containerScale('x');
+    const containerY = this.containerScale('y');
 
-    element.style.left = `${round2(originX + rect.x * scaleX)}px`;
-    element.style.top = `${round2(originY + rect.y * scaleY)}px`;
-    element.style.width = `${round2(Math.max(1, rect.width * scaleX))}px`;
-    element.style.height = `${round2(Math.max(1, rect.height * scaleY))}px`;
+    element.style.left = `${round2((originX + rect.x * displayX) / containerX)}px`;
+    element.style.top = `${round2((originY + rect.y * displayY) / containerY)}px`;
+    element.style.width = `${round2(Math.max(1, (rect.width * displayX) / containerX))}px`;
+    element.style.height = `${round2(Math.max(1, (rect.height * displayY) / containerY))}px`;
+  }
+
+  /**
+   * The scale this element's container applies to its children, per axis.
+   *
+   * Phaser's `game.domContainer` — where this element is mounted (`resolveContainer`) — is not a
+   * neutral box: `ScaleManager.refresh()` writes
+   * `transform: scale(displaySize / baseSize)` on it for `Scale.FIT`/`ENVELOP`, so a child's `left` and
+   * `width` are **design** pixels, not CSS pixels. Measured against the DOM rather than assumed: a
+   * container whose rect is larger than its CSS box is scaling its children, and a plain wrapper (or no
+   * container at all) reports `1` and keeps the page-relative behaviour.
+   *
+   * Without this the overlay was scaled **twice** under `Scale.FIT`: a 220×36 field landed as a 35×6
+   * element in the wrong place (V39, round 73). Text still reached the model — the bridge only has to be
+   * focused — which is why it went unnoticed until the mode itself was tested; the element's box is what
+   * the IME candidate window, the soft keyboard's scroll-into-view and mobile Safari's focus zoom
+   * follow.
+   */
+  private containerScale(axis: 'x' | 'y'): number {
+    const container = this.container;
+    if (!container || typeof getComputedStyle !== 'function') {
+      return 1;
+    }
+    const rect = container.getBoundingClientRect?.();
+    if (!rect) {
+      return 1;
+    }
+    const measured = axis === 'x' ? rect.width : rect.height;
+    const declared = Number.parseFloat(
+      axis === 'x' ? getComputedStyle(container).width : getComputedStyle(container).height,
+    );
+    if (
+      !Number.isFinite(declared) ||
+      declared <= 0 ||
+      !Number.isFinite(measured) ||
+      measured <= 0
+    ) {
+      return 1;
+    }
+    return measured / declared;
   }
 
   /** Unhooks the element and forgets it; the bridge cannot be reused afterwards. */

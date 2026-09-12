@@ -53,8 +53,11 @@ export {
   NO_SAFE_AREA,
   SAFE_AREA_MAX_FRACTION,
   clampSafeArea,
+  cssInsetsToDesign,
+  insetsInsideCanvas,
   isZeroSafeArea,
   readSafeAreaInsets,
+  type CanvasBox,
   type SafeAreaInsets,
 } from './safe-area';
 export { UIScene, type UISceneBackHook } from './UIScene';

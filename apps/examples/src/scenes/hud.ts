@@ -30,7 +30,7 @@ import { ref } from '@phaser-mvvm/core';
 import { buildUiSubtree, type Widget } from '@phaser-mvvm/phaser';
 import { Button, Panel, Spacer, Text, TextField, ui } from '@phaser-mvvm/widgets/compose';
 import { setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, displayScale, pagePoint, reportCanvas, reportWidget } from '../status';
 
 const WORLD_WIDTH = 2400;
 const WORLD_HEIGHT = 1600;
@@ -248,12 +248,10 @@ export class HudScene extends Phaser.Scene {
       if (rect.width <= 0 || rect.height <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(probe.widget);
       this.publish(
         `pt.${name}`,
-        `@${Math.round(canvas.left + origin.x + rect.width / 2)},${Math.round(
-          canvas.top + origin.y + rect.height / 2,
+        `@${Math.round(pagePoint(this.game, probe.widget).x)},${Math.round(
+          pagePoint(this.game, probe.widget).y,
         )}`,
       );
     }
@@ -408,11 +406,14 @@ export class HudScene extends Phaser.Scene {
         if (!widget) {
           return -1;
         }
-        const canvas = this.game.canvas.getBoundingClientRect();
         const pointer = this.input.activePointer;
         const previous = { x: pointer.x, y: pointer.y };
-        pointer.x = x - canvas.left;
-        pointer.y = y - canvas.top;
+        // Page → game coordinates: the canvas origin *and* the display scale (under `Scale.FIT` the
+        // canvas is smaller than the design size, so a CSS pixel is more than one design pixel).
+        const rect = this.game.canvas.getBoundingClientRect();
+        const scale = displayScale(this.game);
+        pointer.x = (x - rect.left) / scale.x;
+        pointer.y = (y - rect.top) / scale.y;
         const hits = this.input.manager.hitTest(pointer, [widget], this.cameras.main);
         pointer.x = previous.x;
         pointer.y = previous.y;

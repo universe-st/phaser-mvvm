@@ -23,6 +23,14 @@ import type { Insets, Size } from '@phaser-mvvm/layout';
 /** The four insets, in design (CSS) pixels. */
 export type SafeAreaInsets = Insets;
 
+/** A CSS-pixel rectangle (structurally a `DOMRect` and the layout `Rect`). */
+export interface CanvasBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 /** No insets: a desktop window, or a phone that did not ask for `viewport-fit=cover`. */
 export const NO_SAFE_AREA: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
@@ -62,6 +70,61 @@ export function clampSafeArea(
     bottom: Math.min(positive(insets.bottom), maxVertical),
     left: Math.min(positive(insets.left), maxHorizontal),
     right: Math.min(positive(insets.right), maxHorizontal),
+  };
+}
+
+/**
+ * Keeps only the part of each inset that the canvas actually sits under.
+ *
+ * The insets belong to the *viewport*, the UI to the *canvas*, and the two are not the same rectangle:
+ * `Scale.FIT` with `autoCenter` letterboxes a 980×614 design into, say, a 390×244 box centered in a
+ * 390×844 window, and a 47px camera strip at the top of that window covers empty letterbox, not the UI.
+ * Reserving it anyway shrinks the interface for nothing (measured: the padding was 47 CSS px tall on a
+ * canvas that starts 299px down), so each edge contributes only the length the two rectangles share.
+ *
+ * A canvas that is larger than the viewport (or missing one) keeps the full inset: overlapping by
+ * definition.
+ */
+export function insetsInsideCanvas(
+  insets: SafeAreaInsets,
+  canvas: CanvasBox | null,
+  viewport: { width: number; height: number },
+): SafeAreaInsets {
+  if (!canvas) {
+    return { ...insets };
+  }
+  const canvasLeft = canvas.x;
+  const canvasRight = canvas.x + canvas.width;
+  const canvasTop = canvas.y;
+  const canvasBottom = canvas.y + canvas.height;
+  const shared = (bandStart: number, bandEnd: number, start: number, end: number): number =>
+    Math.max(0, Math.min(bandEnd, end) - Math.max(bandStart, start));
+  return {
+    top: shared(0, insets.top, canvasTop, canvasBottom),
+    bottom: shared(viewport.height - insets.bottom, viewport.height, canvasTop, canvasBottom),
+    left: shared(0, insets.left, canvasLeft, canvasRight),
+    right: shared(viewport.width - insets.right, viewport.width, canvasLeft, canvasRight),
+  };
+}
+
+/**
+ * Converts insets measured in **CSS pixels** into the root's **design pixels**.
+ *
+ * The two differ whenever the canvas is displayed at a different size than the game's coordinate space,
+ * i.e. under `Scale.FIT`/`ENVELOP`: there a 47px camera strip is 47 / 0.4 ≈ 118 design pixels. Reserving
+ * the raw number would leave the UI under the cutout by exactly the display scale — the failure the
+ * option exists to prevent — so the conversion happens before {@link clampSafeArea}.
+ *
+ * `factor` is `gameSize / displaySize` (1 under `Scale.RESIZE`, and 1 for a missing or nonsensical
+ * measurement, which is the neutral answer).
+ */
+export function cssInsetsToDesign(insets: SafeAreaInsets, factor: number): SafeAreaInsets {
+  const safe = Number.isFinite(factor) && factor > 0 ? factor : 1;
+  return {
+    top: insets.top * safe,
+    right: insets.right * safe,
+    bottom: insets.bottom * safe,
+    left: insets.left * safe,
   };
 }
 

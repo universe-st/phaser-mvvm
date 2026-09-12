@@ -33,7 +33,7 @@ import {
   TextField,
 } from '@phaser-mvvm/widgets/compose';
 import { setDemoState } from '../demo';
-import { reportCanvas, reportWidget, setStatus, stagePosition } from '../status';
+import { pagePoint, reportCanvas, reportWidget, setStatus } from '../status';
 
 type ViewName = 'a' | 'b' | 'multi';
 
@@ -424,7 +424,6 @@ export class UiSceneScene extends UIScene {
   }
 
   override update(): void {
-    const canvas = this.game.canvas.getBoundingClientRect();
     for (const [key, widget] of this.tracked) {
       if (widget.isDestroyed) {
         this.publish(`st.${key}`, 'gone');
@@ -434,11 +433,10 @@ export class UiSceneScene extends UIScene {
       if (!widget.visible || widget.appliedRect.width <= 0) {
         continue;
       }
-      const origin = stagePosition(widget);
       this.publish(
         `pt.${key}`,
-        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`,
       );
     }

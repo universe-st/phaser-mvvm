@@ -56,7 +56,7 @@ import {
   ui,
 } from '@phaser-mvvm/widgets/compose';
 import { makeTileTexture, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 /** Machine id of a section; also the `pt.nav.<id>` suffix. */
 type SectionId =
@@ -540,7 +540,6 @@ export class ShowcaseScene extends Phaser.Scene {
 
   /** Repaints `pt.<key>=@x,y` for every tracked control that is laid out. */
   private publishControls(): void {
-    const canvas = this.game.canvas.getBoundingClientRect();
     for (const [key, widget] of this.tracked) {
       if (widget.isDestroyed || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
         continue;
@@ -548,11 +547,10 @@ export class ShowcaseScene extends Phaser.Scene {
       if (!widget.visible) {
         continue;
       }
-      const origin = stagePosition(widget);
       this.publish(
         `pt.${key}`,
-        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`,
       );
     }

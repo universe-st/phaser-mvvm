@@ -29,7 +29,7 @@ import {
 } from '@phaser-mvvm/phaser';
 import { Button, Divider, Panel, Row, Text, TextField, ui } from '@phaser-mvvm/widgets/compose';
 import { setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 /** The kinds of dialog the page can open; also the `window.modal.open(kind)` argument. */
 export type ModalKind = 'confirm' | 'form' | 'stubborn' | 'bare' | 'nested';
@@ -557,12 +557,10 @@ export class ModalScene extends Phaser.Scene {
       if (!widget.visible || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(widget);
       this.publish(
         `pt.${key}`,
-        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`,
       );
     }
@@ -673,10 +671,8 @@ export class ModalScene extends Phaser.Scene {
         if (!widget) {
           return 'none';
         }
-        const canvas = this.game.canvas.getBoundingClientRect();
-        const origin = stagePosition(widget);
-        return `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        return `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`;
       },
       close: (): boolean => this.mvvm.modal.closeTop('api'),

@@ -44,7 +44,7 @@ import {
   ui,
 } from '@phaser-mvvm/widgets/compose';
 import { makeTileTexture, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 const TILE = 'lifecycle.tile';
 const ROWS = 40;
@@ -229,7 +229,6 @@ export class LifecycleScene extends Phaser.Scene {
 
   /** Repaints `pt.<key>=@x,y` so a check can click the restarted scene's controls. */
   private publishControls(): void {
-    const canvas = this.game.canvas.getBoundingClientRect();
     for (const [key, widget] of this.tracked) {
       if (widget.isDestroyed || !widget.visible) {
         continue;
@@ -238,9 +237,8 @@ export class LifecycleScene extends Phaser.Scene {
       if (rect.width <= 0 || rect.height <= 0) {
         continue;
       }
-      const origin = stagePosition(widget);
-      const value = `@${Math.round(canvas.left + origin.x + rect.width / 2)},${Math.round(
-        canvas.top + origin.y + rect.height / 2,
+      const value = `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+        pagePoint(this.game, widget).y,
       )}`;
       if (this.published.get(key) === value) {
         continue;

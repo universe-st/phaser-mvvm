@@ -20,7 +20,7 @@ import Phaser from 'phaser';
 import { MVVMPlugin, type MVVMPluginConfig, type Widget } from '@phaser-mvvm/phaser';
 import { Button, Divider, Panel, Row, Text, ui } from '@phaser-mvvm/widgets/compose';
 import { setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 export class ConfigScene extends Phaser.Scene {
   private readonly tracked = new Map<string, Widget>();
@@ -99,11 +99,13 @@ export class ConfigScene extends Phaser.Scene {
               'safeArea',
               Text(
                 () => {
-                  const insets = this.mvvm.root.safeAreaInsets;
+                  const root = this.mvvm.root;
+                  const insets = root.safeAreaInsets;
+                  const device = root.deviceSafeAreaInsets;
                   return (
-                    `safe area: top ${Math.round(insets.top)} / right ${Math.round(insets.right)} / ` +
-                    `bottom ${Math.round(insets.bottom)} / left ${Math.round(insets.left)} ` +
-                    `(${this.mvvm.root.safeAreaEnabled ? 'on' : 'off'})`
+                    `safe area: device ${Math.round(device.top)}/${Math.round(device.bottom)} → ` +
+                    `reserved top ${Math.round(insets.top)} / bottom ${Math.round(insets.bottom)} ` +
+                    `(${root.safeAreaEnabled ? 'on' : 'off'}, ${this.scaleMode()})`
                   );
                 },
                 { tone: 'muted', name: 'config.safeArea' },
@@ -113,6 +115,20 @@ export class ConfigScene extends Phaser.Scene {
         );
       }),
     );
+  }
+
+  /** `RESIZE` / `FIT` / … — the scale mode decides how page coordinates and insets relate. */
+  private scaleMode(): string {
+    const mode = this.scale.scaleMode;
+    const names: Record<number, string> = {
+      0: 'NONE',
+      1: 'WIDTH_CONTROLS_HEIGHT',
+      2: 'HEIGHT_CONTROLS_WIDTH',
+      3: 'FIT',
+      4: 'ENVELOP',
+      5: 'RESIZE',
+    };
+    return names[mode] ?? String(mode);
   }
 
   private note(): string {
@@ -136,8 +152,12 @@ export class ConfigScene extends Phaser.Scene {
 
   /** Publishes the safe-area readings so a check can watch them change (see `ACCEPTANCE-mobile.md`). */
   private publishSafeArea(): void {
-    const insets = this.mvvm.root.safeAreaInsets;
-    const padding = this.mvvm.root.layoutParams.padding;
+    const root = this.mvvm.root;
+    const insets = root.safeAreaInsets;
+    const device = root.deviceSafeAreaInsets;
+    const padding = root.layoutParams.padding;
+    this.publish('device.top', Math.round(device.top));
+    this.publish('device.bottom', Math.round(device.bottom));
     this.publish('safeArea.top', Math.round(insets.top));
     this.publish('safeArea.bottom', Math.round(insets.bottom));
     this.publish('safeArea.left', Math.round(insets.left));
@@ -226,10 +246,8 @@ export class ConfigScene extends Phaser.Scene {
         if (!widget) {
           return 'none';
         }
-        const canvas = this.game.canvas.getBoundingClientRect();
-        const origin = stagePosition(widget);
-        return `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        return `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`;
       },
       state: (): Record<string, unknown> => this.state(),
@@ -238,14 +256,23 @@ export class ConfigScene extends Phaser.Scene {
        * reserved for it. On a desktop both are zero; on an emulated notched phone the second follows
        * the first (see `ACCEPTANCE-mobile.md`).
        */
-      safeArea: () => ({
-        enabled: this.mvvm.root.safeAreaEnabled,
-        insetTop: Math.round(this.mvvm.root.safeAreaInsets.top),
-        insetRight: Math.round(this.mvvm.root.safeAreaInsets.right),
-        insetBottom: Math.round(this.mvvm.root.safeAreaInsets.bottom),
-        insetLeft: Math.round(this.mvvm.root.safeAreaInsets.left),
-        padding: { ...this.mvvm.root.layoutParams.padding },
-      }),
+      safeArea: () => {
+        const root = this.mvvm.root;
+        const device = root.deviceSafeAreaInsets;
+        return {
+          enabled: root.safeAreaEnabled,
+          /** What the device reports (`env(safe-area-inset-*)`, CSS pixels). */
+          device: {
+            top: Math.round(device.top),
+            right: Math.round(device.right),
+            bottom: Math.round(device.bottom),
+            left: Math.round(device.left),
+          },
+          /** What the root reserved after the canvas overlap, the CSS→design conversion and the clamp. */
+          reserved: { ...root.safeAreaInsets },
+          padding: { ...root.layoutParams.padding },
+        };
+      },
       /** Re-reads the insets and re-lays out — what a rotation does through the scene's resize handler. */
       resize: (): void => this.mvvm.root.resize(),
     };

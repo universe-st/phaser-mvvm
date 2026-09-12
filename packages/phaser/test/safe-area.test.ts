@@ -15,10 +15,84 @@ import {
   NO_SAFE_AREA,
   SAFE_AREA_MAX_FRACTION,
   clampSafeArea,
+  cssInsetsToDesign,
+  insetsInsideCanvas,
   isZeroSafeArea,
 } from '../src/safe-area';
 
 const phone = { width: 390, height: 844 };
+
+describe('insetsInsideCanvas', () => {
+  const notch = { top: 47, bottom: 34, left: 0, right: 0 };
+  const phone = { width: 390, height: 844 };
+
+  it('keeps every inset when the canvas fills the viewport', () => {
+    const canvas = { x: 0, y: 0, width: 390, height: 844 };
+    expect(insetsInsideCanvas(notch, canvas, phone)).toEqual(notch);
+  });
+
+  it('drops an inset the letterbox keeps away from the canvas', () => {
+    // `Scale.FIT` with a 980×614 design: the canvas is 390×244, centered 299px down. The camera strip
+    // covers empty letterbox, so nothing is reserved.
+    const canvas = { x: 0, y: 299, width: 390, height: 244 };
+    expect(insetsInsideCanvas(notch, canvas, phone)).toEqual({
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+    });
+  });
+
+  it('keeps only the overlapping part when the canvas is partially under the cutout', () => {
+    // The canvas starts 20px down: 27 of the 47px strip covers it.
+    const canvas = { x: 0, y: 20, width: 390, height: 800 };
+    expect(insetsInsideCanvas(notch, canvas, phone).top).toBe(27);
+    // …and at the bottom the canvas ends at 820 while the 34px band runs 810…844: 10px overlap.
+    expect(insetsInsideCanvas(notch, canvas, phone).bottom).toBe(10);
+  });
+
+  it('measures the side insets the same way', () => {
+    // Landscape phone, notch on the left: the canvas sits 47px in and ends 37px before the right edge,
+    // so 10 of the right band is over it and none of the left one.
+    const landscape = { width: 844, height: 390 };
+    const side = { top: 0, bottom: 0, left: 47, right: 47 };
+    const canvas = { x: 47, y: 0, width: 760, height: 390 };
+    const inside = insetsInsideCanvas(side, canvas, landscape);
+    expect(inside.left).toBe(0);
+    expect(inside.right).toBe(10);
+  });
+
+  it('keeps the full insets when there is no canvas to measure', () => {
+    expect(insetsInsideCanvas(notch, null, phone)).toEqual(notch);
+  });
+});
+
+describe('cssInsetsToDesign', () => {
+  it('leaves the insets alone in the responsive mode', () => {
+    // `Scale.RESIZE`: the canvas is displayed 1:1 with the game's coordinate space.
+    expect(cssInsetsToDesign({ top: 47, bottom: 34, left: 0, right: 0 }, 1)).toEqual({
+      top: 47,
+      bottom: 34,
+      left: 0,
+      right: 0,
+    });
+  });
+
+  it('scales a design-resolution canvas up into design pixels', () => {
+    // A 980×614 design drawn into 390 CSS pixels wide: a 47px strip is 118 design pixels.
+    const factor = 980 / 390;
+    const insets = cssInsetsToDesign({ top: 47, bottom: 34, left: 0, right: 0 }, factor);
+    expect(Math.round(insets.top)).toBe(118);
+    expect(Math.round(insets.bottom)).toBe(85);
+  });
+
+  it('treats a nonsensical factor as 1 instead of producing NaN insets', () => {
+    const raw = { top: 47, bottom: 34, left: 5, right: 5 };
+    expect(cssInsetsToDesign(raw, 0)).toEqual(raw);
+    expect(cssInsetsToDesign(raw, Number.NaN)).toEqual(raw);
+    expect(cssInsetsToDesign(raw, -2)).toEqual(raw);
+  });
+});
 
 describe('clampSafeArea', () => {
   it('keeps plausible phone insets as they are', () => {

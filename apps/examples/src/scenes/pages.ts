@@ -23,7 +23,7 @@ import { ref } from '@phaser-mvvm/core';
 import { themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
 import { Button, List, Panel, Row, Scroll, Text, TextField } from '@phaser-mvvm/widgets/compose';
 import { setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 interface Row {
   id: number;
@@ -297,12 +297,10 @@ export class PagesScene extends Phaser.Scene {
       if (!widget.visible || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(widget);
       this.publish(
         `pt.${key}`,
-        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`,
       );
     }
@@ -450,10 +448,8 @@ export class PagesScene extends Phaser.Scene {
         if (!widget || widget.appliedRect.width <= 0) {
           return 'none';
         }
-        const canvas = this.game.canvas.getBoundingClientRect();
-        const origin = stagePosition(widget);
-        return `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        return `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`;
       },
       /** Scrolls the base page's list — the state a push/pop round trip has to preserve. */

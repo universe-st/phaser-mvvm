@@ -15,7 +15,10 @@ import { LayoutEngine, tight } from '@phaser-mvvm/layout';
 import type { ContainerLayout, Size } from '@phaser-mvvm/layout';
 import { Widget, type WidgetOptions } from './Widget';
 import {
+  NO_SAFE_AREA,
   clampSafeArea,
+  cssInsetsToDesign,
+  insetsInsideCanvas,
   isZeroSafeArea,
   readSafeAreaInsets,
   type SafeAreaInsets,
@@ -60,6 +63,7 @@ export class UIRoot extends Widget {
   private laidOut = false;
   private structureCounter = 0;
   private insets: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  private deviceInsets: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
   constructor(scene: Phaser.Scene, options: UIRootOptions = {}) {
     super(scene, { layout: { width: 0, height: 0, ...options.layout }, name: options.name });
@@ -127,6 +131,52 @@ export class UIRoot extends Widget {
     return { ...this.insets };
   }
 
+  /** The device's own insets (CSS pixels), before the canvas overlap is taken into account. */
+  get deviceSafeAreaInsets(): SafeAreaInsets {
+    return { ...this.deviceInsets };
+  }
+
+  /** The canvas' CSS rectangle, or `null` when the DOM is not reachable. */
+  private canvasBox(): { x: number; y: number; width: number; height: number } | null {
+    const canvas = this.scene?.game?.canvas;
+    if (!canvas || typeof canvas.getBoundingClientRect !== 'function') {
+      return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+  }
+
+  /** The viewport the insets belong to (Phaser's parent size, falling back to the window). */
+  private viewportSize(): { width: number; height: number } {
+    const scale = this.scene?.scale as { parentSize?: Size; windowSize?: Size } | undefined;
+    const size = scale?.parentSize ?? scale?.windowSize;
+    const width = size?.width ?? 0;
+    const height = size?.height ?? 0;
+    if (width > 0 && height > 0) {
+      return { width, height };
+    }
+    return typeof window === 'undefined'
+      ? { width: 0, height: 0 }
+      : { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  /**
+   * CSS pixels → design pixels: `gameSize / displaySize` (1 under `Scale.RESIZE`).
+   *
+   * `env(safe-area-inset-*)` is a CSS length; the layout works in the game's coordinate space. The two
+   * coincide in the responsive mode the examples default to, and differ by the display scale in
+   * `Scale.FIT` — where reserving the raw CSS number would leave the UI under the cutout.
+   */
+  private cssToDesignFactor(): number {
+    const scale = this.scene?.scale;
+    const display = scale?.displaySize;
+    const game = scale?.gameSize;
+    if (!display || !game || !(display.width > 0) || !(game.width > 0)) {
+      return 1;
+    }
+    return game.width / display.width;
+  }
+
   /**
    * Re-reads the insets and writes them into the root's own padding.
    *
@@ -138,8 +188,19 @@ export class UIRoot extends Widget {
    * and the clamp keeps a short viewport from losing its whole UI to a fixed-size strip (`safe-area.ts`).
    */
   private applySafeArea(size: Size): void {
+    this.deviceInsets = this.safeAreaEnabled
+      ? readSafeAreaInsets(this.scene?.game?.canvas?.ownerDocument ?? null)
+      : { ...NO_SAFE_AREA };
     const next = this.safeAreaEnabled
-      ? clampSafeArea(readSafeAreaInsets(this.scene?.game?.canvas?.ownerDocument ?? null), size)
+      ? clampSafeArea(
+          cssInsetsToDesign(
+            // The insets belong to the viewport; only the part the canvas sits under concerns the UI
+            // (`Scale.FIT` letterboxes the canvas away from the cutout — see `insetsInsideCanvas`).
+            insetsInsideCanvas(this.deviceInsets, this.canvasBox(), this.viewportSize()),
+            this.cssToDesignFactor(),
+          ),
+          size,
+        )
       : { top: 0, right: 0, bottom: 0, left: 0 };
     const current = this.insets;
     const changed =

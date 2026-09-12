@@ -10,7 +10,7 @@ import {
 } from '@phaser-mvvm/phaser';
 import type { Panel } from '@phaser-mvvm/widgets';
 import { setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 /**
  * MVVM demo: a ViewModel made of `ref`/`computed`, a view built from widgets, and bindings that keep
@@ -220,12 +220,10 @@ export class BindingsScene extends Phaser.Scene {
       if (!widget.visible || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(widget);
       this.publish(
         `pt.${key}`,
-        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
-          canvas.top + origin.y + widget.appliedRect.height / 2,
+        `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`,
       );
     }

@@ -39,7 +39,7 @@ import {
 } from '@phaser-mvvm/widgets/compose';
 import { textMetricsStats } from '@phaser-mvvm/widgets';
 import { makeTileTexture, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 const TILE = 'states.tile';
 
@@ -142,12 +142,10 @@ export class StatesScene extends Phaser.Scene {
       if (rect.width <= 0 || rect.height <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(widget);
       this.publish(
         `pt.${name}`,
-        `@${Math.round(canvas.left + origin.x + rect.width / 2)},${Math.round(
-          canvas.top + origin.y + rect.height / 2,
+        `@${Math.round(pagePoint(this.game, widget).x)},${Math.round(
+          pagePoint(this.game, widget).y,
         )}`,
       );
     }

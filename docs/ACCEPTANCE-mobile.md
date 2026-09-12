@@ -62,10 +62,11 @@ MVVMPlugin.configure({ safeArea: false });
 
 **夹取（`clampSafeArea`）**：刘海是**物理**像素高度，视口一矮（横屏、小窗）它就可能比整个界面还高——S4 里 120px 高配 4000 的 inset，如果照单全收就没有任何空间留给 UI。规则是**每条边最多占该轴的四分之一**，且逐轴独立（横屏时左右两组 inset 各自与宽度比）。负数 / `NaN` / 缺失一律当 0：这些数字都来自 DOM 测量，接受一个 `-12px` 的内边距比忽略一次坏读数更糟。纯函数 6 例单测见 `packages/phaser/test/safe-area.test.ts`。
 
-### 2.4 顺带说明的两条边界
+### 2.4 顺带说明的三条边界
 
 - **只在 resize 时重读**：inset 的变化（旋转、状态栏显隐）在真机上几乎总和 resize 一起来；若某环境单独改了 inset，需要自己调 `root.resize()`。
 - **`UIRoot` 的盒子不变**：padding 只影响**子节点**的排布区域，`appliedRect` 仍是整屏，所以相机背景、钉住的 HUD 页、模态遮罩都还是全屏。
+- **画布被缩放时（`Scale.FIT`）要换两次算**：inset 是 CSS 像素、布局是设计像素；而且 inset 属于视口、UI 属于画布，留黑边时挖孔盖的是黑边。第 73 轮补上了 `insetsInsideCanvas()` 与 `cssInsetsToDesign()`——`RESIZE` 下预留 47/34、`FIT 980×614` 留黑边时预留 **0/0**、`FIT` 铺满时 47/34（公式见 [`ACCEPTANCE-scale.md`](./ACCEPTANCE-scale.md) §3.2）。
 
 ---
 

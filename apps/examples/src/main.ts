@@ -89,14 +89,42 @@ MVVMPlugin.configure({
   a11y: { politeness: 'assertive' },
 });
 
+/**
+ * `?fit=980x614` boots the examples in **design-resolution** mode instead of the default responsive
+ * one.
+ *
+ * Both are legitimate ways to fit a phone, and they answer different problems:
+ *
+ * - `Scale.RESIZE` (the default here) hands the UI the real viewport, so the layout reflows — pages
+ *   have to be written fluidly (`width: 'fill'`, wrapping rows);
+ * - `Scale.FIT` keeps a **design resolution** and scales the whole canvas to fit, letterboxing the
+ *   rest. Nothing reflows, the UI looks identical on every device, and a page written for 980×614 is
+ *   simply smaller on a phone. Most Phaser games ship this way.
+ *
+ * The switch exists so the acceptance run can measure the second one: the framework has to be correct
+ * in both modes (the DOM input bridge scales its element into CSS pixels, `UIRoot` sizes itself from
+ * `gameSize`, hit testing happens in game coordinates — measured in `ACCEPTANCE-scale.md`).
+ */
+const fitParam = /^(?:\d+)x(?:\d+)$/.test(
+  new URLSearchParams(window.location.search).get('fit') ?? '',
+)
+  ? (new URLSearchParams(window.location.search).get('fit') as string)
+  : null;
+const [designWidth, designHeight] = fitParam
+  ? (fitParam.split('x').map(Number) as [number, number])
+  : [window.innerWidth, window.innerHeight];
+
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#0d1117',
   scale: {
-    mode: Phaser.Scale.RESIZE,
-    width: window.innerWidth,
-    height: window.innerHeight,
+    mode: fitParam ? Phaser.Scale.FIT : Phaser.Scale.RESIZE,
+    width: designWidth,
+    height: designHeight,
+    // FIT letterboxes: centre the canvas (`autoCenter` only places it in CSS; design coordinates do
+    // not change).
+    autoCenter: fitParam ? Phaser.Scale.CENTER_BOTH : Phaser.Scale.NO_CENTER,
   },
   render: {
     antialias: true,

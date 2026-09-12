@@ -21,7 +21,7 @@ import { bindTemplate, bindTemplateText } from '@phaser-mvvm/phaser';
 import type { Widget } from '@phaser-mvvm/phaser';
 import type { Label, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import { reportControl, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
+import { appendStatus, pagePoint, reportCanvas, reportWidget, stagePosition } from '../status';
 
 interface ScrollRow {
   id: string;
@@ -719,11 +719,9 @@ export class ScrollScene extends Phaser.Scene {
       if (!button || button.appliedRect.width <= 0) {
         continue;
       }
-      const canvas = this.game.canvas.getBoundingClientRect();
-      const origin = stagePosition(button);
       return {
-        x: Math.round(canvas.left + origin.x + button.appliedRect.width / 2),
-        y: Math.round(canvas.top + origin.y + button.appliedRect.height / 2),
+        x: Math.round(pagePoint(this.game, button).x),
+        y: Math.round(pagePoint(this.game, button).y),
       };
     }
     return null;
