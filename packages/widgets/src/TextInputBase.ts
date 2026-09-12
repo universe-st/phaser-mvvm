@@ -1370,11 +1370,12 @@ export abstract class TextInputBase extends Widget {
           this.commit(this.valueAtFocus, this.valueAtFocus.length, this.valueAtFocus.length);
         }
         this.blur();
-        if (this.focused) {
-          // `blur()` was refused, which only happens inside a trapped scope (a modal): the field must
-          // not swallow the key there, or Escape is simply dead while the dialog's field has focus.
-          this.focusManager?.handleAction?.('back', 'keyboard');
-        }
+        // `back` is reported **whatever happened above**, because Escape means "go back" everywhere and
+        // a focused field must not be the one place where the key disappears. It has to be reported
+        // from here at all: `preventDefault()`/`stopPropagation()` keep Phaser's keyboard manager out
+        // of the event (V17), so the plugin's own handler never sees it. This is what makes Escape
+        // close a modal, pop a page, and reach `mvvm.onBack` even while the caret is in a field.
+        this.focusManager?.handleAction?.('back', 'keyboard');
         return true;
       }
       case 'Tab': {

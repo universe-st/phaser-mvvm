@@ -35,14 +35,13 @@
  * deliberately not dismissible *swallows* the key rather than letting the page act on it.
  */
 
-import type Phaser from 'phaser';
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import type { MVVMPlugin } from './plugin';
-import { BoxWidget, StackWidget } from './LayoutWidget';
+import { StackWidget } from './LayoutWidget';
 import { Widget } from './Widget';
 import { RectWidget } from './widgets';
 import { getTheme } from './theme';
-import { runInUiScope } from './uiscope';
+import { buildUiPage } from './ui-build';
 
 /** How a modal was closed. */
 export type ModalCloseReason = 'api' | 'back' | 'backdrop' | 'scene';
@@ -145,15 +144,8 @@ export class ModalHost {
     const id = ++this.counter;
     const name = options.name ?? `modal#${id}`;
 
-    const { roots } = runInUiScope(scene, content);
-    if (roots.length === 0) {
-      throw new Error(
-        `modal.open(): the content built no widget. A modal needs exactly one root — wrap the ` +
-          `content in Column()/Row()/Panel(), or check for an early return inside the lambda.`,
-      );
-    }
-    const body =
-      roots.length === 1 ? (roots[0] as Widget) : this.wrapRoots(scene, roots as Widget[], name);
+    // One rule for every view lambda, shared with `ui()` and `pages.push()` (ui-build.ts).
+    const body = buildUiPage(scene, content, 'modal.open()').root;
 
     // Layout params are flat on the layout containers (not nested under `layout`, which only the
     // `WidgetOptions`-style constructors such as `UIRoot` use).
@@ -356,20 +348,6 @@ export class ModalHost {
       dismissible: entry.dismissible,
       close: (reason: ModalCloseReason = 'api'): boolean => this.closeEntry(entry, reason),
     };
-  }
-
-  /** Wraps several roots the way `ui()` does, with the same development warning. */
-  private wrapRoots(scene: Phaser.Scene, roots: readonly Widget[], name: string): BoxWidget {
-    warn(
-      `modal.open("${name}"): the content built ${roots.length} root widgets; they were wrapped in ` +
-        'a vertical Column. Build an explicit Column()/Row()/Panel() to choose the flow yourself.',
-    );
-    const wrapper = new BoxWidget(scene, { direction: 'vertical', alignItems: 'stretch' });
-    scene.add.existing(wrapper);
-    for (const root of roots) {
-      wrapper.addWidget(root);
-    }
-    return wrapper;
   }
 }
 

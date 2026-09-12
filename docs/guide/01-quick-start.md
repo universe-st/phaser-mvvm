@@ -59,7 +59,7 @@ new Phaser.Game({
 1. **`mapping: 'mvvm'`** 决定场景里的字段名：之后写 `this.mvvm`。插件在每个场景启动时创建，场景 `SHUTDOWN`/`DESTROY` 时自动把 UI、监听器、绑定全部拆掉。
 2. **两个 install 函数都要调**，而且要在创建 UI 之前调。它们只是「把方法注册到 `Phaser.GameObjects.GameObjectFactory` 上」，是幂等的，模块顶层调一次即可。少调一个，对应的 `this.add.xxx` 就是 `undefined`。
 3. **`dom.createContainer: true`** 是中文输入法与移动端软键盘（DOM 输入桥）的前提；纯 Canvas 场景可以不开（[04 章 §2](./04-text-inputs.md)）。
-4. **插件条目里只写 `key`/`plugin`/`mapping`**：Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化场景插件，`MVVMPluginConfig`（`themeBackground`/`input`/`focus`/`navigation`/`onBack`）目前**传不进去**，写了也不会生效；这些选项请在拿到 `this.mvvm` 之后运行期设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
+4. **插件条目里只写 `key`/`plugin`/`mapping`**：Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化场景插件，`MVVMPluginConfig`（`themeBackground`/`input`/`focus`/`navigation`/`onBack`）目前**传不进去**，写了也不会生效；这些选项请在拿到 `this.mvvm` 之后运行期设置（`back` 用 `this.mvvm.onBack`，不是 `focus.onBack`）（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
 
 > 也可以不用插件：直接 `new UIRoot(scene)` + `root.addWidget(...)` + `root.flushLayout()`。插件提供的额外能力是「每帧自动 flush + 自动输入/焦点路由 + 主题背景」，见本章 §7。
 

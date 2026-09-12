@@ -247,11 +247,11 @@ console.log(this.mvvm.theme.name); // 当前主题
 
 `setTheme` 之后**不需要你做任何事**：每个 `Widget` 都订阅了主题变化，会重绘并按新字体重新测量；场景插件还会把主相机的背景色同步成 `theme.colors.background`（这就是换肤时整页背景一起变的原因）。
 
-> ⚠️ **插件配置目前无法从 Game Config 传入。** Phaser 只读取场景插件条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig` 这个第 4 个构造参数永远是空的。所以 `themeBackground`、`navigation`、`onBack`、`input`/`focus` 这些选项**当前拿不到**：`themeBackground` 恒为 `true`（主相机背景始终跟随主题），`InputRouter.dragThreshold` 恒为 8，`FocusManager.onBack` 为空。需要时请在拿到 `this.mvvm` 之后自行处理（例如 `this.mvvm.focus.onBack = …`、`this.scene.cameras.main.setBackgroundColor(0x000000)`）。
+> ⚠️ **插件配置目前无法从 Game Config 传入。** Phaser 只读取场景插件条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig` 这个第 4 个构造参数永远是空的。所以 `themeBackground`、`navigation`、`onBack`、`input`/`focus` 这些选项**当前拿不到**：`themeBackground` 恒为 `true`（主相机背景始终跟随主题），`InputRouter.dragThreshold` 恒为 8，而 `FocusManager.onBack` 由插件自己占用（`back` 路由：模态栈 → 页面栈 → 应用）。需要时请在拿到 `this.mvvm` 之后自行处理（例如返回键写 `this.mvvm.onBack = …`、背景写 `this.scene.cameras.main.setBackgroundColor(0x000000)`）。**注意 `this.mvvm.focus.onBack` 不是应用级返回入口**：插件在那里安装 `back` 路由（模态栈 → 页面栈 → 应用），覆盖它会让 `Esc` 失去前两层的行为（开发模式下会打印警告）。
 
 ```ts
 // 想让 UI 叠在游戏画面上、且不要主题背景色：拿到插件后自己处理
-this.mvvm.focus.onBack = () => this.closeDialog(); // 运行期可写属性
+this.mvvm.onBack = () => this.closeDialog(); // 应用级返回处理（运行期可写属性）
 this.scene.cameras.main.setBackgroundColor('rgba(0,0,0,0)'); // Phaser 支持 rgba 字符串
 // 注意：插件每次换肤都会用主题色重写它，所以自定义背景要在换肤时再覆盖一次
 ```

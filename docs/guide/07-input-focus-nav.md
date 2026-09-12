@@ -39,7 +39,7 @@ Phaser 已经负责命中测试，路由层补的是「控件语义」：
 this.mvvm.input.dragThreshold = 12;
 ```
 
-> ⚠️ **不要在 Game Config 的 `plugins.scene` 条目里传插件选项**：Phaser 只读 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig`（`input`/`focus`/`onBack`/`navigation`/`themeBackground`）**目前传不进去**，写了也不会生效。请像上面这样在运行期改公开字段或用可写属性（见 06 §6.1）。
+> ⚠️ **不要在 Game Config 的 `plugins.scene` 条目里传插件选项**：Phaser 只读 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig`（`input`/`focus`/`onBack`/`navigation`/`themeBackground`）**目前传不进去**，写了也不会生效。请像上面这样在运行期改公开字段或用可写属性（见 06 §6.1）。**唯一例外是 `back`**：`FocusManager.onBack` 是插件安装路由钩子的地方，直接覆盖它会让 `Esc` 不再关对话框、不再返回上一页（开发模式下框架会打印一条警告）；应用级的返回处理请写 `this.mvvm.onBack = …`。
 
 `this.mvvm.input` 的常用成员：
 
@@ -71,13 +71,13 @@ this.mvvm.input.dragThreshold = 12;
 
 ### 键盘映射
 
-| 按键          | 动作                                                                       |
-| ------------- | -------------------------------------------------------------------------- |
-| `Tab`         | `next`（下一个焦点）                                                       |
-| `Shift+Tab`   | `prev`（上一个焦点）                                                       |
-| `↑ ↓ ← →`     | 几何方向导航（找最近的邻居，见下）                                         |
-| `Enter`、空格 | `activate`（激活当前焦点控件）                                             |
-| `Escape`      | `back`（交给 `FocusManager.onBack`，用 `this.mvvm.focus.onBack = …` 设置） |
+| 按键          | 动作                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `Tab`         | `next`（下一个焦点）                                                                  |
+| `Shift+Tab`   | `prev`（上一个焦点）                                                                  |
+| `↑ ↓ ← →`     | 几何方向导航（找最近的邻居，见下）                                                    |
+| `Enter`、空格 | `activate`（激活当前焦点控件）                                                        |
+| `Escape`      | `back` → **逐层路由**：先给模态栈，再给页面栈，最后才交给 `this.mvvm.onBack`（见 §7） |
 
 带 `Ctrl`/`Cmd`/`Alt` 的组合键**不会被吞**，浏览器快捷键（复制/刷新/开发者工具）照常工作。
 
@@ -274,7 +274,65 @@ const dialog = this.mvvm.modal.open(
 
 ---
 
-## 7. 常见坑
+## 7. 实战：页面栈（`this.mvvm.pages`）
+
+多页界面（列表 → 详情 → 编辑）以前只能自己 `mount()` 一棵新树、再把旧树藏起来，还要自己处理返回与焦点。现在它是一个入口：
+
+```ts
+// 第一页（也可以是任意一层）
+this.mvvm.pages.push(() => {
+  Panel({ gap: 12, padding: 20 }, () => {
+    Text('条目列表', { size: 'lg' });
+    List({ items: () => rows.value, key: (row) => row.id, gap: 6 }, (row) => {
+      Button(`${row.name} ›`, { variant: 'ghost', onClick: () => this.openDetail(row) });
+    });
+  });
+}, { name: 'list' });
+
+private openDetail(row: Row): void {
+  this.mvvm.pages.push(() => {
+    Panel({ gap: 12, padding: 20 }, () => {
+      Text(`详情 · ${row.name}`, { size: 'lg' });
+      Button('返回', { variant: 'secondary', onClick: () => this.mvvm.pages.pop() });
+    });
+  }, { name: `detail:${row.id}`, onResume: (page) => this.reloadDetail(row, page) });
+}
+```
+
+`push(content, options?)` 返回 `PageHandle`（`pop()` / `depth` / `active` / `open` / `widget`）。`this.mvvm.pages` 还有 `depth`、`top`、`handles`、`names()`、`pop()`、`popToRoot()`、`handleBack()`。
+
+| 选项        | 说明                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------ |
+| `name`      | 页名，出现在 `names()` 与 dev 轨迹里（默认 `page#n`）                                |
+| `onResume`  | 这一页成为可见页时调用：`push()` 之后、以及上层页面被 `pop()` 之后（数据刷新写这里） |
+| `onPause`   | 被新页面盖住时调用                                                                   |
+| `onDispose` | 页面控件销毁后调用（被 `pop()`，或场景关闭）                                         |
+| `onBack`    | 这一页在栈顶时对 `back` 的**优先处理权**：返回 `true` 表示自己处理（例如弹确认框）   |
+
+被盖住的那一页**不会被销毁**，只是 `visible: false`：滚动位置、输入内容、计数全都留着，`pop()` 回来时逐字节还原；同时它自动变成不可见、不可点、不可聚焦、也不在焦点集合里，输入框的 DOM 焦点也会被释放（隐藏页面里的输入框不会再收字符）。
+
+### `back` 的归属顺序
+
+按 `Esc`（或手柄 `B`/`○`）时，框架按固定顺序问三层，规则写在 `planBack()` 里并有 Node 单测：
+
+1. **模态栈**：有对话框就归它——`dismissible: false` 的对话框会**吞掉**这个键（下层不能替它做决定）；
+2. **页面栈**：还有上一页可回时 `pop()` 一层；只剩顶层那一页时**不弹**（弹空会留下白屏）；
+3. **应用**：`this.mvvm.onBack`（这才是放应用级处理的地方）。
+
+```ts
+// 应用级返回：只有模态与页面都不要这个键时才会走到这里
+this.mvvm.onBack = () => this.togglePause();
+```
+
+### 与模态框的层序
+
+页面和对话框都是 UI 根的子节点，绘制顺序 = 子节点顺序，所以对话框永远在所有页面之上：`push()` 会把已打开的对话框图层重新抬到最上面（`raiseLayers()`），你不需要关心谁先开。
+
+> `mount()`/`render()` 仍然可用（单页应用最简单）：它们把整棵树挂到根上，与页面栈是两条并行的用法，**不要在同一处混用**——`pages.push()` 会把根上的其他内容留在下面不管。
+
+---
+
+## 8. 常见坑
 
 | 现象                               | 原因                                                       | 修法                                                                      |
 | ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -291,7 +349,7 @@ const dialog = this.mvvm.modal.open(
 
 ---
 
-## 8. 小结
+## 9. 小结
 
 - **指针**：`InputRouter` 每帧推导悬停 + 位移阈值判定点击 + capture 拦截层。
 - **焦点**：只有 `focusable` 的控件进集合；Tab 走顺序，方向键走几何漏斗；`focusOrder` 调顺序。

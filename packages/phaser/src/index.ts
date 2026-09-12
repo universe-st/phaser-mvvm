@@ -39,6 +39,9 @@ export {
   type UiScopeResult,
 } from './uiscope';
 export { MVVMPlugin, type MVVMPluginConfig } from './plugin';
+export { buildUiPage, type BuiltUi } from './ui-build';
+export { PageHost, type PageBackTarget, type PageHandle, type PageOptions } from './pages';
+export { planBack, type BackState } from './back-plan';
 export { factoriesInstalled, FACTORY_KEYS, installFactories } from './factory';
 export {
   LabelWidget,

@@ -12,6 +12,7 @@ import { LifecycleScene } from './scenes/lifecycle';
 import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ModalScene } from './scenes/modal';
+import { PagesScene } from './scenes/pages';
 import { ProbeScene } from './scenes/probe';
 import { ScrollScene } from './scenes/scroll';
 import { StatesScene } from './scenes/states';
@@ -40,6 +41,7 @@ setStatus('boot');
 const SCENES = {
   m0: M0Scene,
   modal: ModalScene,
+  pages: PagesScene,
   probe: ProbeScene,
   stack: StackScene,
   gallery: GalleryScene,

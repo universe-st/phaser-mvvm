@@ -21,11 +21,13 @@
  */
 
 import Phaser from 'phaser';
-import { devLog, isDevMode } from '@phaser-mvvm/core';
+import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { flushFrame } from '@phaser-mvvm/core';
 import { FocusManager, type FocusManagerOptions } from './focus';
 import { InputRouter, type InputRouterOptions } from './input';
 import { ModalHost } from './modal';
+import { planBack } from './back-plan';
+import { PageHost } from './pages';
 import {
   NavRepeat,
   gamepadActionsOf,
@@ -80,6 +82,14 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private readonly handledKeyEvents = new Set<KeyboardEvent>();
   private unsubscribeTheme: (() => void) | null = null;
   private modalHost: ModalHost | null = null;
+  private pageHost: PageHost | null = null;
+  /** Dev-only: whether the "something replaced the back router" warning was already printed. */
+  private warnedBackOverride = false;
+  /**
+   * The plugin's own back router, kept as a stable reference so the dev guard below can tell whether
+   * anything replaced it.
+   */
+  private readonly backRouter = (): void => this.handleBack();
 
   constructor(
     scene: Phaser.Scene,
@@ -105,6 +115,16 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     events.on(Phaser.Scenes.Events.SHUTDOWN, this.onShutdown, this);
     events.on(Phaser.Scenes.Events.DESTROY, this.onShutdown, this);
   }
+
+  /**
+   * App-level `back` handler (Escape, gamepad B/○), called when neither a modal nor a page wanted the
+   * action.
+   *
+   * This is the supported place to put it. `FocusManager.onBack` is the *low-level* hook the plugin
+   * installs for routing (`modal → page → app`), so assigning it directly takes the modal stack and the
+   * page stack out of the loop — the guide used to suggest exactly that, and the failure was silent.
+   */
+  onBack: (() => void) | null = null;
 
   /** The UI root of this scene; created on first access (and wired for input). */
   get root(): UIRoot {
@@ -151,6 +171,19 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       this.modalHost = new ModalHost(this);
     }
     return this.modalHost;
+  }
+
+  /**
+   * The page stack of this scene: `this.mvvm.pages.push(() => { … })`.
+   *
+   * Created on first use, like `modal`. Pop it with `pop()`, or let `Escape`/gamepad B do it — the
+   * plugin routes `back` to the modals first, then to the pages, then to `config.onBack`.
+   */
+  get pages(): PageHost {
+    if (!this.pageHost) {
+      this.pageHost = new PageHost(this);
+    }
+    return this.pageHost;
   }
 
   /** Switches the theme used by every widget in every scene. */
@@ -211,9 +244,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.focusManager = new FocusManager({
       root,
       ...this.config.focus,
-      // The modal stack gets first refusal on `back` (Escape / gamepad B): a dialog that is up owns
-      // the key, and one that must be answered swallows it instead of letting the page act on it.
-      onBack: () => this.handleBack(),
+      // `back` is routed, never handled here: `handleBack()` asks the modal stack, then the page stack,
+      // then the app (see `back-plan.ts`).
+      onBack: this.backRouter,
     });
 
     if (this.config.themeBackground !== false) {
@@ -232,13 +265,29 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.scene?.cameras?.main?.setBackgroundColor(theme.colors.background);
   }
 
-  /** `back` action routing: the modal stack first, then the app's own handlers. */
+  /**
+   * `back` action routing (Escape / gamepad B).
+   *
+   * The order lives in `planBack()` (a pure function with Node tests): a modal owns the action first,
+   * then the page stack, and only an app with nowhere left to go sees its own `onBack`.
+   */
   private handleBack(): void {
-    if (this.modalHost?.handleBack() === true) {
+    const target = planBack({
+      modalDepth: this.modalHost?.depth ?? 0,
+      pageDepth: this.pageHost?.depth ?? 0,
+    });
+
+    if (target === 'modal') {
+      // `handleBack()` also covers the non-dismissible dialog, which swallows the action on purpose.
+      this.modalHost?.handleBack();
       return;
     }
-    // `focus.onBack` used to be the config key for this; it still works, it is simply the fallback.
-    (this.config.onBack ?? this.config.focus?.onBack)?.();
+    if (target === 'page' && this.pageHost?.handleBack() === true) {
+      return;
+    }
+    // `config.onBack` can never arrive (Phaser instantiates scene plugins with three arguments), so
+    // `mvvm.onBack` is the usable field; `config.focus.onBack` stays supported as the legacy spelling.
+    (this.onBack ?? this.config.onBack ?? this.config.focus?.onBack)?.();
   }
 
   private onKeyDown(event: KeyboardEvent): void {
@@ -325,8 +374,38 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       this.refreshInteraction();
     }
 
+    this.guardBackRouter();
+
     this.pollGamepad(time);
     this.router?.update(time);
+  }
+
+  /**
+   * Development guard for the `back` hook.
+   *
+   * `FocusManager.onBack` is where the plugin installs its router, and the guide used to tell readers to
+   * overwrite it (`this.mvvm.focus.onBack = …`). Doing that silently disables modal-close and page-pop
+   * on Escape — the key simply stops working, with nothing in the console. One identity comparison per
+   * frame in development (zero in release) turns that into a named warning.
+   */
+  private guardBackRouter(): void {
+    const manager = this.focusManager;
+    if (!isDevMode() || !manager) {
+      return;
+    }
+    if (manager.onBack === this.backRouter) {
+      this.warnedBackOverride = false;
+      return;
+    }
+    if (this.warnedBackOverride) {
+      return;
+    }
+    this.warnedBackOverride = true;
+    warn(
+      'focus.onBack was replaced: the plugin routes `back` through this hook (modal stack, then page ' +
+        'stack, then the app), so Escape/B no longer closes dialogs or pops pages. Use ' +
+        '`this.mvvm.onBack = …` for an app-level handler.',
+    );
   }
 
   /** Tears the UI down; the scene-event subscriptions stay so a restart works (see `boot()`). */
@@ -351,9 +430,12 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.unsubscribeTheme = null;
     this.router?.detach();
     this.router = null;
-    // Before the focus manager, so the app's `onClose` callbacks run while the scopes still exist.
+    // Before the focus manager, so the app's `onClose`/`onDispose` callbacks run while the scopes
+    // still exist. Overlays first (they sit above the pages), then the pages themselves.
     this.modalHost?.dispose();
     this.modalHost = null;
+    this.pageHost?.dispose();
+    this.pageHost = null;
     this.focusManager?.dispose();
     this.focusManager = null;
     this.handledKeyEvents.clear();

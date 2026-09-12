@@ -32,7 +32,7 @@
 import type Phaser from 'phaser';
 import type { BindingContext } from '@phaser-mvvm/core';
 import type { MVVMPlugin } from '@phaser-mvvm/phaser';
-import { devLog, warn } from '@phaser-mvvm/core';
+import { devLog } from '@phaser-mvvm/core';
 import {
   AbsoluteWidget,
   type AbsoluteWidgetOptions,
@@ -44,6 +44,7 @@ import {
   BoxWidget,
   type BoxLayoutOptions,
   type BoxWidgetOptions,
+  buildUiPage,
   buildUiSubtree,
   currentUiScene,
   emitWidget,
@@ -52,7 +53,6 @@ import {
   type GridWidgetOptions,
   RectWidget,
   type RectWidgetOptions,
-  runInUiScope,
   StackWidget,
   type StackWidgetOptions,
   type Widget,
@@ -99,28 +99,7 @@ import {
  * `new UIRoot(scene)`.
  */
 export function ui(scene: Phaser.Scene, content: () => void): Widget {
-  const { roots, widgets, depth } = runInUiScope(scene, content);
-
-  if (roots.length === 0) {
-    throw new Error(
-      'ui(): the content built no widget. A view needs exactly one root — wrap the content in ' +
-        'Column()/Row()/Panel(), or check for an early return inside the lambda.',
-    );
-  }
-
-  if (roots.length === 1) {
-    devLog(`ui(): built ${widgets} widget(s), ${depth} level(s) deep`);
-    return roots[0] as Widget;
-  }
-
-  warn(
-    `ui(): the content built ${roots.length} root widgets; they were wrapped in a vertical Column. ` +
-      'Build an explicit Column()/Row()/Panel() to choose the flow yourself.',
-  );
-  const wrapper = new BoxWidget(scene, { direction: 'vertical', alignItems: 'stretch' }, roots);
-  scene.add.existing(wrapper);
-  devLog(`ui(): built ${widgets} widget(s), ${depth} level(s) deep, wrapped ${roots.length} roots`);
-  return wrapper;
+  return buildUiPage(scene, content, 'ui()').root;
 }
 
 /**
