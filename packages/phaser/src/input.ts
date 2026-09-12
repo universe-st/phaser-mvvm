@@ -322,6 +322,9 @@ export class InputRouter {
     this.scene = scene ?? liveSceneOf(root);
     // Every interactive object must receive the event so `resolveTarget` can choose the deepest one;
     // with Phaser's default `topOnly` a container and its children are ranked by an undefined order.
+    // Measured (round 39): with `topOnly = true` the click-through to the game objects disappears, but
+    // controls nested in a container that sorts above them stop receiving presses altogether
+    // (`#/scroll`'s step buttons went dead while the buttons that happen to be drawn last kept working).
     const input = this.scene?.input;
     if (input) {
       this.previousTopOnly = input.topOnly;

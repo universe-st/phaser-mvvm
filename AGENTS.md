@@ -99,6 +99,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 - **调试日志**：开发模式下框架会打印 `[phaser-mvvm]` 前缀的建树/挂载/焦点/慢布局轨迹（`ui()`、`render()`、`mount`、`focus`，以及测量 ≥ 200 节点或 ≥ 2 ms 的布局趟），`setDevMode(false)` 之后一行不打。阈值在 `packages/phaser/src/UIRoot.ts` 顶部。改动日志时保持「发布模式零开销」这条：调用点先用 `isDevMode()` 或让 `devLog` 自己早退，别在热路径里拼字符串。
 - **性能/体积预算怎么跑**：`pnpm --filter @phaser-mvvm/layout run test`（含 `test/perf.test.ts`：1000 节点耗时、无变化帧、缓存命中率、单节点编辑增量性、对象池稳定性）与 `pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定 core+layout < 25 KB、phaser+widgets < 45 KB，同时打印未压缩 gzip）。改动布局引擎、控件度量或新增控件后请跑这两个。
 - **本机没有 `timeout` 命令**（macOS）；长命令用后台任务而不是 `timeout` 包裹。
+- **`#demo-state` 的数值可能落后于控件真实状态**（最多约 1 秒）：它由场景的 `update()` 写入，而一次代价很高的帧（见 `docs/DEFECT-BACKLOG.md` V10：`#/scroll` 大幅滚动会产生 654 ms / 1000 ms 的长帧）会同时推迟 `update()` 与 DOM 写入。实测：点 `pt.vbottom` 后控件侧 `offset` 50 ms 内已是 8000，DOM 文本约 0.9 s 才跟上。**对时序敏感的断言请读场景 API**（如 `window.scrollDemo.offsets()`），或等长帧结束后再读，不要用 300 ms 的等待下结论。
 - **文档数字会滞后**：`README.md`、`CONTRIBUTING.md`、`docs/ACCEPTANCE-*.md` 里的里程碑状态与测试数量彼此不一致（例如三份文档分别写着 M0–M2 / M0–M7 与不同的用例数）。**以代码、`pnpm -r run test` 的实跑结果和 CI 为准**；顺手更新过时描述是受欢迎的改动。
 - **不要引入浏览器测试框架**（仓库无 Playwright 依赖，验收走 `scripts/visual-check.mjs` 的 CDP）；任何新运行时依赖都需要 ADR。
 
