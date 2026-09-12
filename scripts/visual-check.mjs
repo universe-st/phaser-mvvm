@@ -54,6 +54,9 @@ const scenes = [
   'options',
   'keyboard',
   'showcase',
+  // `pages` is here for its **AX** table only (no pixel expectations): the setup pushes the detail page,
+  // and the accessibility tree must then hold the detail page's controls *and nothing else* — V73.
+  'pages',
 ];
 
 /**
@@ -71,6 +74,8 @@ const SCENE_SETUP = {
   // actually reached its setter and repainted — a slot that silently does nothing cannot pass.
   compose:
     'window.compose.show("state"); window.compose.setState({ variant: "danger", altTexture: true, frozen: true, rangeMax: 200, altFrame: true })',
+  // The page stack: push the detail page so the covered list page has to leave the accessibility tree.
+  pages: 'window.pages.open(1)',
   // The modal scene's dialog only exists once it is opened; the scene reports the dialog's own rects
   // into #status on the first open of each kind, so this runs before the status read.
   modal: 'window.modal.open("confirm")',
@@ -184,6 +189,17 @@ const AX_EXPECTATIONS = {
   modal: [
     { role: 'button', name: '取消' },
     { role: 'button', name: '删除' },
+  ],
+  /**
+   * A pushed page covers the one below it (`SCENE_SETUP` opens the detail page). Only the detail page's
+   * own controls may appear: the list page stays mounted — that is what keeps its state — but a screen
+   * reader must not walk it. Before this gate the tree held **20** control nodes here (the list's 17 plus
+   * the detail's 3), all of them reachable.
+   */
+  pages: [
+    { role: 'button', name: '返回列表' },
+    { role: 'button', name: '再进一层' },
+    { role: 'button', name: '打开对话框' },
   ],
 };
 

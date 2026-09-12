@@ -92,6 +92,16 @@ const HIDDEN_STYLE: Partial<CSSStyleDeclaration> = {
   pointerEvents: 'none',
 };
 
+/**
+ * `true` when `widget` is `scope` itself or inside it.
+ *
+ * A thin, typed wrapper over `isWithinTree` (which speaks `ContainerLike`): the bridge asks this question
+ * on every refresh for every widget, and the casts belong in one place.
+ */
+function within(widget: Widget, scope: Widget): boolean {
+  return isWithinTree(widget as unknown as { parentContainer?: unknown } as never, scope as never);
+}
+
 export class A11yBridge {
   private readonly plugin: MVVMPlugin;
   private readonly options: A11yOptions;
@@ -112,22 +122,37 @@ export class A11yBridge {
   }
 
   /**
-   * Whether a widget sits **behind** an open modal, and therefore must leave the accessibility tree.
+   * Whether a widget is **not** part of the live surface, and therefore must leave the accessibility tree.
    *
-   * The top-most layer's content is the live surface; everything else is hidden from assistive
-   * technology while it is up. The widget holding DOM focus is never hidden: `aria-hidden` on a focused
-   * element is invalid and browsers either ignore it or drop focus, so the dialog's own focused control
-   * wins even if a refresh happens between "the layer was pushed" and "focus moved inside it".
+   * Two things can cover a widget, and neither of them is visible to assistive technology by itself:
+   *
+   * - **a modal**: while a layer is up, *everything* outside its content is unreachable — that is what
+   *   "modal" means for the pointer and for the focus trap, and it has to mean the same for a screen
+   *   reader (measured on `#/keyboard`: 38 page controls **plus** the dialog's 35 while a dialog was up);
+   * - **a page above it**: a pushed page leaves the one below mounted (that is what keeps its state) but
+   *   the user is looking at the top one (measured on `#/pages`: 17 list controls stayed in the tree
+   *   under the detail page, and under the third one as well).
+   *
+   * The widget holding DOM focus is never hidden: `aria-hidden` on a focused element is invalid and
+   * browsers either ignore it or drop the focus, so the incoming control wins over the outgoing one even
+   * when a refresh lands between "the layer was pushed" and "focus moved inside it".
    */
-  private isBehindModal(widget: Widget): boolean {
-    const scope = this.plugin.modal.top?.content ?? null;
-    if (scope === null || widget === this.plugin.focus.focusedWidget) {
+  private isInert(widget: Widget): boolean {
+    if (widget === this.plugin.focus.focusedWidget) {
       return false;
     }
-    return !isWithinTree(
-      widget as unknown as { parentContainer?: unknown } as never,
-      scope as never,
-    );
+    const modal = this.plugin.modal.top;
+    if (modal) {
+      return !within(widget, modal.content);
+    }
+    // Only the *covered* pages are inert, not "everything outside the top page": a HUD or a footer that
+    // lives next to the page host is part of the live UI and must stay reachable.
+    for (const page of this.plugin.pages.handles) {
+      if (!page.active && within(widget, page.widget)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -497,7 +522,7 @@ export class A11yBridge {
     // page's `玩家名` textbox sat right above the dialog's. `aria-hidden` on everything outside the
     // dialog is ARIA's own answer to that state (the mirror is not a DOM subtree of the layer, so it
     // cannot be inherited from the layer's node).
-    const inert = this.isBehindModal(widget);
+    const inert = this.isInert(widget);
     const signature = `${domElement ? 'dom' : 'node'}|${inert ? 'inert' : 'live'}|${text}|${attributeSignature(attributes)}`;
     if (this.lastApplied.get(widget) === signature) {
       return;
