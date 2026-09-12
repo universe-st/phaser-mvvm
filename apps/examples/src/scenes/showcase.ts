@@ -30,7 +30,7 @@
 
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { bindTemplateText } from '@phaser-mvvm/phaser';
+import { bindTemplateText, themeListenerCount } from '@phaser-mvvm/phaser';
 import type { Widget } from '@phaser-mvvm/phaser';
 import type { PanelOptions, PanelVariant, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import {
@@ -139,6 +139,16 @@ interface SampleRow {
 /** Controls whose page coordinates are republished every frame (`pt.<key>`). */
 type TrackedControls = Map<string, Widget>;
 
+/** What `window.showcase.counts()` reports (the leak gate). */
+interface ShowcaseCounts {
+  widgets: number;
+  stageWidgets: number;
+  themeListeners: number;
+  pointerTargets: number;
+  focusables: number;
+  a11yNodes: number;
+}
+
 export class ShowcaseScene extends Phaser.Scene {
   // ------------------------------------------------------------------ live view model
 
@@ -239,6 +249,152 @@ export class ShowcaseScene extends Phaser.Scene {
         scroll: Math.round(this.stageOffset.value),
       }),
       controls: () => [...this.tracked.keys()],
+      /**
+       * Every tracked control of the visible section: its laid-out state, its page coordinates and its
+       * accessibility name — the three things a per-section matrix asserts.
+       */
+      controlStates: (): Array<{
+        key: string;
+        state: string;
+        visible: boolean;
+        laidOut: boolean;
+        interactive: boolean;
+        inBand: boolean;
+        point: string;
+        a11y: string | null;
+      }> =>
+        [...this.tracked.entries()].map(([key, widget]) => {
+          const laidOut =
+            !widget.isDestroyed && widget.appliedRect.width > 0 && widget.appliedRect.height > 0;
+          const descriptor = widget.isDestroyed ? null : widget.describeA11y();
+          const point = laidOut
+            ? {
+                x: pagePoint(this.game, widget).x,
+                y: pagePoint(this.game, widget).y,
+              }
+            : null;
+          const band = this.stageRectOf();
+          const interactive =
+            widget.focusable === true ||
+            (widget as unknown as { onActivate?: unknown }).onActivate !== null ||
+            (widget as unknown as { blockPointer?: boolean }).blockPointer === true;
+          return {
+            key,
+            state: laidOut && widget.visible ? widget.visualState : laidOut ? 'hidden' : 'gone',
+            visible: !widget.isDestroyed && widget.visible,
+            laidOut,
+            // The stage is a scroll port: a section can be taller than it (the `params` section is
+            // 1513 px against a 672 px stage), so a control can be laid out, have a page point, and still
+            // be clipped away — a check that aims there clicks whatever is behind it (round 79 hit
+            // exactly that: `pt.params.visibility` at y=1538, below the canvas).
+            inBand:
+              point !== null &&
+              band !== null &&
+              point.y >= band.y + 4 &&
+              point.y <= band.y + band.height - 4,
+            // Containers are tracked for their geometry, not to be hovered: only these should have an
+            // accessible name (the mirror skips decorative panels by design).
+            interactive,
+            point: point ? `@${Math.round(point.x)},${Math.round(point.y)}` : 'none',
+            a11y: descriptor ? (descriptor.label ?? widget.name ?? descriptor.role) : null,
+          };
+        }),
+      /**
+       * Scrolls the stage to an absolute offset.
+       *
+       * A section can be taller than the stage (the `params` section is 1513 px against a 672 px stage),
+       * so a matrix that aims a real mouse at every control has to bring it into the band first —
+       * `controlStates()` reports the current coordinates, this moves them.
+       */
+      scrollStage: (y: number): number => {
+        this.stage?.scrollTo(y);
+        return Math.round(this.stage?.offset ?? 0);
+      },
+      /**
+       * The `params` card's layout claim, as numbers: three blocks in a row, and the middle one leaving
+       * the flow (`visible: false`) when the button is pressed — `C` must then move left by exactly the
+       * collapsed block's width plus the row gap (60 + 8 = 68).
+       *
+       * Read from the tracked button's own sibling frame, so it describes the card a check is looking at
+       * rather than "the widget called `holder.C` somewhere on the page".
+       */
+      paramsBlocks: (): Array<{
+        name: string;
+        x: number;
+        width: number;
+        visible: boolean;
+      }> | null => {
+        const button = this.tracked.get('params.visibility');
+        const row = (button?.parentContainer ?? null) as Widget | null;
+        const frame = row?.getWidgetChildren()[0];
+        if (!frame) {
+          return null;
+        }
+        const holders: Array<{ name: string; x: number; width: number; visible: boolean }> = [];
+        const visit = (widget: Widget): void => {
+          if (widget.name.startsWith('holder.')) {
+            holders.push({
+              name: widget.name,
+              x: Math.round(widget.appliedRect.x),
+              width: Math.round(widget.appliedRect.width),
+              visible: widget.visible,
+            });
+            return;
+          }
+          for (const child of widget.getWidgetChildren()) {
+            visit(child);
+          }
+        };
+        visit(frame);
+        return holders;
+      },
+      /**
+       * Live-object counters, so a check can prove that switching sections (which destroys and rebuilds a
+       * whole subtree) gives everything back — the same gate the other scenes expose.
+       */
+      counts: (): {
+        widgets: number;
+        stageWidgets: number;
+        themeListeners: number;
+        pointerTargets: number;
+        focusables: number;
+        a11yNodes: number;
+      } => ({
+        widgets: countWidgets(this.mvvm.root),
+        stageWidgets: this.stageContent ? countWidgets(this.stageContent) : 0,
+        themeListeners: themeListenerCount(),
+        pointerTargets: this.mvvm.input.widgets.length,
+        focusables: this.mvvm.focus.focusables.length,
+        a11yNodes: document.querySelectorAll('[data-mvvm-a11y]').length,
+      }),
+      /** Shows every section once and comes back — the leak gate for section switching. */
+      churnSections: (rounds: number): { before: ShowcaseCounts; after: ShowcaseCounts } => {
+        // The router re-collects its target list on the *next frame* after a structural change, so a
+        // synchronous read catches it mid-update (measured: `pointerTargets` 36 → 6 in the same tick,
+        // back to 36 a frame later — a number that reads like a leak and is not one, the same trap
+        // `#/list` documents). Asking for the refresh makes both samples describe the same moment.
+        const started = this.section.value;
+        const startId: SectionId = started === 'all' ? 'buttons' : started;
+        // Back to the starting section *before* sampling: `showSection` replaces a subtree, so the
+        // router's collection is only correct after a `refreshInteraction()` that follows it.
+        this.showSection(startId);
+        this.mvvm.refreshInteraction();
+        const before = this.showcaseCounts();
+        const ids = SECTIONS.map((def) => def.id);
+        for (let round = 0; round < rounds; round++) {
+          for (const id of ids) {
+            this.showSection(id);
+          }
+        }
+        // Back to where it started, so the two samples describe the same section (the first version
+        // restored whatever the loop happened to end on, and compared `repeat` against `focus`).
+        this.showSection(startId);
+        this.mvvm.refreshInteraction();
+        return { before, after: this.showcaseCounts() };
+      },
+      /** The stage's viewport in page coordinates, so a check knows the band a control must be in. */
+      stageRect: (): { x: number; y: number; width: number; height: number } | null =>
+        this.stageRectOf(),
       geometry: () => ({
         page: this.page ? { ...this.page.appliedRect } : null,
         nav: this.nav ? { ...this.nav.appliedRect } : null,
@@ -538,13 +694,23 @@ export class ShowcaseScene extends Phaser.Scene {
     this.trackedGroups.delete(group);
   }
 
-  /** Repaints `pt.<key>=@x,y` for every tracked control that is laid out. */
+  /**
+   * Repaints `pt.<key>=@x,y` and `st.<key>=<state>` for every tracked control that is laid out.
+   *
+   * `pt.*` is where a control is (so a check can aim a real mouse at it); `st.*` is what it looks like
+   * (`normal`/`hovered`/`pressed`/`focused`/`disabled`/`loading`…, see `widget-state.ts`). Without the
+   * second one the showcase could prove every widget *exists* and nothing about its states — which is
+   * what "every widget in every state has a demo" actually claims (round 79). A control that is laid
+   * out but hidden publishes `st.<key>=hidden`, so a stale `normal` cannot be mistaken for a live one.
+   */
   private publishControls(): void {
     for (const [key, widget] of this.tracked) {
       if (widget.isDestroyed || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
+        this.publish(`st.${key}`, 'gone');
         continue;
       }
       if (!widget.visible) {
+        this.publish(`st.${key}`, 'hidden');
         continue;
       }
       this.publish(
@@ -553,7 +719,36 @@ export class ShowcaseScene extends Phaser.Scene {
           pagePoint(this.game, widget).y,
         )}`,
       );
+      this.publish(`st.${key}`, widget.visualState);
     }
+  }
+
+  /** The stage viewport in page coordinates (`null` before the stage exists). */
+  private stageRectOf(): { x: number; y: number; width: number; height: number } | null {
+    const stage = this.stage;
+    if (!stage) {
+      return null;
+    }
+    const origin = pagePoint(this.game, stage);
+    const rect = stage.appliedRect;
+    return {
+      x: Math.round(origin.x - rect.width / 2),
+      y: Math.round(origin.y - rect.height / 2),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    };
+  }
+
+  /** The counters every leak assertion reads. */
+  private showcaseCounts(): ShowcaseCounts {
+    return {
+      widgets: countWidgets(this.mvvm.root),
+      stageWidgets: this.stageContent ? countWidgets(this.stageContent) : 0,
+      themeListeners: themeListenerCount(),
+      pointerTargets: this.mvvm.input.widgets.length,
+      focusables: this.mvvm.focus.focusables.length,
+      a11yNodes: document.querySelectorAll('[data-mvvm-a11y]').length,
+    };
   }
 
   private publish(key: string, value: string | number | boolean): void {
