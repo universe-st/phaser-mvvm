@@ -22,7 +22,8 @@ export class ProbeScene extends Phaser.Scene {
 
     const title = this.add.uiLabel({
       text: 'layout probe',
-      style: { fontSize: '18px', color: '#8b949e' },
+      size: 18,
+      tone: 'muted',
     });
 
     const backdrop = this.add.uiRect({ width: 320, height: 200, color: 0x161b22 });

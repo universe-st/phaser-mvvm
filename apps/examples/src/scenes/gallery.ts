@@ -56,8 +56,6 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   create(): void {
-    const theme = this.mvvm.theme;
-
     const buttonColumn = this.add.uiPanel(
       { direction: 'vertical', gap: 10, padding: 16, variant: 'surfaceAlt', radius: 10 },
       [
@@ -84,7 +82,7 @@ export class GalleryScene extends Phaser.Scene {
       { direction: 'vertical', gap: 8, padding: 16, variant: 'surface', radius: 10 },
       [
         this.add.uiLabel({ text: 'Typography', tone: 'muted' }),
-        this.add.uiLabel({ text: 'Heading · xl', style: { fontSize: `${theme.fontSize.xl}px` } }),
+        this.add.uiLabel({ text: 'Heading · xl', size: 'xl' }),
         this.add.uiLabel({ text: 'Body · md' }),
         this.add.uiLabel({ text: 'Muted body text', tone: 'muted' }),
         this.add.uiLabel({ text: 'Danger tone', tone: 'danger' }),
@@ -125,7 +123,7 @@ export class GalleryScene extends Phaser.Scene {
       [
         this.add.uiLabel({
           text: 'Widget gallery · M4',
-          style: { fontSize: `${theme.fontSize.lg}px` },
+          size: 'lg',
         }),
         this.add.uiLabel({
           text: 'Tab / arrows to move focus · Enter or Space to activate · gamepad supported',

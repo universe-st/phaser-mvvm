@@ -16,18 +16,18 @@
 - 依赖已安装时**不要**重复 `pnpm install`；只有需要同步 lockfile 时才安装，并提交更新后的 `pnpm-lock.yaml`。
 - 示例 dev server 端口写死 **5173 + `strictPort: true`**：被占用会直接报错而不是换端口。若需另起服务，用后台任务并核实端口。
 
-| 命令                                                          | 用途                                                                                                             |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `pnpm typecheck`                                              | `pnpm -r run typecheck`（逐包 `tsc -p tsconfig.json`）                                                           |
-| `pnpm test`                                                   | `pnpm -r run test`（逐包 vitest）                                                                                |
-| `pnpm build`                                                  | `pnpm -r run build`（tsup：ESM + CJS + d.ts）                                                                    |
-| `pnpm format` / `pnpm format:check`                           | Prettier 写 / 校验（CI 门禁是 `prettier --check .`）                                                             |
-| `pnpm dev`                                                    | 示例 dev server → http://localhost:5173（场景：`#/showcase` 工厂 API 验收页、`#/compose` DSL 验收页、`#/m0` 等） |
-| `pnpm build:examples` / `pnpm preview`                        | 构建示例 / 预览产物（4173，`strictPort`）                                                                        |
-| `pnpm --filter @phaser-mvvm/<pkg> run typecheck\|test\|build` | **并行开发期优先用这个**，只验证自己负责的包                                                                     |
-| `pnpm docs:check`                                             | 指南代码片段门禁：`docs/guide/*.md` 的 `ts` 片段里调用的标识符必须真的导出（见 §6）                              |
-| `node scripts/visual-check.mjs`                               | 几何 + 像素验收（见 §6），需要本机 Chrome/Chromium                                                               |
-| `UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test`  | 重新生成布局黄金快照                                                                                             |
+| 命令                                                          | 用途                                                                                                                          |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm typecheck`                                              | `pnpm -r run typecheck`（逐包 `tsc -p tsconfig.json`）                                                                        |
+| `pnpm test`                                                   | `pnpm -r run test`（逐包 vitest）                                                                                             |
+| `pnpm build`                                                  | `pnpm -r run build`（tsup：ESM + CJS + d.ts）                                                                                 |
+| `pnpm format` / `pnpm format:check`                           | Prettier 写 / 校验（CI 门禁是 `prettier --check .`）                                                                          |
+| `pnpm dev`                                                    | 示例 dev server → http://localhost:5173（场景：`#/showcase` 工厂 API 验收页、`#/compose` DSL 验收页、`#/m0` 等）              |
+| `pnpm build:examples` / `pnpm preview`                        | 构建示例 / 预览产物（4173，`strictPort`）                                                                                     |
+| `pnpm --filter @phaser-mvvm/<pkg> run typecheck\|test\|build` | **并行开发期优先用这个**，只验证自己负责的包                                                                                  |
+| `pnpm docs:check`                                             | 指南片段门禁：片段里调用的标识符必须真的导出 + **idiom 检查**（指南与示例不许写 `style: { fontSize … }` 长写法，见 §6/§8.52） |
+| `node scripts/visual-check.mjs`                               | 几何 + 像素验收（见 §6），需要本机 Chrome/Chromium                                                                            |
+| `UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test`  | 重新生成布局黄金快照                                                                                                          |
 
 包名：`@phaser-mvvm/core`、`@phaser-mvvm/layout`、`@phaser-mvvm/phaser`、`@phaser-mvvm/widgets`，示例为 `@phaser-mvvm/examples`（私有）。
 
@@ -83,7 +83,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
   - 少数场景的**角落本来就不是清屏色**：`CANVAS_CLEAR_SKIP` 里的场景跳过通用 `canvas.clear` 检查，改由它自己的采样承担（`modal` 就是——模态遮罩按设计盖满整块画布，角落是「主题背景 × 半透明黑」的混合值，属于 GPU 取整问题）。跳过时**必须**在该场景补更具体的断言，不允许只是删掉检查。
   - 脚本起的 **preview 服务是 detached 进程组**（`pnpm exec vite preview` 被 `SIGTERM` 时不会带走真正的 vite 进程，早期版本因此每次运行都漏一个僵尸服务器占住端口，下轮就会报 `timed out waiting for vite preview`，见 DEFECT-BACKLOG V31）——改动脚本的收尾逻辑时请保持 `killGroup()`。
   - 脚本启动 Chrome 时**不传** `--user-data-dir`，因此依赖默认 profile 目录可写（`~/Library/Application Support/Google/Chrome`）。在受限/沙箱环境里 Chrome 会直接崩溃（Crashpad 写盘被拒），脚本报 `timed out waiting for chrome devtools endpoint` —— 这是环境限制而非脚本缺陷；此时请在汇报里说明「像素验收未运行」，并至少断言 `#status` 里的几何。
-- **指南片段门禁**：`pnpm docs:check`（`scripts/check-doc-snippets.mjs`）把 `docs/guide/*.md` 的 `ts` 代码块里**被调用**的标识符与四个包（含 `widgets/compose` 子路径）的公开导出对照，抓「改了 API 没改文档」与拼写错误。它是语法层面的检查（先剥掉注释、字符串与 `{{ … }}` 模板占位，跳过片段内自己声明的名字），不是编译器；新增/重命名导出后请跑一次。第 75 轮起**带类型实参的调用**（`routeParams<{ id: string }>(params)`）也会被扫描——此前这类调用整个漏检，往里写错名字照样报 ok。
+- **指南片段门禁**：`pnpm docs:check`（`scripts/check-doc-snippets.mjs`）做两件事：① 把 `docs/guide/*.md` 的 `ts` 代码块里**被调用**的标识符与四个包（含 `widgets/compose` 子路径）的公开导出对照，抓「改了 API 没改文档」与拼写错误；② **idiom 检查**：指南的 `ts` 片段与 `apps/examples/src/scenes/**` 里不许再出现 `style: { fontSize … }` 这种长写法（`Label`/`Text` 用 `size: 'lg'` 或 `size: 18`；要演示 `style.fontSize` 优先于 `size` 的那一行标 `idiom-ok`）—— 理由见 §8.52。它是语法层面的检查（先剥掉注释、字符串与 `{{ … }}` 模板占位，跳过片段内自己声明的名字），不是编译器；新增/重命名导出后请跑一次。第 75 轮起**带类型实参的调用**（`routeParams<{ id: string }>(params)`）也会被扫描——此前这类调用整个漏检，往里写错名字照样报 ok。
 - **指针落点走树有 Node 单测**：`packages/phaser/test/target-walk.test.ts` 覆盖 `resolveTargetInTree()`（最深优先、隐藏子树跳过、容器链偏移、每个候选自己的坐标空间、**裁剪容器把整棵子树移出命中**等 14 条）——这是 V1/V8/V9/V23 四次缺陷的所在，改动 `InputRouter` 的命中逻辑（含 `pointerInWidgetSpace`、`clipsPointer`）时先跑它，再用浏览器验收。
 - **控件与布局全家福**：`#/showcase`（`apps/examples/src/scenes/showcase.ts`）是「每个控件、每个布局容器、每组布局参数」的验收页，十一个分区（`text`/`buttons`/`inputs`/`decoration`/`box`/`grid`/`stack`/`params`/**`sizing`**/`repeat`/`focus`）。`window.showcase` 提供 `sections()`/`show(id)`/**`showAndReport(id, frames?)`（`show()` + 等两帧 + 把该分区的门禁控件写进 `#status`，返回 Promise —— `reportWidget()` 在构建趟里读到的是 `0×0`，见 §8.48）**/`showAll()`/`state()`/`geometry()`/`controls()`/**`controlStates()`**（每个控件的 `state`/`point`/`interactive`/**`inBand`**/`a11y`）/**`rects(names?)`（分区里每个具名控件的 `appliedRect` + 页面坐标与尺寸，用来把布局参数断言成数字）**/`counts()`/`churnSections(n)`/`paramsBlocks()`/`scrollStage(y)`/`stageRect()`；`#demo-state` 逐帧发布 `section`/`widgets`/`clicks`/`toggled`/`field`/`email`/`theme`/`repeat.*`/`scroll.offset` 与每个被跟踪控件的 `pt.<key>` **和 `st.<key>`**（视觉状态）。**三条读数纪律**：① `pt.*` 只说明控件摆在哪，**不说明它是否被舞台裁掉**——`params` 分区高 1513px 而舞台 672px，`pt.params.visibility` 会在画布之外（先看 `inBand`，必要时 `scrollStage()`）；② 容器的 `st.*` 只在指针落在**容器自己**上时才变，落在子控件上时路由会指向子控件（`repeat.chips` 下面就是一个 chip，这不是缺陷）；③ 切换分区会销毁并重建子树，而**路由器的目标集合下一帧才重收集**——比较计数前先 `mvvm.refreshInteraction()`（`churnSections()` 就是这么做的）。矩阵见 [`ACCEPTANCE-showcase.md`](./docs/ACCEPTANCE-showcase.md)（第 89 轮的第十一个分区 `sizing` 覆盖 `shrink`/`basis`/`minHeight`/`maxHeight`，`grid` 分区补了 `gridColumn`/`gridRow`/`gridRowSpan`；该分区同时是 `scripts/visual-check.mjs` 的像素门禁：`SCENE_SETUP.showcase` 用 `showAndReport("sizing")`，四个采样点与正对照见 §7.5）。
 - **交互状态矩阵**：`#/states`（`apps/examples/src/scenes/states.ts`）把每个有状态的控件摆成一行，并把 `visualState` 逐帧写进 `#demo-state` 的 `st.<name>`，坐标写进 `pt.<name>`。验收方式：用真实 `mouse.move`/`down`/`up`、`keyboard.press` 驱动悬停/按下/聚焦/校验，断言 `st.*` 的迁移（滑杆探针为 `slider.volume`/`slider.stepped`/`slider.disabled`，见 [`ACCEPTANCE-slider.md`](./docs/ACCEPTANCE-slider.md)）；在视口外的探针先用 `window.states.reveal(name)` 滚进视野（否则坐标在画布外，指针事件落不到控件上）。
@@ -135,7 +135,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 
 **韧性/边界**：[§8.43](./docs/PITFALLS.md) 橡皮筋：越界位移不能被布局钳掉；[§8.44](./docs/PITFALLS.md) 数据槽位会「每帧写回同一个值」，这类写入必须是空操作。
 
-**其它**：[§8.2](./docs/PITFALLS.md) `dist/`、`.tmp/`、`coverage/`、`test-results/` 都是生成物；[§8.32](./docs/PITFALLS.md) `Rect` 收的是颜色字面量，不是令牌；[§8.39](./docs/PITFALLS.md) "这个方向归谁"只写一遍。
+**其它**：[§8.52](./docs/PITFALLS.md) 指南与示例是被抄的代码，改完 API 要一起扫；[§8.2](./docs/PITFALLS.md) `dist/`、`.tmp/`、`coverage/`、`test-results/` 都是生成物；[§8.32](./docs/PITFALLS.md) `Rect` 收的是颜色字面量，不是令牌；[§8.39](./docs/PITFALLS.md) "这个方向归谁"只写一遍。
 
 ---
 

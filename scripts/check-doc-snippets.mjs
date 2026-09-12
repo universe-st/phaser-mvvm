@@ -176,6 +176,57 @@ function checkFile(file, known) {
   return { fences: fences.length, called: called.size, unknown };
 }
 
+/**
+ * The **idiom pass**: one obvious way to write a font size.
+ *
+ * `Label`/`Text` take `size: 'lg'` (a theme token) or `size: 18` (pixels); `style: { fontSize: … }`
+ * still wins over it, which is why the long form is not removed from the API. But the guide and the
+ * demos are what people copy, and both had drifted into the long form — a
+ * `style: { fontSize: \`${theme.fontSize.lg}px\` }` drags the theme into scope, and pairing it with a
+ * literal `color` pins the dark palette into a page that is supposed to follow the theme (round 92
+ * swept 17 files). This keeps them swept: a deliberate demonstration of the precedence rule marks the
+ * call (or the couple of lines above it) with `idiom-ok`.
+ */
+const IDIOM_DIRS = ['docs/guide', 'apps/examples/src/scenes'];
+const IDIOM_EXTENSIONS = ['.md', '.ts'];
+
+function idiomFailures() {
+  const found = [];
+  for (const dir of IDIOM_DIRS) {
+    for (const name of readdirSync(join(root, dir)).sort()) {
+      if (!IDIOM_EXTENSIONS.some((ext) => name.endsWith(ext))) {
+        continue;
+      }
+      const file = join(dir, name);
+      const text = readFileSync(join(root, file), 'utf8');
+      // A guide only *writes* code inside its `ts` fences; the prose above it legitimately mentions
+      // `style: { fontSize: … }` when explaining the precedence rule, so markdown is scanned fence by
+      // fence (with the line number of the fence's first line as the offset).
+      const chunks = file.endsWith('.md')
+        ? [...text.matchAll(/```(?:ts|typescript)\n([\s\S]*?)```/g)].map((m) => ({
+            body: m[1],
+            offset: text.slice(0, m.index).split('\n').length,
+          }))
+        : [{ body: text, offset: 0 }];
+      for (const chunk of chunks) {
+        const lines = chunk.body.split('\n');
+        for (let i = 0; i < lines.length; i += 1) {
+          if (!/style:\s*\{\s*fontSize/.test(lines[i])) {
+            continue;
+          }
+          // The marker may sit a line or two above the call (`Text(...)` spans lines in a formatted demo).
+          const context = lines.slice(Math.max(0, i - 3), i + 1).join('\n');
+          if (context.includes('idiom-ok')) {
+            continue;
+          }
+          found.push(`${file}:${chunk.offset + i + 1}  ${lines[i].trim()}`);
+        }
+      }
+    }
+  }
+  return found;
+}
+
 const root = new URL('..', import.meta.url).pathname;
 const files =
   process.argv.slice(2).length > 0
@@ -205,4 +256,18 @@ if (failures > 0) {
   );
   process.exit(1);
 }
+const idiom = idiomFailures();
+if (idiom.length > 0) {
+  failures += idiom.length;
+  console.log(`\nFAIL idiom  ${idiom.length} long-form font size(s):`);
+  for (const entry of idiom) {
+    console.log(`     ${entry}`);
+  }
+  console.error(
+    "     Use `size: 'lg'` (a theme token) or `size: 18` instead. `style.fontSize` still wins over\n" +
+      '     `size`, so a snippet that *demonstrates* that rule marks its line with `idiom-ok`.',
+  );
+  process.exit(1);
+}
+console.log('ok   idiom  (no long-form font sizes in the guide or the demos)');
 console.log('\nAll guide snippets call existing APIs.');

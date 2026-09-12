@@ -103,7 +103,6 @@ export class ScrollScene extends Phaser.Scene {
   }
 
   create(): void {
-    const theme = this.mvvm.theme;
     const scene = this;
     this.reported.clear();
 
@@ -454,7 +453,7 @@ export class ScrollScene extends Phaser.Scene {
       [
         this.add.uiLabel({
           text: 'M7 · scroll & clip',
-          style: { fontSize: `${theme.fontSize.lg}px` },
+          size: 'lg',
         }),
         nestedPanel,
         nButtons,

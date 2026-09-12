@@ -93,7 +93,7 @@ export class StatesScene extends Phaser.Scene {
           alignItems: 'stretch',
         },
         () => {
-          Text('交互状态矩阵', { style: { fontSize: `${this.mvvm.theme.fontSize.lg}px` } });
+          Text('交互状态矩阵', { size: 'lg' });
           Text('每一行一个控件；状态由真实指针/键盘输入驱动，写入 #demo-state 的 st.<name>', {
             tone: 'muted',
           });

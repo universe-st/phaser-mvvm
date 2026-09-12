@@ -120,7 +120,7 @@ export class OptionsScene extends Phaser.Scene {
         },
         () => {
           Text('选项覆盖 · options with no other demo', {
-            style: { fontSize: `${this.mvvm.theme.fontSize.lg}px` },
+            size: 'lg',
           });
           Text('每条都是 A/B：开了这个选项的一侧与没开的一侧并排，读数写进 #demo-state', {
             tone: 'muted',
@@ -558,7 +558,7 @@ export class OptionsScene extends Phaser.Scene {
     Panel(
       { variant: 'surface', radius: 10, padding: 12, gap: 8, width: 'fill', alignItems: 'stretch' },
       () => {
-        Text(title, { style: { fontSize: `${this.mvvm.theme.fontSize.md}px` } });
+        Text(title, { size: 'md' });
         Text(caption, { tone: 'muted', maxLines: 2 });
         content();
       },

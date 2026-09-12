@@ -415,7 +415,7 @@ export class ComposeScene extends Phaser.Scene {
     Panel(
       { variant: 'surface', radius: 10, padding: 14, gap: 8, width: 'fill', alignItems: 'stretch' },
       () => {
-        Text(title, { style: { fontSize: `${this.mvvm.theme.fontSize.lg}px` } });
+        Text(title, { size: 'lg' });
         Text(caption, { tone: 'muted', maxLines: 2 });
         Divider({});
         content();
@@ -974,7 +974,7 @@ export class ComposeScene extends Phaser.Scene {
               bottom: 8,
             },
             () => {
-              Text('角标', { style: { fontSize: `${this.mvvm.theme.fontSize.sm}px` } });
+              Text('角标', { size: 'sm' });
             },
           );
         });

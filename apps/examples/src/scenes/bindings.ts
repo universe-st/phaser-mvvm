@@ -58,8 +58,6 @@ export class BindingsScene extends Phaser.Scene {
   }
 
   private buildView(): void {
-    const theme = this.mvvm.theme;
-
     const summaryLabel = this.add.uiLabel({ text: this.summary.value, width: 400 });
     bindText(summaryLabel, () => this.summary.value);
     bindError(summaryLabel, () => this.invalid.value);
@@ -135,7 +133,7 @@ export class BindingsScene extends Phaser.Scene {
       [
         this.add.uiLabel({
           text: 'MVVM bindings · M6 slice',
-          style: { fontSize: `${theme.fontSize.lg}px` },
+          size: 'lg',
         }),
         summaryLabel,
         details,

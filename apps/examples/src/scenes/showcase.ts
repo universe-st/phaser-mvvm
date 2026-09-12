@@ -556,12 +556,11 @@ export class ShowcaseScene extends Phaser.Scene {
 
   /** Header: the title, the live summary and the three page-level actions. */
   private buildHeader(): void {
-    const theme = this.mvvm.theme;
     Row({ gap: 10, alignItems: 'center', width: 'fill' }, () => {
       // A reactive data slot: `Text(() => …)` re-renders when any ref it reads flips, which is what
       // the factory version did through `bindTemplateText` and a binding context.
       Text('phaser-mvvm · widgets & layout showcase', {
-        style: { fontSize: `${theme.fontSize.lg}px` },
+        size: 'lg',
       });
       Text(
         () =>
@@ -978,7 +977,6 @@ export class ShowcaseScene extends Phaser.Scene {
   }
 
   private buildText(): void {
-    const theme = this.mvvm.theme;
     const tones = ['default', 'muted', 'primary', 'success', 'warning', 'danger'] as const;
     this.column(
       () => {
@@ -993,15 +991,30 @@ export class ShowcaseScene extends Phaser.Scene {
           );
         });
 
-        this.card('Label · sizes', 'theme.fontSize xs · sm · md · lg · xl', () => {
-          this.row(() => {
-            Text('xs', { style: { fontSize: `${theme.fontSize.xs}px` }, width: 56 });
-            Text('sm', { style: { fontSize: `${theme.fontSize.sm}px` }, width: 56 });
-            Text('md', { style: { fontSize: `${theme.fontSize.md}px` }, width: 56 });
-            Text('lg', { style: { fontSize: `${theme.fontSize.lg}px` }, width: 56 });
-            Text('xl', { style: { fontSize: `${theme.fontSize.xl}px` }, width: 56 });
-          });
-        });
+        this.card(
+          'Label · sizes',
+          "size takes a theme token ('xs'…'xl') or plain pixels; `style.fontSize` still wins over it",
+          () => {
+            this.row(() => {
+              Text('xs', { size: 'xs', width: 56 });
+              Text('sm', { size: 'sm', width: 56 });
+              Text('md', { size: 'md', width: 56 });
+              Text('lg', { size: 'lg', width: 56 });
+              Text('xl', { size: 'xl', width: 56 });
+            });
+            this.row(() => {
+              Text('size: 18', { size: 18, width: 90 });
+              Text('size: 11', { size: 11, width: 90 });
+              // The precedence rule, on screen: the token says `xs`, the style says 18px, and 18px wins.
+              // idiom-ok: this line *is* the demonstration of `style.fontSize` beating `size`.
+              Text("size: 'xs' + style 18px", {
+                size: 'xs',
+                style: { fontSize: '18px' },
+                width: 200,
+              });
+            });
+          },
+        );
 
         this.card('Label · alignment', 'align works inside the width the engine assigned', () => {
           this.column(() => {
@@ -2177,7 +2190,7 @@ function placeCell(
       ...params,
     },
     () => {
-      Text(text, { align: 'center', style: { fontSize: '11px' } });
+      Text(text, { align: 'center', size: 11 });
     },
   );
 }
@@ -2215,7 +2228,7 @@ function sizingBox(
       });
       Text(text, {
         align: 'center',
-        style: { fontSize: '10px' },
+        size: 10,
         maxLines: 2,
         width,
         name: `${name}.text`,
@@ -2245,7 +2258,7 @@ function Block(
 
       Text(text, {
         align: 'center',
-        style: { fontSize: '11px' },
+        size: 11,
         width,
         height: 16,
         name: `block.${text}`,

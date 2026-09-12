@@ -123,6 +123,18 @@ Text(vm.title); // ref 直接传
 | `tone`       | `'default' \| 'muted' \| 'danger' \| 'success' \| 'warning' \| 'primary'` | `'default'` | 语义色，映射到主题令牌（见 §8）                                                   |
 | `selectable` | 只能传 `false`                                                            | —           | 为了表单模板能统一传 `selectable: false`；Canvas 文本本来就不可选中               |
 
+### 各控件的 `size` 是什么意思
+
+`size` 这个名字在三个控件上各指一件事，写错地方会被审计**当场指名**（不是静默忽略）：
+
+| 控件                     | `size` 的含义                                                     | 想改字号怎么办                                                |
+| ------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| `Label` / `Text`         | **字号**（`'xs'`…`'xl'` 主题令牌，或直接写像素数）                | 就是它；`style.fontSize` 仍然优先                             |
+| `Button`                 | **控件尺寸档**：默认高度（`controlHeight`）与左右内边距，字号不变 | 传 `style: { fontSize: … }`，或直接用 `size: 'lg'` 让按钮更高 |
+| `TextField` / `TextArea` | **没有这个选项**：高度来自主题的 `controlHeight.md` 或 `rows`     | `TextField` 传 `height`；`TextArea` 传 `rows`（或 `height`）  |
+
+实测（`#/showcase` 的 `Label · sizes` 卡）：`size: 'xs' | 'sm' | 'md' | 'lg' | 'xl'` 解析出 `12 / 14 / 16 / 20 / 26` px；`size: 18` 就是 18px；`size: 'xs'` 与 `style: { fontSize: '18px' }` 同时写时**后者胜出**（渲染 18px）。而把 `size` 写给 `TextField` 时会打印 `[phaser-mvvm] unknown option "size" on "canvas" — it is ignored.`，字段高度不变（实测 36px）——这条警告正是用来抓这种"以为按 Button 的写法能生效"的。
+
 ### 方法
 
 | 方法              | 说明                                                  |
@@ -413,7 +425,7 @@ create(): void {
 
   render(this.mvvm, () => {
     Panel({ gap: 14, padding: 18, variant: 'surface', radius: 12, width: 460 }, () => {
-      Text('通知设置', { style: { fontSize: '20px' } });
+      Text('通知设置', { size: 'lg' });
       Divider({});
 
       // 开关：`value` 只是初值，变化通过 `change` 回到数据源（见 §4）

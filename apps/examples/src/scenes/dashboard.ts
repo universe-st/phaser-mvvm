@@ -32,8 +32,6 @@ export class DashboardScene extends Phaser.Scene {
   }
 
   create(): void {
-    const theme = this.mvvm.theme;
-
     const themeButton = this.add.uiButton({
       text: 'Theme: dark',
       variant: 'secondary',
@@ -57,7 +55,7 @@ export class DashboardScene extends Phaser.Scene {
         alignItems: 'center',
       },
       [
-        this.add.uiLabel({ text: 'Ops dashboard', style: { fontSize: `${theme.fontSize.lg}px` } }),
+        this.add.uiLabel({ text: 'Ops dashboard', size: 'lg' }),
         this.add.uiSpacer({ flex: true }),
         this.add.uiLabel({ text: 'theme →', tone: 'muted' }),
         themeButton,
@@ -73,7 +71,7 @@ export class DashboardScene extends Phaser.Scene {
             metric.key,
             this.add.uiLabel({
               text: this.formatMetric(metric),
-              style: { fontSize: `${theme.fontSize.xl}px` },
+              size: 'xl',
               tone: metric.tone === 'danger' ? 'danger' : 'default',
             }),
           ),

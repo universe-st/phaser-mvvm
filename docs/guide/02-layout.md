@@ -211,7 +211,7 @@ Grid({ columns: 'auto', minColumnWidth: 160, columnGap: 12, rowGap: 12 }, () => 
   for (const metric of metrics) {
     Panel({ gap: 6, padding: 12, variant: 'surfaceAlt' }, () => {
       Text(metric.label, { tone: 'muted' });
-      Text(metric.display, { style: { fontSize: '26px' } });
+      Text(metric.display, { size: 'xl' });
     });
   }
 });
@@ -250,7 +250,7 @@ create(): void {
     Panel(
       { direction: 'vertical', gap: 12, padding: 20, variant: 'surface', radius: 12, width: 560 },
       () => {
-        Text('账户', { style: { fontSize: '20px' } });
+        Text('账户', { size: 'lg' });
         Divider({});
 
         Row({ gap: 10, alignItems: 'center' }, () => {
@@ -293,7 +293,7 @@ render(this.mvvm, () => {
     },
     () => {
       Row({ gap: 12, padding: 16, alignItems: 'center', width: 'fill' }, () => {
-        Text('Ops dashboard', { style: { fontSize: '20px' } });
+        Text('Ops dashboard', { size: 'lg' });
         Spacer({ flex: true }); // 把右侧内容推到最右
         Button('刷新', { size: 'sm' });
       });
@@ -306,7 +306,7 @@ render(this.mvvm, () => {
               { direction: 'vertical', gap: 6, padding: 16, variant: 'surfaceAlt', radius: 10 },
               () => {
                 Text(metric.label, { tone: 'muted' });
-                Text(metric.display, { style: { fontSize: '26px' } });
+                Text(metric.display, { size: 'xl' });
               },
             );
           }

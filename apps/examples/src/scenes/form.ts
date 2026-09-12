@@ -38,8 +38,6 @@ export class FormScene extends Phaser.Scene {
   }
 
   create(): void {
-    const theme = this.mvvm.theme;
-
     const nameField = this.add.uiTextField({
       label: 'Name',
       placeholder: 'Ada Lovelace',
@@ -121,7 +119,7 @@ export class FormScene extends Phaser.Scene {
       [
         this.add.uiLabel({
           text: 'Form · M5 text inputs',
-          style: { fontSize: `${theme.fontSize.lg}px` },
+          size: 'lg',
         }),
         nameField,
         emailField,

@@ -121,7 +121,6 @@ export class ListScene extends Phaser.Scene {
   }
 
   create(): void {
-    const theme = this.mvvm.theme;
     const scene = this;
     // Every entry is a getter over reactive state, so a binding that reads `total` re-runs exactly
     // when the list or the filter changes. (`this` inside an object literal is the literal itself,
@@ -188,7 +187,7 @@ export class ListScene extends Phaser.Scene {
       tone: 'primary',
       align: 'right',
       width: 220,
-      style: { fontSize: `${theme.fontSize.md}px` },
+      size: 'md',
     });
 
     const toolbar = this.add.uiPanel(
@@ -296,7 +295,7 @@ export class ListScene extends Phaser.Scene {
       [
         this.add.uiLabel({
           text: 'M6 · binding + repeat',
-          style: { fontSize: `${theme.fontSize.lg}px` },
+          size: 'lg',
         }),
         grid,
         this.add.uiDivider({}),

@@ -259,7 +259,7 @@ export class LoginScene extends Phaser.Scene {
       Panel(
         { gap: 12, padding: 22, variant: 'surface', radius: 12, width: 420, alignItems: 'stretch' },
         () => {
-          Text('登录', { style: { fontSize: '20px' } });
+          Text('登录', { size: 'lg' });
 
           // `value: this.email` 就是双向绑定：用户输入写回 ref，代码写 ref 更新输入框
           emailField = TextField({

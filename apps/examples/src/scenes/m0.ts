@@ -21,12 +21,13 @@ export class M0Scene extends Phaser.Scene {
 
     const caption = this.add.uiLabel({
       text: 'phaser-mvvm · M0',
-      style: { fontSize: '22px', color: '#e6edf3' },
+      size: 22,
     });
 
     const hint = this.add.uiLabel({
       text: 'this.add.vbox → this.add.hbox → two this.add.uiRect children',
-      style: { fontSize: '14px', color: '#8b949e' },
+      size: 'sm',
+      tone: 'muted',
     });
 
     const blue = this.add.uiRect({ width: 200, height: 120, color: 0x2f6feb });

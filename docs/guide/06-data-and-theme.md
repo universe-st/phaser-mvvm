@@ -340,7 +340,7 @@ export class OpsScene extends Phaser.Scene {
     render(this.mvvm, () => {
       Panel({ gap: 12, padding: 16, variant: 'plain', width: 'fill' }, () => {
         Row({ gap: 12, alignItems: 'center' }, () => {
-          Text('Ops dashboard', { style: { fontSize: '20px' } });
+          Text('Ops dashboard', { size: 'lg' });
           Spacer({ flex: true });
           // 一个 computed 驱动一段文本：数据变了，下一帧自动更新（等价于 bindTemplateText(label, ctx, '合计 {{ total }}')）
           Text(() => `合计 ${this.vm.total.value.toLocaleString()}`, { tone: 'muted' });
@@ -356,7 +356,7 @@ export class OpsScene extends Phaser.Scene {
           for (const metric of this.vm.metrics.value) {
             Panel({ gap: 6, padding: 16, variant: 'surfaceAlt', radius: 10 }, () => {
               Text(metric.label, { tone: 'muted' });
-              Text(metric.value.toLocaleString(), { style: { fontSize: '26px' } });
+              Text(metric.value.toLocaleString(), { size: 'xl' });
             });
           }
         });

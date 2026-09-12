@@ -91,12 +91,12 @@ export class HelloScene extends UIScene {
     // 一个返回控件的普通函数就是「一个组件」
     const card = (title: string, body: string): void =>
       Panel({ gap: 6, padding: 14, variant: 'surfaceAlt', radius: 10, grow: 1 }, () => {
-        Text(title, { style: { fontSize: `${theme.fontSize.lg}px` } });
+        Text(title, { size: 'lg' });
         Text(body, { tone: 'muted', maxLines: 3, ellipsis: true });
       });
 
     Panel({ gap: 12, padding: 20, variant: 'surface', radius: 12, width: 520 }, () => {
-      Text('Hello phaser-mvvm', { style: { fontSize: `${theme.fontSize.xl}px` } });
+      Text('Hello phaser-mvvm', { size: 'xl' });
       Text('一条声明式的 UI 树，引擎负责测量与排布', { tone: 'muted' });
 
       Row({ gap: 12, alignItems: 'stretch', width: 'fill' }, () => {
@@ -130,7 +130,7 @@ export class HudOverlayScene extends Phaser.Scene {
     // render() = 建树 + this.mvvm.mount()，一次调用搞定整页
     render(this.mvvm, () => {
       Panel({ gap: 12, padding: 20, variant: 'surface', radius: 12, width: 520 }, () => {
-        Text('Hello phaser-mvvm', { style: { fontSize: '22px' } });
+        Text('Hello phaser-mvvm', { size: 22 });
         Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
           Button('确定', { variant: 'primary' });
         });

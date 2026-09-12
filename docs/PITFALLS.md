@@ -273,3 +273,19 @@ if (transition.duration <= 0) return []; // ← 于是 runner 那段成了死代
 后果：`enter: { duration: 0, toAlpha: 0.75, toScale: 1.4 }` 被**静默忽略**（实测对话框落在 alpha 1 / scale 1）。默认策略与 reduced-motion 两种常见情况下看不出差别（默认终态就是"目标自己的值"），所以只有显式端点才暴露。
 
 **纪律**：把"这次要不要动"的判断放在**一个**地方（这里是 runner），调用方只负责把目标与 spec 交上去；任何"提前 return 空列表"的优化都要问一句「这会不会让下游那个分支永远跑不到」。修法是把这段判断搬进纯函数 `modalTransitionTargets()`（`transition.ts`，无 Phaser，可 Node 单测），删掉 duration 过滤；单测钉住"零长度也要交出 runs"。关闭路径不受影响：全 instant 的组仍然返回 0，`close()` 照旧同步销毁。
+
+## 8.52 指南与示例是"被抄的代码"，它们教什么就会被抄什么（第 92 轮）
+
+`Label.size` 一直存在（令牌或像素，`style.fontSize` 仍优先），但**指南和多数示例写的是长写法**：
+
+```ts
+Text('Ops dashboard', { style: { fontSize: '20px' } }); // 指南 02/03/04/06 里到处都是
+Text('Form', { style: { fontSize: `${theme.fontSize.lg}px` } }); // 还要把 theme 拉进作用域
+Label({ text: 'hint', style: { fontSize: '14px', color: '#8b949e' } }); // 顺手把深色配色写死
+```
+
+三条代价：① 令牌名（`lg`）在代码里消失，换主题时字号不再跟着主题走；② 写死颜色让这段代码在亮色主题下不可读（`#8b949e` 是深色的 `textMuted`）；③ 用户抄的就是这一份 —— 而 `#/showcase` 里那张 **`Label · sizes` 卡本身**就在用长写法演示 `size`。
+
+**纪律**：改完 API 之后要顺手把**指南与示例**也改到新写法，它们不是"能跑就行"的副产物。第 92 轮把 12 个示例页 + 5 篇指南里的 28 处扫成 `size: 'lg'` / `size: 18`，并在 `pnpm docs:check` 里加了一条 **idiom 检查**：`docs/guide/**` 的 `ts` 片段与 `apps/examples/src/scenes/**` 里再出现 `style: { fontSize` 就报错（要*演示* `style` 优先于 `size` 的那一行用 `idiom-ok` 标注）。
+
+**等价性怎么证明**：扫之前先把 12 个受影响场景的 `#status` 存在 `sessionStorage` 里，扫之后再抓一遍逐行比较 —— **0 处几何差异**（字号变了矩形就会变），加上像素门禁照常全绿、`size: 'xs'…'xl'` 实测解析出 `12/14/16/20/26` px ✓。
