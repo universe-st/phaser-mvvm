@@ -11,10 +11,15 @@
  * used as an internal filter, the mask will match the object/view being filtered"), so it only
  * forces that composite path.
  *
- * Two consequences worth knowing:
+ * Three consequences worth knowing:
  * - `enableFilters()` marks the object as "context focused" when its size is still `0×0`, and context
  *   focus means "do not clip". The view therefore enables filters on the first non-zero rect, and
  *   clears `filtersFocusContext` defensively.
+ * - The filter camera is focused **manually** (`filtersAutoFocus = false`, then size/origin/zoom are
+ *   written on every layout). Phaser's own auto focus treats the camera origin as a half-object
+ *   offset and lands the object's content off-centre inside the framebuffer, so a nested scroll view
+ *   painted only its top-left ~half ("measured" in `.tmp/m7`: content cut at 53% × 53% of the
+ *   viewport with auto focus, full viewport with the manual focus below).
  * - Filters are WebGL-only. Under the Canvas fallback the view scrolls but does not clip; the scene
  *   logs one development warning.
  *
@@ -365,6 +370,10 @@ export class ScrollView extends Widget {
       this.holder.markDirty();
     }
     this.enableClip();
+    if (this.clipReady) {
+      // The widget may have moved inside its parent: the clip camera follows the rect.
+      this.focusClipCamera();
+    }
     this.clampToLimits();
     this.applyOffsets();
     this.paintScrollbar();
@@ -395,7 +404,33 @@ export class ScrollView extends Widget {
     this.enableFilters();
     this.filtersFocusContext = false;
     this.filters?.internal.addMask('__WHITE');
+    // From here on the camera is ours to aim (see the class comment).
+    this.filtersAutoFocus = false;
+    this.focusClipCamera();
     this.clipReady = true;
+  }
+
+  /**
+   * Points the filter camera at exactly this widget's own rect.
+   *
+   * The framebuffer is camera-sized, so this is what decides the clip rectangle: size = the viewport,
+   * origin/zoom left at neutral, and the scroll set to the widget's *local* position (the framebuffer
+   * lives in the widget's parent space, which is why auto focus — which works in object space — puts
+   * the content in the wrong place for a widget nested inside containers).
+   */
+  private focusClipCamera(): void {
+    const camera = this.filterCamera;
+    if (!camera) {
+      return;
+    }
+    camera.setSize(
+      Math.max(1, Math.round(this.rect.width)),
+      Math.max(1, Math.round(this.rect.height)),
+    );
+    camera.setOrigin(0, 0);
+    camera.setRotation(0);
+    camera.setZoom(1, 1);
+    camera.setScroll(this.x, this.y);
   }
 
   // ------------------------------------------------------------------ offsets
