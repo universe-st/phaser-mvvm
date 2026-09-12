@@ -188,24 +188,24 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 5.1 尚未实现（不要照着 PLAN 写）
 
-| PLAN 提到的东西                                            | 状态                                                                        |
-| ---------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `UIScene` / `Page` / `PageStack` / `ModalStack` / `Router` | **M8 未开始**。目前一个场景 = 一个 `UIRoot`（`this.mvvm.root`）             |
-| `Modal` 控件（遮罩 + 对话框 + 焦点陷阱 + ESC）             | **M8 未开始**。可用 `stack` + `setCapture` + `trapFocus` 自己拼（07 §6）    |
-| `A11yBridge`（隐藏 DOM 镜像 + `aria-live`）                | **M9 未开始**。目前只有文本框的隐藏元素带 `aria-label`                      |
-| `@phaser-mvvm/template`（JSON/模板层）                     | **Phase 2 未创建**                                                          |
-| ESLint / size-limit / coverage 门禁                        | 计划在 M4 接入；当前 CI 只跑 Prettier + typecheck + test + build + 示例构建 |
+| PLAN 提到的东西                                            | 状态                                                                                                                                                                         |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UIScene` / `Page` / `PageStack` / `ModalStack` / `Router` | **M8 未开始**。目前一个场景 = 一个 `UIRoot`（`this.mvvm.root`）                                                                                                              |
+| `Modal` 控件（遮罩 + 对话框 + 焦点陷阱 + ESC）             | **M8 未开始**。可用 `stack` + `setCapture` + `trapFocus` 自己拼（07 §6）                                                                                                     |
+| `A11yBridge`（隐藏 DOM 镜像 + `aria-live`）                | **M9 未开始**。目前只有文本框的隐藏元素带 `aria-label`                                                                                                                       |
+| `@phaser-mvvm/template`（JSON/模板层）                     | **Phase 2 未创建**                                                                                                                                                           |
+| ESLint / coverage 门禁                                     | 仍未接入（CI 只跑 Prettier + typecheck + test + build + 示例构建）。**体积门禁已有**：`pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定），但尚未接进 CI，提交前手动跑 |
 
 ### 5.2 名义差异（功能在，但 API 与 PLAN 的草案不同）
 
-| PLAN 草案                                       | 实际实现                                                                                                                                     |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `this.mvvm.mount(vm, ViewFn, { root, width })`  | **`this.mvvm.mount(widget)`** —— 视图函数自己构造控件树并返回根控件                                                                          |
-| `command(async fn, { canExecute })` 辅助函数    | 没有这个函数：命令就是 ViewModel 上的普通方法，用 `bindCommand` 绑定                                                                         |
-| `bind()` / `model()` / `convert()` 具名绑定函数 | 对应实现是 `bindValue`/`bindPath`/`bindTemplate`、`bindModel`、模板里的 `\| converter`                                                       |
-| `style` / `class` 绑定                          | 未实现；样式走主题令牌 + 控件选项（`tone`/`variant`/`style`）                                                                                |
-| 布局通过注入的 `Measurer` 度量文本              | `layout` 包本身不度量（`measureContent` 由节点提供）；`PhaserTextMeasurer` + `LruCache` 已导出，但当前控件都直接用自身 `Text` 的 canvas 度量 |
-| `repeat` 的虚拟化按「等高行」自动推导           | 必须显式给 `itemExtent`（含行距）                                                                                                            |
+| PLAN 草案                                       | 实际实现                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `this.mvvm.mount(vm, ViewFn, { root, width })`  | **`this.mvvm.mount(widget)`** —— 视图函数自己构造控件树并返回根控件                                                                                                                                                                                                                      |
+| `command(async fn, { canExecute })` 辅助函数    | 没有这个函数：命令就是 ViewModel 上的普通方法，用 `bindCommand` 绑定                                                                                                                                                                                                                     |
+| `bind()` / `model()` / `convert()` 具名绑定函数 | 对应实现是 `bindValue`/`bindPath`/`bindTemplate`、`bindModel`、模板里的 `\| converter`                                                                                                                                                                                                   |
+| `style` / `class` 绑定                          | 未实现；样式走主题令牌 + 控件选项（`tone`/`variant`/`style`）                                                                                                                                                                                                                            |
+| 布局通过注入的 `Measurer` 度量文本              | `layout` 包本身不度量（`measureContent` 由节点提供）；控件仍用**自身** `Text` 的 canvas 度量，但结果按场景缓存在 `packages/widgets/src/text-metrics.ts`（换行结果 + 省略号候选宽度 + 输入框逐串宽度，稳态命中率 100%）。`PhaserTextMeasurer` + `LruCache` 是适配层的独立工具，控件未使用 |
+| `repeat` 的虚拟化按「等高行」自动推导           | 必须显式给 `itemExtent`（含行距）                                                                                                                                                                                                                                                        |
 
 ### 5.3 已知的小缺口
 
@@ -215,7 +215,7 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 - **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，需要运行期自行设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
 - **`UIRoot` 不设置 `scrollFactor`**：源码里没有任何 `setScrollFactor(0)`，主相机一旦滚动整棵 UI 会跟着动。要固定在屏幕上请自己调 `this.mvvm.root.setScrollFactor(0)`。
 - **`hideMode` 尚未生效**：`LayoutParams.hideMode` 会被解析保存，但引擎与 `Widget` 都没有读取它；真正决定「是否退出流」的是 `inFlow`（`Widget.inFlow === visible`），所以 `hideMode: 'keep'` 目前没有效果（[02 §3](./02-layout.md)）。
-- **`@phaser-mvvm/phaser` 里还留着 M0 的探针控件** `RectWidget`/`LabelWidget` 与 `uiRect` 工厂：可用，但正式项目请用 `@phaser-mvvm/widgets` 的控件。
+- **`@phaser-mvvm/phaser` 里还留着 M0 的探针控件** `RectWidget`/`LabelWidget` 与 `uiRect`/`uiLabel` 工厂：可用；DSL 侧已把 `RectWidget` 包成 `Rect()`（[09 §4](./09-compose-dsl.md)），正式项目请用 `@phaser-mvvm/widgets` 的控件与 DSL。
 
 ---
 
