@@ -15,7 +15,7 @@ import { ProceduralSkin, Widget } from '@phaser-mvvm/phaser';
 import { buttonSkinStyles, buttonTextColor, paintFocusRing } from './appearance';
 import { buttonLabel, resolveButtonActivation, resolveButtonState } from './button-state';
 import { toCssColor } from './color';
-import { centeredOffset, contentBox } from './geometry';
+import { centeredOffset, contentBox, fitIcon } from './geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import { glyphPadding } from './text-padding';
 
@@ -74,11 +74,44 @@ export const BUTTON_EVENTS = {
  * `Phaser.GameObjects.GameObject` itself carries no size and no transform (those come from optional
  * components), so the button asks for them structurally. A texture-key icon always satisfies it; a
  * hand-made icon should be an `Image`/`Sprite` with a top-left origin.
+ *
+ * `displayWidth`/`displayHeight` are the *rendered* size (the scale applied), which is what the
+ * button caps: an icon the caller already shrank stays shrunk. `setDisplaySize` is how the cap is
+ * applied to a textured object; `setScale` covers everything else with a transform (a `Graphics`, a
+ * `Container`), so a too-large icon can always be brought inside the button instead of spilling.
  */
 interface IconLike extends Phaser.GameObjects.GameObject {
   width?: number;
   height?: number;
+  displayWidth?: number;
+  displayHeight?: number;
   setPosition?(x: number, y: number): unknown;
+  setDisplaySize?(width: number, height: number): unknown;
+  setScale?(x: number, y?: number): unknown;
+}
+
+/**
+ * An icon's own size, as the button reads it once.
+ *
+ * `displayWidth`/`displayHeight` (the *rendered* size, scale included) win over `width`/`height`, so
+ * an icon the caller already sized with `setDisplaySize` keeps that size instead of being treated as
+ * the full texture. Everything falls back to `0`, which means "no icon size to work with".
+ */
+function naturalIconSize(icon: IconLike): Size {
+  return {
+    width: icon.displayWidth ?? icon.width ?? 0,
+    height: icon.displayHeight ?? icon.height ?? 0,
+  };
+}
+
+/**
+ * Breathing room between an icon and the button's own edge.
+ *
+ * An icon as tall as the button covers the rounded corners of the button's background, which reads as
+ * "the button lost its shape". One `spacing.xs` per side is enough to keep the silhouette.
+ */
+function iconInset(theme: Theme): number {
+  return theme.spacing.xs;
 }
 
 export class Button extends Widget {
@@ -96,6 +129,14 @@ export class Button extends Widget {
 
   private readonly bodyGraphics: Phaser.GameObjects.Graphics;
   private iconObject: IconLike | null = null;
+  /**
+   * The icon's size as it was handed in, kept so every fit is computed from the same starting point.
+   *
+   * Reading the icon's *current* size instead would compound: the button shrinks the icon to the box
+   * it has at that moment, and the next pass would then treat the shrunken size as the natural one —
+   * a button that briefly got small would keep a small icon forever after.
+   */
+  private iconNatural: Size = { width: 0, height: 0 };
   private value: boolean;
   private labelText: string;
   private explicitHeight: boolean;
@@ -250,6 +291,9 @@ export class Button extends Widget {
    * Swaps the icon; a string is a texture key and is turned into an `Image` with a top-left origin,
    * a Game Object is used as-is (its own origin is respected, so it should be top-left for the
    * centring maths to line up).
+   *
+   * Whatever the icon's own size, the button caps it to its own content box (see {@link fitIcon}):
+   * an icon is never drawn outside the control that owns it.
    */
   setIcon(icon: string | Phaser.GameObjects.GameObject): this {
     let next: IconLike;
@@ -267,6 +311,7 @@ export class Button extends Widget {
       this.remove(this.iconObject, true);
     }
     this.iconObject = next;
+    this.iconNatural = naturalIconSize(next);
     // Behind the label but in front of the background graphics.
     this.addAt(next, Math.min(1, this.length));
     this.markDirty();
@@ -280,6 +325,7 @@ export class Button extends Widget {
     }
     this.remove(this.iconObject, true);
     this.iconObject = null;
+    this.iconNatural = { width: 0, height: 0 };
     this.markDirty();
     return this;
   }
@@ -294,7 +340,7 @@ export class Button extends Widget {
   override measureContent(_constraint: BoxConstraints): Size {
     const theme = this.theme;
     const padding = theme.spacing[this.size];
-    const iconSize = this.iconSize();
+    const iconSize = this.fittedIcon(this.measuredIconRoom());
     const gap = iconSize.width > 0 && this.label.width > 0 ? theme.spacing.xs : 0;
 
     return {
@@ -306,14 +352,19 @@ export class Button extends Widget {
   protected override onRectChanged(rect: Rect): void {
     const box = contentBox(rect.width, rect.height, this.layoutParams.padding);
     const theme = this.theme;
-    const iconSize = this.iconSize();
+    const iconSize = this.fittedIcon(this.appliedIconRoom(box));
     const gap = iconSize.width > 0 && this.label.width > 0 ? theme.spacing.xs : 0;
     const total = iconSize.width + gap + this.label.width;
 
     let x = box.x + centeredOffset(total, box.width);
     if (this.iconObject && iconSize.width > 0) {
+      this.applyIconSize(iconSize);
       this.iconObject.setPosition?.(x, box.y + centeredOffset(iconSize.height, box.height));
       x += iconSize.width + gap;
+    } else if (this.iconObject) {
+      // No room for the icon (the button is smaller than what is already in it): it is dropped rather
+      // than drawn over the label. The icon stays attached, so a bigger box brings it back.
+      this.applyIconSize({ width: 0, height: 0 });
     }
     this.label.setPosition(x, box.y + centeredOffset(this.label.height, box.height));
 
@@ -407,11 +458,65 @@ export class Button extends Widget {
     }
   }
 
-  private iconSize(): Size {
+  /**
+   * Room for the icon as far as the *measure* pass knows it: the box this button is being sized for.
+   *
+   * `layoutParams.width`/`height` are the lengths the caller asked for (the theme's control height
+   * when none was given), so a `Button({ icon, height: 20 })` already measures with a 20 px icon
+   * instead of reporting a 64 px one and overflowing its own box.
+   */
+  private measuredIconRoom(): { width: number; height: number } {
+    const params = this.layoutParams;
+    const inset = iconInset(this.theme);
+    return {
+      width: typeof params.width === 'number' ? params.width - inset * 2 : Number.POSITIVE_INFINITY,
+      height:
+        (typeof params.height === 'number' ? params.height : this.theme.controlHeight[this.size]) -
+        inset * 2,
+    };
+  }
+
+  /** Room for the icon once the layout has spoken: the button's *applied* content box. */
+  private appliedIconRoom(box: Rect): { width: number; height: number } {
+    const gap = this.label.width > 0 && this.iconNatural.width > 0 ? this.theme.spacing.xs : 0;
+    const inset = iconInset(this.theme);
+    // What is left of the content box after the label, the gap between the two, and the inset that
+    // keeps the icon off the button's rounded corners.
+    return {
+      width: box.width - this.label.width - gap - inset * 2,
+      height: box.height - inset * 2,
+    };
+  }
+
+  /** The icon's display size for `room`: natural size, capped (see {@link fitIcon}). */
+  private fittedIcon(room: { width: number; height: number }): Size {
     if (!this.iconObject) {
       return { width: 0, height: 0 };
     }
-    return { width: this.iconObject.width ?? 0, height: this.iconObject.height ?? 0 };
+    return fitIcon(this.iconNatural, room);
+  }
+
+  /**
+   * Writes the fitted size onto the icon object itself.
+   *
+   * The layout numbers say where the icon *should* be; this is what makes the renderer agree, so the
+   * part of a too-large icon is not simply positioned outside the button — it is never drawn. A size
+   * of `0` means "no room" and renders nothing, which is better than a glyph over the label.
+   */
+  private applyIconSize(size: Size): void {
+    const icon = this.iconObject;
+    if (!icon || this.iconNatural.width <= 0 || this.iconNatural.height <= 0) {
+      return;
+    }
+    const width = Math.max(0, size.width);
+    const height = Math.max(0, size.height);
+    if (typeof icon.setDisplaySize === 'function') {
+      icon.setDisplaySize(width, height);
+      return;
+    }
+    if (typeof icon.setScale === 'function') {
+      icon.setScale(width / this.iconNatural.width, height / this.iconNatural.height);
+    }
   }
 
   private skinFor(theme: Theme): ProceduralSkin {

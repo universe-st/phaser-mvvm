@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { BLACK, shadeColor, toCssColor, WHITE } from '../src/color';
-import { centeredOffset, centeredOffsetOverflow, contentBox } from '../src/geometry';
+import { centeredOffset, centeredOffsetOverflow, contentBox, fitIcon } from '../src/geometry';
 
 describe('toCssColor', () => {
   it('packs a colour into a six-digit hex string', () => {
@@ -66,6 +66,45 @@ describe('contentBox', () => {
     const box = contentBox(10, 10, { top: 20, right: 20, bottom: 20, left: 20 });
     expect(box.width).toBe(0);
     expect(box.height).toBe(0);
+  });
+});
+
+describe('fitIcon', () => {
+  it('leaves an icon that already fits alone', () => {
+    // A 16 px glyph in a 36 px button is a choice, not a mistake: never scale it up.
+    expect(fitIcon({ width: 16, height: 16 }, { width: 120, height: 36 })).toEqual({
+      width: 16,
+      height: 16,
+    });
+  });
+
+  it('scales a too-large icon down, keeping its aspect ratio', () => {
+    // The defect this exists for: the 64 px showcase tile in an `md` (36 px) button was drawn at 64.
+    expect(fitIcon({ width: 64, height: 64 }, { width: 120, height: 36 })).toEqual({
+      width: 36,
+      height: 36,
+    });
+    expect(fitIcon({ width: 64, height: 32 }, { width: 40, height: 36 })).toEqual({
+      width: 40,
+      height: 20,
+    });
+  });
+
+  it('reports no size at all when there is no room', () => {
+    // The caller drops the icon instead of drawing it over the label.
+    expect(fitIcon({ width: 64, height: 64 }, { width: 0, height: 36 })).toEqual({
+      width: 0,
+      height: 0,
+    });
+    expect(fitIcon({ width: 64, height: 64 }, { width: 120, height: -4 })).toEqual({
+      width: 0,
+      height: 0,
+    });
+    // An object with no size of its own (a `Container` icon) has nothing to fit either.
+    expect(fitIcon({ width: 0, height: 0 }, { width: 120, height: 36 })).toEqual({
+      width: 0,
+      height: 0,
+    });
   });
 });
 
