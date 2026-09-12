@@ -2,7 +2,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `viewport-fit=cover` is what lets the canvas reach a phone's cutout; without it the browser
+         letterboxes the page and reports every `env(safe-area-inset-*)` as 0, so `UIRoot`'s safe-area
+         option (on by default) would have nothing to reserve. See docs/ACCEPTANCE-mobile.md §2.2. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>phaser-mvvm examples</title>
     <style>
       html,

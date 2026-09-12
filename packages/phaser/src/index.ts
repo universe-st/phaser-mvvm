@@ -49,6 +49,14 @@ export {
   type A11yOptions,
 } from './a11y';
 export { buildUiPage, type BuiltUi } from './ui-build';
+export {
+  NO_SAFE_AREA,
+  SAFE_AREA_MAX_FRACTION,
+  clampSafeArea,
+  isZeroSafeArea,
+  readSafeAreaInsets,
+  type SafeAreaInsets,
+} from './safe-area';
 export { UIScene, type UISceneBackHook } from './UIScene';
 export { requireMVVMPlugin } from './require-plugin';
 export {

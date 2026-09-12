@@ -93,6 +93,22 @@ export class ConfigScene extends Phaser.Scene {
               'note',
               Text(() => this.note(), { tone: 'muted', name: 'config.note', maxLines: 3 }),
             );
+            // Safe area: zero on a desktop, and the *only* plugin option whose value comes from the
+            // device rather than the config object (`env(safe-area-inset-*)`, re-read on every resize).
+            this.track(
+              'safeArea',
+              Text(
+                () => {
+                  const insets = this.mvvm.root.safeAreaInsets;
+                  return (
+                    `safe area: top ${Math.round(insets.top)} / right ${Math.round(insets.right)} / ` +
+                    `bottom ${Math.round(insets.bottom)} / left ${Math.round(insets.left)} ` +
+                    `(${this.mvvm.root.safeAreaEnabled ? 'on' : 'off'})`
+                  );
+                },
+                { tone: 'muted', name: 'config.safeArea' },
+              ),
+            );
           },
         );
       }),
@@ -115,6 +131,19 @@ export class ConfigScene extends Phaser.Scene {
       'live',
       document.querySelector('[data-mvvm-a11y-live]')?.getAttribute('aria-live') ?? 'none',
     );
+    this.publishSafeArea();
+  }
+
+  /** Publishes the safe-area readings so a check can watch them change (see `ACCEPTANCE-mobile.md`). */
+  private publishSafeArea(): void {
+    const insets = this.mvvm.root.safeAreaInsets;
+    const padding = this.mvvm.root.layoutParams.padding;
+    this.publish('safeArea.top', Math.round(insets.top));
+    this.publish('safeArea.bottom', Math.round(insets.bottom));
+    this.publish('safeArea.left', Math.round(insets.left));
+    this.publish('safeArea.right', Math.round(insets.right));
+    this.publish('root.padding.top', Math.round(padding.top));
+    this.publish('root.padding.bottom', Math.round(padding.bottom));
   }
 
   private publish(key: string, value: string | number): void {
@@ -204,6 +233,21 @@ export class ConfigScene extends Phaser.Scene {
         )}`;
       },
       state: (): Record<string, unknown> => this.state(),
+      /**
+       * Safe-area readings: what the browser reports (`env(safe-area-inset-*)`) and what the root
+       * reserved for it. On a desktop both are zero; on an emulated notched phone the second follows
+       * the first (see `ACCEPTANCE-mobile.md`).
+       */
+      safeArea: () => ({
+        enabled: this.mvvm.root.safeAreaEnabled,
+        insetTop: Math.round(this.mvvm.root.safeAreaInsets.top),
+        insetRight: Math.round(this.mvvm.root.safeAreaInsets.right),
+        insetBottom: Math.round(this.mvvm.root.safeAreaInsets.bottom),
+        insetLeft: Math.round(this.mvvm.root.safeAreaInsets.left),
+        padding: { ...this.mvvm.root.layoutParams.padding },
+      }),
+      /** Re-reads the insets and re-lays out — what a rotation does through the scene's resize handler. */
+      resize: (): void => this.mvvm.root.resize(),
     };
     (window as unknown as { config?: unknown }).config = api;
   }

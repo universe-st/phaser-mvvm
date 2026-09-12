@@ -27,14 +27,20 @@ this.mvvm.configure({ navigation: false });
 
 `mergePluginConfig()` 把 `input`/`focus`/`a11y`/`layout` 这几个**子选项包做一层深合并**——只写 `focus.wrap` 不会把 `input.dragThreshold` 一起清掉（浅拷贝会，这正是它存在的理由）。
 
-| 选项                                            | `configure()` 之后的行为                                             |
-| ----------------------------------------------- | -------------------------------------------------------------------- |
-| `navigation`                                    | 立刻挂钩/摘掉键盘监听（Tab、方向键、Enter 立刻受控）                 |
-| `themeBackground`                               | 立刻订阅/退订主题变化；关掉后**不再改相机颜色**（颜色归应用自己管）  |
-| `a11y`                                          | `false` 立刻把镜像层从 DOM 移除；`{ politeness }` 立刻改写 live 区域 |
-| `input.dragThreshold`                           | 直接写活动路由器                                                     |
-| `focus.wrap`/`trapFocus`/`ring`                 | 直接写活动焦点管理器                                                 |
-| 其它（`align`/`depth`/`snapMode`/`container`…） | 存储，下次建 UI 根时生效                                             |
+| 选项                                                       | `configure()` 之后的行为                                             |
+| ---------------------------------------------------------- | -------------------------------------------------------------------- |
+| `navigation`                                               | 立刻挂钩/摘掉键盘监听（Tab、方向键、Enter 立刻受控）                 |
+| `themeBackground`                                          | 立刻订阅/退订主题变化；关掉后**不再改相机颜色**（颜色归应用自己管）  |
+| `a11y`                                                     | `false` 立刻把镜像层从 DOM 移除；`{ politeness }` 立刻改写 live 区域 |
+| `input.dragThreshold`                                      | 直接写活动路由器                                                     |
+| `focus.wrap`/`trapFocus`/`ring`                            | 直接写活动焦点管理器                                                 |
+| 其它（`align`/`depth`/`snapMode`/`container`/`safeArea`…） | 存储，下次建 UI 根时生效                                             |
+
+### 安全区（第 72 轮追加）
+
+`safeArea`（默认 `true`）是这批选项里唯一**值来自设备**而不是 config 对象的：`UIRoot` 读 `env(safe-area-inset-*)` 并把它设成根自己的 padding。它与别的选项一样是**建树类**（`safeAreaEnabled` 在构造时定下），所以运行期 `configure({ safeArea: false })` 不会移动已经建好的根。
+
+`#/config` 因此提供两条读数：`window.config.safeArea()`（`enabled` + 四个 inset + 根的实际 padding）与 `window.config.resize()`（强制重读——inset 只在 resize 时重新测量），`#demo-state` 逐帧发布 `safeArea.*` 与 `root.padding.*`。逐设备矩阵（桌面 0 / 刘海 47-34 / 横屏侧边 / 极端值夹取）见 [`ACCEPTANCE-mobile.md`](./ACCEPTANCE-mobile.md) §2.3。
 
 ---
 

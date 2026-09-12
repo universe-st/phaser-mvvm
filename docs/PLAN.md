@@ -163,7 +163,7 @@ LayoutParams {
   - 工厂注册：`this.add.vbox/hbox/grid/stack/label/textField/button/image/spacer/divider/scrollView`，以及 `GameObjectCreator` 版本支持配置式创建。
   - 推荐用法：`UIScene`（UI 场景，常驻）叠加在游戏场景之上（`scene.launch`）。
 - **场景与页面体系（Phase 1 交付）**：
-  - `UIScene` 基类（**已交付，第 68 轮**）：`content()` 建树 + 自动挂载（规则与 `ui()`/`render()` 相同）、`setContent()` 整页替换、`onBack()` 在 `back` 路由中先于应用层、`page`/`contentInfo` 读数、缺插件时的指名错误（`requireMVVMPlugin()`）。**与本节早期草案的差异**：不解 `MVVMPlugin`（插件仍由 Game Config 注册，缺了就在 `create()` 里报出修法）、不做设计分辨率/安全区（那是 `UIRoot` 的职责）、也没有 `ui.show(page)`/`ui.back()`——多页面用 `this.mvvm.pages`，整页替换用 `setContent()`。
+  - `UIScene` 基类（**已交付，第 68 轮**）：`content()` 建树 + 自动挂载（规则与 `ui()`/`render()` 相同）、`setContent()` 整页替换、`onBack()` 在 `back` 路由中先于应用层、`page`/`contentInfo` 读数、缺插件时的指名错误（`requireMVVMPlugin()`）。**与本节早期草案的差异**：不解 `MVVMPlugin`（插件仍由 Game Config 注册，缺了就在 `create()` 里报出修法）、也没有 `ui.show(page)`/`ui.back()`——多页面用 `this.mvvm.pages`，整页替换用 `setContent()`。**设计分辨率与安全区**由 `UIRoot` 负责：第 72 轮起 `safeArea`（默认开启）读取 `env(safe-area-inset-*)` 并把它设成根的内边距，见 [`ACCEPTANCE-mobile.md`](./ACCEPTANCE-mobile.md)。
   - `Page`：一个页面 = 一个 ViewModel + 一个视图工厂 + 生命周期（`onEnter/onLeave/onPause/onResume`），页面间可传参；页面栈支持返回与缓存策略（`keepAlive`）。
   - `ModalStack`：对话框/弹窗层（`StackArranger` + 遮罩），支持焦点陷阱（焦点不逃逸到下层）、ESC/返回键关闭、遮罩点击策略（`closable`）、多弹窗层级、打开/关闭动效钩子。
   - 路由（可选轻量）：`Router` 把「路由名 → Page 类 + 参数」映射，供需要多页面导航的项目使用；不引入 URL 路由。

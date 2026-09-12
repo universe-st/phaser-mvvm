@@ -10,10 +10,16 @@
  */
 
 import type Phaser from 'phaser';
-import { devLog } from '@phaser-mvvm/core';
+import { devLog, isDevMode } from '@phaser-mvvm/core';
 import { LayoutEngine, tight } from '@phaser-mvvm/layout';
 import type { ContainerLayout, Size } from '@phaser-mvvm/layout';
 import { Widget, type WidgetOptions } from './Widget';
+import {
+  clampSafeArea,
+  isZeroSafeArea,
+  readSafeAreaInsets,
+  type SafeAreaInsets,
+} from './safe-area';
 
 /** A layout pass is logged once it measures this many nodes (development only). */
 const LOG_MEASURE_THRESHOLD = 200;
@@ -31,13 +37,29 @@ export interface UIRootOptions extends WidgetOptions {
   snapMode?: 'none' | 'round' | 'floor' | 'ceil';
   /** Which arranger the root uses for its children. Defaults to `{ type: 'stack' }`. */
   container?: ContainerLayout;
+  /**
+   * Keep the UI inside the device's safe area (notch, camera cutout, home indicator). Defaults to
+   * `true`; on any device without insets (a desktop window, a phone that did not ask for
+   * `viewport-fit=cover`) the measured values are `0` and nothing changes.
+   *
+   * Set `false` when the game *wants* the canvas to reach the cutout — a full-bleed background, or an
+   * application that applies the insets itself.
+   *
+   * Read when the root is created (like the other build-time options): `mvvm.configure({ safeArea })`
+   * on a live scene does not move an existing root.
+   */
+  safeArea?: boolean;
 }
 
 export class UIRoot extends Widget {
   readonly layoutEngine: LayoutEngine;
 
+  /** Whether the root reserves the device's safe area (see `UIRootOptions.safeArea`). */
+  readonly safeAreaEnabled: boolean;
+
   private laidOut = false;
   private structureCounter = 0;
+  private insets: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 
   constructor(scene: Phaser.Scene, options: UIRootOptions = {}) {
     super(scene, { layout: { width: 0, height: 0, ...options.layout }, name: options.name });
@@ -57,6 +79,7 @@ export class UIRoot extends Widget {
     });
     this.setEngineRecursive(this.layoutEngine);
 
+    this.safeAreaEnabled = options.safeArea !== false;
     this.setDepth(options.depth ?? 1000);
     scene.add.existing(this);
     scene.scale.on('resize', this.handleResize, this);
@@ -90,8 +113,50 @@ export class UIRoot extends Widget {
     const h = Math.max(1, Math.round(height));
     this.layoutParams.width = w;
     this.layoutParams.height = h;
+    this.applySafeArea({ width: w, height: h });
     this.markDirty();
     this.flushLayout();
+  }
+
+  /**
+   * The safe-area insets currently reserved, in design pixels.
+   *
+   * Zero on any device without them, and zero for every root built with `safeArea: false`.
+   */
+  get safeAreaInsets(): SafeAreaInsets {
+    return { ...this.insets };
+  }
+
+  /**
+   * Re-reads the insets and writes them into the root's own padding.
+   *
+   * Padding rather than a child offset on purpose: the arranger already resolves padding, so a page with
+   * `width: 'fill'` lands inside the safe area with no extra layout pass, and the root's own box still
+   * covers the whole viewport (so the theme background and any camera-pinned layer stay full-bleed).
+   *
+   * The read happens on every resize — rotating a phone moves the cutout from the top edge to a side —
+   * and the clamp keeps a short viewport from losing its whole UI to a fixed-size strip (`safe-area.ts`).
+   */
+  private applySafeArea(size: Size): void {
+    const next = this.safeAreaEnabled
+      ? clampSafeArea(readSafeAreaInsets(this.scene?.game?.canvas?.ownerDocument ?? null), size)
+      : { top: 0, right: 0, bottom: 0, left: 0 };
+    const current = this.insets;
+    const changed =
+      current.top !== next.top ||
+      current.right !== next.right ||
+      current.bottom !== next.bottom ||
+      current.left !== next.left;
+    this.insets = next;
+    if (changed || !isZeroSafeArea(next)) {
+      this.layoutParams.padding = { ...next };
+    }
+    if (changed && !isZeroSafeArea(next) && isDevMode()) {
+      devLog(
+        `safeArea: top ${next.top} / right ${next.right} / bottom ${next.bottom} / left ${next.left} ` +
+          `(${size.width}x${size.height})`,
+      );
+    }
   }
 
   /**
