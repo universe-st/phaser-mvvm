@@ -370,6 +370,49 @@ private openDetail(row: Row): void {
 
 被盖住的那一页**不会被销毁**，只是 `visible: false`：滚动位置、输入内容、计数全都留着，`pop()` 回来时逐字节还原；同时它自动变成不可见、不可点、不可聚焦、也不在焦点集合里，输入框的 DOM 焦点也会被释放（隐藏页面里的输入框不会再收字符）。
 
+### 7.1 路由表（可选）：`this.mvvm.router`
+
+`pages.push(() => { … })` 已经够用，`router` 只是把「哪一页」变成**数据**：视图集中在一张表里，导航是一个字符串，写错路径会当场报错（而不是白屏）。它**不引入 URL 路由**，也不新建一套导航模型——`navigate()` 就是 `pages.push()`，所以 `Esc`、页面生命周期、焦点、输入框桥的行为与第 7 节完全一样。
+
+```ts
+// 一张表，写一次（路径里可以有 :参数，也可以带显式参数）
+this.mvvm.router.routes = {
+  home: () => {
+    Button('用户 42', { onClick: () => this.mvvm.router.navigate('user/42') });
+  },
+  'user/:id': (params) => {
+    const { id } = routeParams<{ id: string }>(params);
+    Text(`用户 ${id}`, { size: 'lg' });
+    Button('他的帖子', { onClick: () => this.mvvm.router.navigate(`user/${id}/posts`) });
+    Button('返回', { variant: 'ghost', onClick: () => this.mvvm.router.back() });
+  },
+  'user/:id/posts': (params) => Text(`用户 ${routeParams<{ id: string }>(params).id} 的帖子`),
+};
+
+this.mvvm.router.navigate('home'); // 起始页也是路由
+this.mvvm.router.navigate('settings', { tab: 'profile' }); // 显式参数，与路径参数合并
+```
+
+| 成员                                | 说明                                                                                        |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- |
+| `routes`（可写）                    | 整张表；`route(path, builder)` 逐条追加                                                     |
+| `navigate(path, params?, options?)` | 打开路由：推入一层；`options` 就是 `PageOptions`（`onResume`/`onBack`…，`name` 由路由表给） |
+| `replace(path, params?, options?)`  | 用新页**换掉**当前层（栈深度不变）；只剩基页时退化成 `navigate`（基页不能弹）               |
+| `back()`                            | 等于 `pages.pop()`；只剩基页时返回 `false`（让第 3/4 层决定）                               |
+| `current` / `history`               | 当前页来自哪个路由 / 整栈的路由（直接 `pages.push()` 的页面不在其中，`current` 为 `null`）  |
+
+**匹配规则**（纯函数 `route-plan.ts`，Node 单测）：字面量 key 优先于 `:参数` 模式；`#/a/b/` 与 `a//b` 会归一化成 `a/b`；两个模式都匹配时取**声明在前**的那个；只认表自己的 key（`navigate('constructor')` 不会走到 `Object.prototype` 上）。路径写错抛 `UnknownRouteError`，消息里带你表里的全部 key：
+
+```ts
+this.mvvm.router.navigate('user/9/posts');
+// UnknownRouteError: Unknown route "user/9/posts" — the table has: home, user/:id, user/:id/posts,
+// settings. Add it to `this.mvvm.router.routes`, or check the spelling.
+```
+
+`routeParams<T>()` 只是类型层的转换：路径参数在匹配成功时**一定**存在，而 TypeScript 的索引签名访问总会带上 `| undefined`（`noUncheckedIndexedAccess`），所以用它把类型收回来，不要在代码里到处写 `?? ''`。
+
+> 状态放哪儿仍然和第 7 节一样：**页面被 `pop()` 会真的销毁**，所以"用户 1 的备注"这类每页数据要放在场景/ViewModel 上（`#/router` 就是这么做的：同一个 `user/:id` 的两个访问各有一份备注，来回切都在）。`navigate()` 只在 `pages.push()` 之上加了一层簿记（哪个 id 来自哪个路由），页面被别人 `pop()` 掉时它会自动忘掉——`current` 永远等于栈顶那一页的真实来源。
+
 ### `back` 的归属顺序
 
 按 `Esc`（或手柄 `B`/`○`）时，框架按固定顺序问四层，前两层写在 `planBack()` 里（纯函数 + Node 单测）：

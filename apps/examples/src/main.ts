@@ -15,6 +15,7 @@ import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ModalScene } from './scenes/modal';
 import { PagesScene } from './scenes/pages';
+import { RouterScene } from './scenes/router';
 import { ProbeScene } from './scenes/probe';
 import { ScrollScene } from './scenes/scroll';
 import { StatesScene } from './scenes/states';
@@ -65,6 +66,7 @@ const SCENES = {
   states: StatesScene,
   uiscene: UiSceneScene,
   hud: HudScene,
+  router: RouterScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

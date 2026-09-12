@@ -162,6 +162,14 @@ function checkFile(file, known) {
     for (const m of code.matchAll(/(?<![\w.$])([A-Za-z_]\w*)\s*\(/g)) {
       called.add(m[1]);
     }
+    // Calls that name a type argument before the parentheses (`routeParams<{ id: string }>(params)`).
+    // The pass above needs `(` straight after the name, so a typo *inside a generic call* — the exact
+    // kind of mistake this script exists to catch — used to sail through: `routeParamsTYPO<{ id:
+    // string }>(params)` in guide 07 passed the check (found and fixed in round 75). One level of
+    // nesting is supported, which covers every snippet in the guide.
+    for (const m of code.matchAll(/(?<![\w.$])([A-Za-z_]\w*)\s*<(?:[^<>]|<[^<>]*>)*>\s*\(/g)) {
+      called.add(m[1]);
+    }
   }
 
   const unknown = [...called].filter((n) => !known.has(n) && !locals.has(n));

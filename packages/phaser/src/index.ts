@@ -75,6 +75,18 @@ export {
   type RevealOptions,
 } from './reveal';
 export { PageHost, type PageBackTarget, type PageHandle, type PageOptions } from './pages';
+export { Router, type RouteOptions, type RouteVisit } from './router';
+export {
+  UnknownRouteError,
+  matchRoute,
+  normalizeRoutePath,
+  routeNames,
+  routeParams,
+  type RouteBuilder,
+  type RouteMatch,
+  type RouteParams,
+  type RouteTable,
+} from './route-plan';
 export {
   DEFAULT_ENTER,
   DEFAULT_EXIT,

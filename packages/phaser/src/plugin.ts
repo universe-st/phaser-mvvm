@@ -30,6 +30,7 @@ import { ModalHost } from './modal';
 import { planBack } from './back-plan';
 import { revealInViewports } from './reveal';
 import { PageHost } from './pages';
+import { Router } from './router';
 import { mergePluginConfig, type MVVMPluginConfig } from './plugin-config';
 import {
   TransitionRunner,
@@ -85,7 +86,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
   private config: MVVMPluginConfig;
   private uiRoot: UIRoot | null = null;
-  private router: InputRouter | null = null;
+  private inputRouter: InputRouter | null = null;
   private focusManager: FocusManager | null = null;
   private navRepeat = new NavRepeat();
   private padState: NavInputState = EMPTY_NAV_STATE;
@@ -103,6 +104,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private unsubscribeTheme: (() => void) | null = null;
   private modalHost: ModalHost | null = null;
   private pageHost: PageHost | null = null;
+  private routeHost: Router | null = null;
   /**
    * Frame-stepped transitions. One runner for the scene: the frame delta it needs is already available
    * here, and a scene-wide runner is what lets `pending` answer "is any teardown still deferred?".
@@ -195,8 +197,8 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     if (patch.themeBackground !== undefined) {
       this.applyThemeBackground();
     }
-    if (patch.input?.dragThreshold !== undefined && this.router) {
-      this.router.dragThreshold = patch.input.dragThreshold;
+    if (patch.input?.dragThreshold !== undefined && this.inputRouter) {
+      this.inputRouter.dragThreshold = patch.input.dragThreshold;
     }
     if (patch.focus && this.focusManager) {
       if (patch.focus.wrap !== undefined) {
@@ -226,7 +228,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   /** Pointer routing for the UI tree. */
   get input(): InputRouter {
     void this.root;
-    return this.router as InputRouter;
+    return this.inputRouter as InputRouter;
   }
 
   /** Keyboard/gamepad focus management for the UI tree. */
@@ -263,6 +265,25 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       this.pageHost = new PageHost(this);
     }
     return this.pageHost;
+  }
+
+  /**
+   * The optional router above the page stack (`router.ts`): a table of `path → view`.
+   *
+   * ```ts
+   * this.mvvm.router.routes = { home: () => { … }, 'user/:id': (params) => { … } };
+   * this.mvvm.router.navigate('user/42');
+   * ```
+   *
+   * Created on first use, like `modal` and `pages`. It adds no navigation model of its own: navigating
+   * is `pages.push()`, so `Esc`, page lifecycle hooks and focus behave exactly as they do without it —
+   * the router only remembers which page came from which route (`current`, `history`).
+   */
+  get router(): Router {
+    if (!this.routeHost) {
+      this.routeHost = new Router(this);
+    }
+    return this.routeHost;
   }
 
   /**
@@ -332,7 +353,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     }
     // `refresh()` (not `attach()`) — attaching detaches first, which would silently drop a capture
     // widget set for a modal overlay.
-    this.router?.refresh();
+    this.inputRouter?.refresh();
     this.focusManager?.refresh();
     // The mirror follows the interactive set, so it is rebuilt exactly when that set can change.
     // `this.a11y` (not the field) on purpose: the layer is created on the first structural change, so a
@@ -363,12 +384,12 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     }
     this.lastStructureVersion = root.structureVersion;
 
-    this.router = new InputRouter({ root, ...this.config.input });
+    this.inputRouter = new InputRouter({ root, ...this.config.input });
     // Pointer presses move focus (the router only reports them; the manager owns the order).
-    this.router.onPointerFocus = (widget) => {
+    this.inputRouter.onPointerFocus = (widget) => {
       this.focusManager?.focus(widget);
     };
-    this.router.attach(root, scene);
+    this.inputRouter.attach(root, scene);
 
     this.focusManager = new FocusManager({
       root,
@@ -585,7 +606,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.guardBackRouter();
 
     this.pollGamepad(time);
-    this.router?.update(time);
+    this.inputRouter?.update(time);
   }
 
   /**
@@ -640,8 +661,8 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     // those widgets anyway, so the runs go without calling their `onDone`.
     this.transitionRunner.clear();
     this.lastFrameTime = -1;
-    this.router?.detach();
-    this.router = null;
+    this.inputRouter?.detach();
+    this.inputRouter = null;
     // Before the UI root goes away: the mirror holds references to widgets.
     this.a11yBridge?.destroy();
     this.a11yBridge = null;
@@ -651,6 +672,8 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.modalHost = null;
     this.pageHost?.dispose();
     this.pageHost = null;
+    this.routeHost?.dispose();
+    this.routeHost = null;
     this.focusManager?.dispose();
     this.focusManager = null;
     this.handledKeyEvents.clear();
