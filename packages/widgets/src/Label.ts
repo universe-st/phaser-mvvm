@@ -16,6 +16,7 @@ import { Widget } from '@phaser-mvvm/phaser';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
+import { fontSizeOf, glyphPadding } from './text-padding';
 import { textMetricsOf, type SceneTextMetrics } from './text-metrics';
 import { applyLineLimit } from './text-truncate';
 
@@ -88,6 +89,8 @@ export class Label extends Widget {
   private readonly userStyleKey: string;
   private wrapWidth: number | null = null;
   private styleKey = '';
+  /** Last glyph padding applied, so the canvas is only re-sized when it changes. */
+  private glyphPad = -1;
 
   constructor(scene: Phaser.Scene, options: LabelOptions = {}) {
     const { layout, widget } = splitWidgetOptions<LabelWidgetOptions>(
@@ -191,6 +194,23 @@ export class Label extends Widget {
       align: this.align,
       ...this.userStyle,
     });
+    this.applyGlyphPadding();
+  }
+
+  /**
+   * Reserves the fraction of a pixel Phaser's text canvas loses to truncation and glyph overshoot.
+   *
+   * Without it the descender of a `g` is shaved off, and - worse - the label *measured* one pixel short
+   * as well, so the layout under-reserved the space. Symmetric so the optical centre does not move.
+   */
+  private applyGlyphPadding(): void {
+    const size = fontSizeOf(this.textObject.style, this.theme.fontSize.md);
+    const pad = glyphPadding(size);
+    if (pad === this.glyphPad) {
+      return;
+    }
+    this.glyphPad = pad;
+    this.textObject.setPadding(pad, pad, pad, pad);
   }
 
   private setWrapWidth(width: number | null): void {

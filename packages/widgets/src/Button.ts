@@ -17,6 +17,7 @@ import { buttonLabel, resolveButtonActivation, resolveButtonState } from './butt
 import { toCssColor } from './color';
 import { centeredOffset, contentBox } from './geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
+import { glyphPadding } from './text-padding';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -97,6 +98,8 @@ export class Button extends Widget {
   private labelText: string;
   private explicitHeight: boolean;
   private styleKey = '';
+  /** Last glyph padding applied to the label (see `text-padding.ts`). */
+  private glyphPad = -1;
   private skinCache: { theme: Theme; variant: ButtonVariant; skin: ProceduralSkin } | null = null;
 
   constructor(scene: Phaser.Scene, options: ButtonOptions = {}) {
@@ -358,6 +361,12 @@ export class Button extends Widget {
         color,
         align: 'center',
       });
+      // Same allowance as `Label`: without it a button's descender is clipped by the text canvas.
+      const pad = glyphPadding(theme.fontSize.md);
+      if (pad !== this.glyphPad) {
+        this.glyphPad = pad;
+        this.label.setPadding(pad, pad, pad, pad);
+      }
     }
 
     const text = buttonLabel(this.labelText, this.loading);

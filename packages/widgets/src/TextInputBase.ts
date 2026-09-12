@@ -28,6 +28,7 @@ import { toCssColor } from './color';
 import { contentBox } from './geometry';
 import { DomInputBridge, clampSelection, type InputBridgeHandlers } from './input-bridge';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
+import { glyphPadding } from './text-padding';
 import { textMetricsOf } from './text-metrics';
 import {
   CARET_BLINK_MS,
@@ -752,12 +753,16 @@ export abstract class TextInputBase extends Widget {
     }
     this.textStyleKey = key;
 
+    const pad = glyphPadding(theme.fontSize.md);
     for (const object of this.lineObjects) {
       object.setStyle({
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSize.md,
         color,
       });
+      // Text fields measure their own line boxes, so the same allowance has to be applied here: a
+      // clipped descender in a field is as wrong as one in a label, and the caret geometry follows it.
+      object.setPadding(pad, pad, pad, pad);
     }
   }
 
@@ -853,6 +858,8 @@ export abstract class TextInputBase extends Widget {
       fontSize: theme.fontSize.md,
       color: toCssColor(this.textColor(theme)),
     });
+    const pad = glyphPadding(theme.fontSize.md);
+    object.setPadding(pad, pad, pad, pad);
   }
 
   // ------------------------------------------------------------------ focus side effects

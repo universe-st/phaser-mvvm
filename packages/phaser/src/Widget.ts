@@ -29,6 +29,7 @@ import { effectScope, type EffectScope } from '@phaser-mvvm/core';
 import { getTheme, onThemeChange, type Theme } from './theme';
 import type { NavAction } from './nav';
 import { devLog, isDevMode } from '@phaser-mvvm/core';
+import { inFlowOf } from '@phaser-mvvm/layout';
 import { resolveWidgetState, type WidgetState } from './widget-state';
 
 export interface WidgetOptions {
@@ -313,9 +314,16 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     return this.widgetChildren;
   }
 
-  /** A hidden widget drops out of the flow (it is measured as 0×0 and not placed). */
+  /**
+   * Whether the widget takes part in the flow.
+   *
+   * A hidden widget collapses (measured as 0×0 and not placed) unless its layout params ask for
+   * `hideMode: 'keep'`, which keeps the slot so siblings stay put - the CSS `visibility: hidden` of
+   * this framework. Focus and pointer collection use `visible`, never `inFlow`, so a kept-but-hidden
+   * widget stays unfocusable and unclickable.
+   */
   get inFlow(): boolean {
-    return this.visible;
+    return inFlowOf(this.visible, this.layoutParams.hideMode);
   }
 
   /**

@@ -54,12 +54,28 @@ export interface LayoutParams {
   /** Ordering hint inside box/grid containers; ties keep declaration order. */
   order?: number;
   /** `collapse` (default) removes the node from the flow when it is not visible. */
-  hideMode?: 'collapse' | 'keep';
+  hideMode?: HideMode;
 
   gridColumn?: number;
   gridRow?: number;
   gridColumnSpan?: number;
   gridRowSpan?: number;
+}
+
+/** `'collapse'` (default) removes a hidden node from the flow; `'keep'` keeps its slot. */
+export type HideMode = 'collapse' | 'keep';
+
+/**
+ * Whether a node takes part in the flow.
+ *
+ * A hidden node collapses by default - the next sibling moves into its place, which is the layout a
+ * Compose `if` produces. `hideMode: 'keep'` keeps the slot instead: the node is still measured and
+ * placed (so siblings do not move) while the renderer leaves it invisible, the CSS `visibility:
+ * hidden` of this framework. It only ever affects *layout*: focus and pointer collection look at
+ * `visible`, so a kept-but-hidden node is neither focusable nor clickable.
+ */
+export function inFlowOf(visible: boolean, hideMode: HideMode = 'collapse'): boolean {
+  return visible || hideMode === 'keep';
 }
 
 export interface ResolvedParams {

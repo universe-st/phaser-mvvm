@@ -137,6 +137,7 @@ Text(vm.title); // ref 直接传
 - **宽度从哪来**：`wrap: true` 时按「测量时拿到的最大宽度」换行。放在 `vbox` 里因为默认 `stretch`，它会拿到整行宽度 —— 想让长文案按固定宽度换行，**显式写 `width`**。
 - **`maxLines` 的实现**：先在 `Text` 上换行，再由 `text-truncate.ts` 裁掉多余行并可选补省略号，然后写回显示文本。所以 `getText()` 永远返回完整原文。
 - **主题切换会重新裁行**：字体或字号变了，换行结果也会变，`Label` 已经处理了这一点。
+- **每个文字盒子上下各留一点内边距**（字号 8%、至少 1px）：Phaser 的文本画布高度取自字体度量 `ascent + descent`，而这个值带小数、赋给 `canvas.height` 时会被截断，于是 `g`/`y` 的下伸部会被切掉约 0.6px（同时布局也少留 1px）。框架替所有文字对象补上这点填充，**测量高度里已经包含它**，所以你不用自己加 padding；如果你的自定义控件直接 `new Phaser.GameObjects.Text()`，请照抄 `packages/widgets/src/text-padding.ts` 的做法。
 
 ---
 

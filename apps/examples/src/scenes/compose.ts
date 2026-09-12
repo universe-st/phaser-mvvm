@@ -106,6 +106,8 @@ export class ComposeScene extends Phaser.Scene {
   private readonly rows = ref<SampleRow[]>(createRows(200));
   private readonly parity = ref('pending');
   private readonly highlighted = ref(false);
+  /** Drives the `hideMode: 'keep'` demo: hidden, but its slot stays. */
+  private readonly keepShown = ref(true);
 
   private readonly emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email.value));
 
@@ -124,6 +126,9 @@ export class ComposeScene extends Phaser.Scene {
 
   /** Section whose geometry still has to be reported, once the next frame has arranged it. */
   private pendingReport: SectionId | null = null;
+
+  /** Label reported as `text.danger=@x,y wxh` once the Text section is arranged (ink-vs-box check). */
+  private reportTextProbe: Widget | null = null;
 
   constructor() {
     super('compose');
@@ -207,6 +212,9 @@ export class ComposeScene extends Phaser.Scene {
       this.pendingReport = null;
       this.publish('widgets', countWidgets(this.sectionHost));
       this.reportSection(pending);
+      if (pending === 'text' && this.reportTextProbe) {
+        reportWidget('text.danger', this.reportTextProbe);
+      }
     }
   }
 
@@ -400,7 +408,37 @@ export class ComposeScene extends Phaser.Scene {
           tone: 'success',
           name: 'flow.notice',
         });
-        Divider({ name: 'flow.after' });
+        // Tracked so a check can see this divider move when the notice above collapses.
+        this.track('flow.after', Divider({ name: 'flow.after' }));
+      });
+
+      // The same condition, but with `hideMode: 'keep'`: the hidden node keeps its slot, so the
+      // sibling after it must not move (CSS `visibility: hidden`, not `display: none`).
+      Row({ gap: 8, alignItems: 'center' }, () => {
+        this.track(
+          'flow.keepToggle',
+          Button(() => (this.keepShown.value ? '隐藏占位块' : '显示占位块'), {
+            size: 'sm',
+            name: 'flow.keepToggle',
+            onClick: () => (this.keepShown.value = !this.keepShown.value),
+          }),
+        );
+        Text('前', { tone: 'muted' });
+        Panel(
+          {
+            width: 56,
+            height: 18,
+            variant: 'primary',
+            radius: 4,
+            visible: () => this.keepShown.value,
+            hideMode: 'keep',
+            name: 'flow.keepSlot',
+          },
+          () => {
+            // the kept block itself draws nothing
+          },
+        );
+        this.track('flow.afterKeep', Text('后（位置不应变化）', { tone: 'muted' }));
       });
 
       // Switch on state: the branch that runs at build time is the branch that exists.
@@ -428,9 +466,14 @@ export class ComposeScene extends Phaser.Scene {
         { maxLines: 2, ellipsis: true, width: 320, alignSelf: 'start' },
       );
       Row({ gap: 12, alignItems: 'center', wrap: true }, () => {
-        Text('Danger', { tone: 'danger' });
-        Text('Success', { tone: 'success' });
-        Text('Warning', { tone: 'warning' });
+        // Tracked (and reported in `#status`) so a check can measure the rendered ink against the
+        // label's own box: the descender of the `g` used to be shaved off by Phaser's text canvas
+        // (see `text-padding.ts`).
+        const danger = Text('Danger', { tone: 'danger' });
+        this.track('text.danger', danger);
+        this.reportTextProbe = danger;
+        this.track('text.success', Text('Success', { tone: 'success' }));
+        this.track('text.warning', Text('Warning', { tone: 'warning' }));
         Text('居中', { align: 'center', width: 120, tone: 'muted' });
         Text('右对齐', { align: 'right', width: 120, tone: 'muted' });
       });
