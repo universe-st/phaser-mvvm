@@ -1,6 +1,6 @@
 # 验收记录 · 滚动区与焦点（`#/scroll` 的 bring-into-view）
 
-- **验收场**：[`#/scroll`](../../apps/examples/src/scenes/scroll.ts)（`window.scrollDemo` 暴露偏移/视口/归属/缩放；`#demo-state` 逐帧发布几何）
+- **验收场**：[`#/scroll`](../../apps/examples/src/scenes/scroll.ts)（`window.scrollDemo` 暴露偏移/视口/归属/缩放；`#demo-state` 逐帧发布几何）。第三个演示是**口套口**：外层 `scroll.nested`（带 pinch zoom）里放着一个内层 `scroll.inner`（12 个可聚焦按钮），两层都能滚。
 - **被测实现**：[`packages/phaser/src/reveal.ts`](../../packages/phaser/src/reveal.ts)（`revealOffset` / `contentRectOf` / `revealInViewports`）、[`Widget.revealDescendant`](../../packages/phaser/src/Widget.ts)、[`ScrollView.revealDescendant`](../../packages/widgets/src/ScrollView.ts)、[`plugin.ts`](../../packages/phaser/src/plugin.ts) 的每帧焦点钩子，以及本轮顺带修掉的两处导航缺陷（[`focus.ts`](../../packages/phaser/src/focus.ts) 的 `containsWidget` + `pickDirectional(skip)`、`ScrollView#applyScrollStep` 到界拒绝）
 - **第 67 轮**：键盘/手柄焦点**永远落在看得见的地方**
 - **验收方式**：Playwright MCP（真实 `Tab`/`Shift+Tab`/鼠标拖拽 + `window.fakePad` 假手柄）+ 18 场景全量扫描 + `node scripts/visual-check.mjs`
@@ -81,6 +81,24 @@ Tab #14  focus=row.delete.r012  y=553  inside=false  offset=0
 | S9  | 在 chip 条上按下并拖动 300px | `chip=none`（**没有误触**），`h.offset 0 → 660` |
 | S10 | 空白点击 chip 8              | `chip=8`，偏移不变（点击不滚动）                |
 
+### 2.7 口套口：两级 reveal、缩放中的 reveal、拖拽链式传递（第 70 轮）
+
+结构：`scroll.nested`（视口 312×300，内容长 1176）里第 30 行之后是 `scroll.inner`（视口 312×260，内容 12×30=360，`maxOffset=96`），内层里是 12 个可聚焦按钮 `inner.b0`…`inner.b11`。外层的视口在屏幕 y 130..430，内层口的**内容位置**在 y 960..1220 —— 也就是"默认情况下内层口根本不在外层的可见带里"。
+
+| #   | 操作                                | 判据（实测）                                                                                                                                         |
+| --- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S11 | `Tab` 到 `scroll.inner`（第 31 次） | 外层滚到 **928**，内层口自身的框落在 140..400 ⊂ 外层带 130..430                                                                                      |
+| S12 | 继续 `Tab` 走完 12 个内层按钮       | 内层 **0 → 14 → 44 → 74 → 96**（b8 起内层才有余量），外层同时 **928 → 934 → 950** —— 两级**都动**，且每个被聚焦的按钮都在**两层**的可见带里（12/12） |
+| S13 | 外层缩放 1.6 后重复 S12             | 外层 **1528 → 1695**、内层 **0 → 96**，12/12 仍在两层带内；被聚焦按钮的**世界矩形高 42 = 26 × 1.6**（探针走 Phaser 的变换矩阵，见 §4）               |
+| S14 | 滚轮停在内层口上                    | 内层先吃掉自己能吃的（0 → 96 = 上限），**剩下的 124 立刻传给外层**（950 → 1074）—— 一个事件里的 220px 被两层分掉                                     |
+| S15 | 鼠标拖拽：内层有余量时              | 上拖 60 → **只有内层动**（0 → 87），外层停在 950                                                                                                     |
+| S16 | 鼠标拖拽：内层已到上限              | 继续上拖 120 → 内层停在 96，**外层 950 → 1002**；再拖 120 → 外层 1002 → 1062。**修复前这两次都是 0**（V37）                                          |
+| S17 | 鼠标拖拽：反向（内层又有余量）      | 下拖 60 → **内层 96 → 0**，外层**不动**（1062）                                                                                                      |
+| S18 | **触摸**拖拽：内层已到上限          | CDP 触摸上拖 150 → 外层 **950 → 995**（触摸没有滚轮，这条路径就是 V37 的全部意义）                                                                   |
+| S19 | 拖拽甩动没有退化                    | 快速拖拽后松手：垂直口 0 → **395**（惯性仍在；`applyDrag` 特意**不**调用 `stopScroll()`，否则每步都会把 `dragVelocity` 清零、甩动消失）              |
+
+> **探针的坑**：`stagePosition()` 求和的是容器位置、**不含缩放**，所以它在缩放过的口里不是屏幕位置；而 `Phaser` 的 `Container.getBounds()` 也不可靠（它并集的是**子节点的墨迹**，一个 `Button` 会返回它文字的大小，实测 74×24 的按钮返回 49×20）。`#/scroll` 因此改为发布 **变换矩阵**的结果（`getWorldTransformMatrix()` + `appliedRect` 尺寸），这才是渲染器看到的那块矩形：缩放 1 时高 26、缩放 1.6 时高 42。
+
 ### 2.5 日志
 
 ```
@@ -108,17 +126,18 @@ release:  （setDevMode(false) 后同样的 4 次 Tab → 0 行）
 
 ## 4. `#/scroll` 新增的可断言读数
 
-| 键（`#demo-state`）                           | 含义                                        |
-| --------------------------------------------- | ------------------------------------------- |
-| `focus.x` / `focus.y` / `focus.w` / `focus.h` | 当前焦点控件的 **stage 矩形**               |
-| `v.top` / `v.left` / `v.width` / `v.height`   | 垂直口可见带（stage 坐标）                  |
-| `h.top` / `h.left` / `h.width` / `h.height`   | 横向口可见带                                |
-| `nested.top` / …                              | 嵌套口可见带                                |
-| `chip`                                        | 最后一次激活的 chip 序号（`none` = 没点过） |
+| 键（`#demo-state`）                               | 含义                                                                                       |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `focus.x` / `focus.y` / `focus.w` / `focus.h`     | 当前焦点控件的 **stage 矩形**（`stagePosition()` 求和，**不含缩放**）                      |
+| `focus.wx` / `focus.wy` / `focus.ww` / `focus.wh` | 同一块矩形的**世界（屏幕）版本**：走 `getWorldTransformMatrix()`，缩放过的口里只有它是对的 |
+| `v.top` / `v.left` / `v.width` / `v.height`       | 垂直口可见带（stage 坐标）                                                                 |
+| `h.*` / `nested.*` / `inner.*`                    | 横向口 / 外层口 / 内层口的可见带                                                           |
+| `inner.offset` / `inner.maxOffset`                | 内层口的偏移与上限                                                                         |
+| `chip`                                            | 最后一次激活的 chip 序号（`none` = 没点过）                                                |
 
 页面**只发布原始几何，不下结论**：判据是"整个 Tab 走查里焦点从不落在带外"，那是走查者（验收脚本）的不变量，不是单帧能从页面里读出来的东西。
 
-`window.scrollDemo` 原有 API 不变（`offsets()` / `visibleRowKey()` / `owners()` / `zoom()` / `setZoom()` / `viewports()`）。
+`window.scrollDemo` 的 `offsets()` 现在也带 `inner`/`innerMax`，`viewports()` 多了 `inner`；其余 API 不变（`visibleRowKey()` / `owners()` / `zoom()` / `setZoom()`）。
 
 ---
 
@@ -141,7 +160,9 @@ release:  （setDevMode(false) 后同样的 4 次 Tab → 0 行）
 
 ## 6. 未验证 / 已知边界
 
-- **真实触摸设备**：本轮所有手势都在鼠标与假手柄上跑过；触摸拖动与 reveal 无直接交互（触摸按下只是让焦点跟随，而按下的东西一定可见），但**真机触摸**仍未验（见 [`ACCEPTANCE-touch.md`](./ACCEPTANCE-touch.md) §4）。
-- **缩放中的口**（`#/scroll` 的 `nested` 开了 pinch zoom）：数学上按 `zoomScale` 折算，但**没有端到端的焦点用例**（嵌套口里没有可聚焦控件）。`revealOffset` 的单测覆盖的是未缩放几何。
-- **焦点已持有、内容布局随后变化**（窗口 resize、上面的卡片折叠把焦点挤出视野）：本轮只在**焦点变化**时 reveal，不在每帧重算。这样的场景焦点会留在视野外，直到下一次焦点移动。
-- **`zoom` 与偏移的单位一致性**：`measureContentExtent()` 用 `extent × zoomScale` 算上限，与 `applyOffsets()` 把 `left = -offset`（子节点再被 scale 放大）自洽，尚未单独验收（不在本轮范围）。
+- **真实触摸设备**：本轮的手势全部在 CDP 触摸仿真与鼠标上跑过（§2.7 的 S18 是触摸拖拽链式传递），**真机触摸**仍未验（见 [`ACCEPTANCE-touch.md`](./ACCEPTANCE-touch.md) §4）。
+- **两级以上的嵌套口**：`revealInViewports` 的三遍上限是按"口套口"设计的；三层及以上没有用例。
+- **链式传递的分配比例**：`S16` 里 120px 的手指位移分给外层的量取决于**每一步**内层还剩多少余量（按步结算，不做补偿），所以不是精确的 120−9；只有"外层确实接手了"是被断言的。
+- **iOS 式"不链式传递"**：本轮把拖拽与滚轮统一成"用完就传给外层"（Android `NestedScrollView` 的语义，也与框架自身滚轮行为一致）。想要 iOS 那种"内层吞掉整个手势"的语义，目前没有开关。
+- **焦点已持有、内容布局随后变化**（窗口 resize、上面的卡片折叠把焦点挤出视野）：只在**焦点变化**时 reveal，不在每帧重算。
+- **`zoom` 与偏移的单位一致性**：`measureContentExtent()` 用 `extent × zoomScale` 算上限、`applyOffsets()` 把 `left = -offset`（子节点再被 scale 放大），本轮在缩放 1.6 下实测了 reveal（S13），但没有单独对"缩放后再滚到底"的边界做系统验收。

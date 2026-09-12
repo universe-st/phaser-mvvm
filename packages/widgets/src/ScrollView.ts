@@ -1081,17 +1081,70 @@ export class ScrollView extends Widget {
     }
   }
 
+  /**
+   * The same chaining for a **drag** step — the pointer path, which on touch is the only path there is.
+   *
+   * The wheel has chained since M7; the drag did not, and the difference is only invisible until a
+   * short list sits inside a longer page: the finger kept travelling, the inner port sat at its end,
+   * and nothing moved (measured in round 70 on `#/scroll`'s port-inside-a-port demo: drag up 60 scrolled
+   * the inner port 0 → 88, and the next 120 + 120 did nothing at all — `nested` stayed at 950). With a
+   * wheel the same gesture continues into the page, so the two paths disagreed about what a gesture
+   * means. Now both take the same route: each view consumes what it has room for and passes the rest
+   * outward, and the pointer still belongs to the innermost view (`dragPointerId`), so release, fling
+   * and pinch ownership are unchanged.
+   */
+  private dispatchDrag(dx: number, dy: number, point: { x: number; y: number }): void {
+    let remainingX = dx;
+    let remainingY = dy;
+    let view: ScrollView | null = this;
+    while (view && (remainingX !== 0 || remainingY !== 0)) {
+      if (view !== this && !view.containsPoint(point.x, point.y)) {
+        break;
+      }
+      if (view !== this) {
+        // The enclosing port is being dragged as well: a fling it was in the middle of would fight the
+        // finger (the owner's own fling was already stopped when the press armed the drag).
+        view.stopScroll();
+      }
+      const used = view.applyDrag(remainingX, remainingY);
+      remainingX -= used.x;
+      remainingY -= used.y;
+      view = view.enclosingScrollView();
+    }
+  }
+
   /** Moves by as much of `dx`/`dy` as this view has room for; returns the part it consumed. */
   private applyWheel(dx: number, dy: number): { x: number; y: number } {
-    if (this.isDestroyed || this.enabled === false) {
-      return { x: 0, y: 0 };
-    }
-    const wantX = this.scrollsX() ? dx : 0;
-    const wantY = this.scrollsY() ? dy : 0;
-    if (wantX === 0 && wantY === 0) {
+    if (!this.wantsDelta(dx, dy)) {
       return { x: 0, y: 0 };
     }
     this.stopScroll();
+    return this.applyScrollDelta(dx, dy);
+  }
+
+  /**
+   * `applyWheel` for the drag path, which must **not** stop the coast: a drag keeps the velocity that
+   * becomes the fling when the finger lifts (`dragVelocity`), so zeroing it every step would silently
+   * remove inertia from every drag.
+   */
+  private applyDrag(dx: number, dy: number): { x: number; y: number } {
+    if (!this.wantsDelta(dx, dy)) {
+      return { x: 0, y: 0 };
+    }
+    return this.applyScrollDelta(dx, dy);
+  }
+
+  /** Whether this view can move along an axis of this delta (enabled, alive, scrolls that way, non-zero). */
+  private wantsDelta(dx: number, dy: number): boolean {
+    if (this.isDestroyed || this.enabled === false) {
+      return false;
+    }
+    return (this.scrollsX() && dx !== 0) || (this.scrollsY() && dy !== 0);
+  }
+
+  private applyScrollDelta(dx: number, dy: number): { x: number; y: number } {
+    const wantX = this.scrollsX() ? dx : 0;
+    const wantY = this.scrollsY() ? dy : 0;
     const beforeX = this.currentX;
     const beforeY = this.currentY;
     // `setOffset` clamps (or bounces), so the difference is exactly what was consumed.
@@ -1339,7 +1392,9 @@ export class ScrollView extends Widget {
     this.dragVelocity = { x: -stepX / elapsed, y: -stepY / elapsed };
     this.dragLast = { x: pointer.worldX, y: pointer.worldY, time: now };
 
-    this.scrollBy(-stepX, -stepY);
+    // The drag step chains outward like the wheel, so a finger that runs out of room inside a nested
+    // port keeps scrolling the page instead of stopping dead.
+    this.dispatchDrag(-stepX, -stepY, { x: pointer.worldX, y: pointer.worldY });
   };
 
   private readonly onPointerUp = (pointer?: Phaser.Input.Pointer): void => {

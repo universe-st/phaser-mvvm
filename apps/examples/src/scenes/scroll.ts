@@ -36,7 +36,15 @@ const ROW_EXTENT = ROW_HEIGHT + ROW_GAP;
 const CHIP_COUNT = 30;
 const CHIP_WIDTH = 96;
 const CHIP_GAP = 8;
-const NESTED_ROWS = 40;
+/** Labels before the inner port inside the nested port's content. */
+const NESTED_LEAD = 30;
+/** …and after it, so the nested content is longer than its viewport at both ends of the inner port. */
+const NESTED_TAIL = 8;
+/** Height of the inner port: taller than a third of the nested band, so revealing a target inside it
+ * makes the *outer* port's answer depend on the inner offset (the fixed-point case). */
+const INNER_HEIGHT = 260;
+/** Focusable buttons inside the inner port (12 × 30px pitch = 360 > 260, so it scrolls). */
+const INNER_BUTTONS = 12;
 const STEP = 120;
 const PAGE_WIDTH = 980;
 const PAGE_PADDING = 16;
@@ -78,6 +86,7 @@ export class ScrollScene extends Phaser.Scene {
   private vScroll: ScrollView | null = null;
   private hScroll: ScrollView | null = null;
   private nestedScroll: ScrollView | null = null;
+  private innerScroll: ScrollView | null = null;
   private repeat: Repeat<ScrollRow> | null = null;
   private readonly reported = new Map<string, string>();
 
@@ -271,16 +280,65 @@ export class ScrollScene extends Phaser.Scene {
       [vPanel, vButtons, hPanel, hButtons],
     );
 
-    // 3. Nested: a scroll view inside a fixed-size (relayout boundary) panel ----------------------
+    // 3. Nested: a port inside a port, inside a fixed-size (relayout boundary) panel ---------------
+    //
+    // The inner port has **focusable** content on purpose. Two things only exist once a port is inside
+    // another port and something inside it can take focus:
+    //   * the bring-into-view walk has to converge through two levels (the inner port scrolls, which
+    //     changes where the target sits inside the outer one), and
+    //   * the outer port carries pinch zoom, so the reveal has to work in a *scaled* port — the case
+    //     `revealOffset` handles by multiplying the content rect by `zoomScale` and which had no
+    //     end-to-end coverage before (see `ACCEPTANCE-scroll.md`).
+    const innerButtons: Widget[] = [];
+    for (let index = 0; index < INNER_BUTTONS; index += 1) {
+      innerButtons.push(
+        this.add.uiButton({
+          text: `inner b${index}`,
+          variant: index % 3 === 0 ? 'primary' : 'secondary',
+          size: 'sm',
+          width: 'fill',
+          height: 26,
+          name: `inner.b${index}`,
+          // Same reason as the chip strip: without a hint these 12 buttons sit *after* the 220 rows in
+          // the tab order, which makes the port-inside-a-port case (and its acceptance walk) reachable
+          // only after a few hundred presses.
+          focusOrder: -1,
+        }),
+      );
+    }
+    const innerContent = this.add.uiPanel(
+      { direction: 'vertical', gap: 4, width: 'fill', variant: 'plain' },
+      innerButtons,
+    );
+    const innerScroll = this.add.uiScroll({
+      width: 'fill',
+      height: INNER_HEIGHT,
+      direction: 'vertical',
+      content: innerContent,
+      focusOrder: -1,
+      name: 'scroll.inner',
+    });
+    this.innerScroll = innerScroll;
+
     const nestedContent = this.add.uiPanel(
       { direction: 'vertical', gap: 4, width: 'fill', variant: 'plain' },
-      Array.from({ length: NESTED_ROWS }, (_unused, index) =>
-        this.add.uiLabel({
-          text: `nested line ${String(index).padStart(2, '0')}`,
-          height: 28,
-          tone: index % 5 === 0 ? 'primary' : 'default',
-        }),
-      ),
+      [
+        ...Array.from({ length: NESTED_LEAD }, (_unused, index) =>
+          this.add.uiLabel({
+            text: `nested line ${String(index).padStart(2, '0')}`,
+            height: 28,
+            tone: index % 5 === 0 ? 'primary' : 'default',
+          }),
+        ),
+        innerScroll,
+        ...Array.from({ length: NESTED_TAIL }, (_unused, index) =>
+          this.add.uiLabel({
+            text: `nested tail ${String(index).padStart(2, '0')}`,
+            height: 28,
+            tone: 'muted',
+          }),
+        ),
+      ],
     );
     const nestedScroll = this.add.uiScroll({
       width: 'fill',
@@ -425,6 +483,8 @@ export class ScrollScene extends Phaser.Scene {
         hMax: this.hScroll?.maxOffset ?? 0,
         nested: this.nestedScroll?.offset ?? 0,
         nestedMax: this.nestedScroll?.maxOffset ?? 0,
+        inner: this.innerScroll?.offset ?? 0,
+        innerMax: this.innerScroll?.maxOffset ?? 0,
         deleted: this.deleted.value,
       }),
       visibleRowKey: (): string | null => this.visibleRowKey(),
@@ -449,6 +509,7 @@ export class ScrollScene extends Phaser.Scene {
         v: this.viewportInfo(this.vScroll),
         h: this.viewportInfo(this.hScroll),
         nested: this.viewportInfo(this.nestedScroll),
+        inner: this.viewportInfo(this.innerScroll),
       }),
     };
   }
@@ -531,7 +592,8 @@ export class ScrollScene extends Phaser.Scene {
     const vScroll = this.vScroll;
     const hScroll = this.hScroll;
     const nested = this.nestedScroll;
-    if (!vScroll || !hScroll || !nested) {
+    const inner = this.innerScroll;
+    if (!vScroll || !hScroll || !nested || !inner) {
       return;
     }
     const rendered = this.repeat?.renderedCount ?? 0;
@@ -566,6 +628,8 @@ export class ScrollScene extends Phaser.Scene {
     this.publish('nested.offset', Math.round(nested.offset));
     this.publish('nested.zoom', Math.round(nested.zoom * 100) / 100);
     this.publish('nested.maxOffset', Math.round(nested.maxOffset));
+    this.publish('inner.offset', Math.round(inner.offset));
+    this.publish('inner.maxOffset', Math.round(inner.maxOffset));
 
     // Where the focused widget *is*, and where each port's visible band is. Two raw numbers instead of
     // a verdict, because the verdict is the point of the acceptance run: "keyboard focus never sits
@@ -579,10 +643,23 @@ export class ScrollScene extends Phaser.Scene {
       this.publish('focus.y', Math.round(origin.y));
       this.publish('focus.w', Math.round(focused.appliedRect.width));
       this.publish('focus.h', Math.round(focused.appliedRect.height));
+      // …and the same rect as the renderer sees it: `stagePosition()` sums container positions and
+      // ignores scale, so inside a *zoomed* port it is not where the widget is drawn. The transform
+      // matrix is the honest answer (and `getBounds()` is not: for a Container it unions the children's
+      // ink, so a Button comes back as its label's box rather than the box the layout assigned).
+      const matrix = focused.getWorldTransformMatrix();
+      const topLeft = matrix.transformPoint(0, 0);
+      const worldWidth = focused.appliedRect.width * matrix.scaleX;
+      const worldHeight = focused.appliedRect.height * matrix.scaleY;
+      this.publish('focus.wx', Math.round(topLeft.x));
+      this.publish('focus.wy', Math.round(topLeft.y));
+      this.publish('focus.ww', Math.round(worldWidth));
+      this.publish('focus.wh', Math.round(worldHeight));
     }
     this.publishBand('v', vScroll);
     this.publishBand('h', hScroll);
     this.publishBand('nested', nested);
+    this.publishBand('inner', inner);
 
     const point = this.rowDeletePoint();
     if (point) {
