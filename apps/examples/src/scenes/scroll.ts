@@ -420,6 +420,17 @@ export class ScrollScene extends Phaser.Scene {
         deleted: this.deleted.value,
       }),
       visibleRowKey: (): string | null => this.visibleRowKey(),
+      /**
+       * Drag/scrollbar ownership of the vertical port, or `null` when it is free.
+       *
+       * A view that keeps an owner while nothing is pressed refuses every later press (the ownership
+       * guard in `onPointerDown`), which is V24: a single click inside the port used to disable
+       * dragging it permanently. Publishing the owner makes that state assertable instead of a mystery.
+       */
+      owners: (): { drag: number | null; bar: number | null } => ({
+        drag: (this.vScroll as unknown as { dragPointerId: number | null })?.dragPointerId ?? null,
+        bar: (this.vScroll as unknown as { barPointerId: number | null })?.barPointerId ?? null,
+      }),
       /** Scale of the nested view's pinch zoom (1 = natural size). */
       zoom: (): number => Math.round((this.nestedScroll?.zoom ?? 1) * 100) / 100,
       setZoom: (scale: number): number => {
@@ -528,6 +539,19 @@ export class ScrollScene extends Phaser.Scene {
     this.publish('v.maxOffset', Math.round(vScroll.maxOffset));
     this.publish('v.rows', rendered);
     this.publish('v.deleted', this.deleted.value);
+    // Drag ownership must be `none` whenever nothing is pressed (see `scrollDemo.owners()`).
+    const owners = {
+      drag: (vScroll as unknown as { dragPointerId: number | null }).dragPointerId,
+      bar: (vScroll as unknown as { barPointerId: number | null }).barPointerId,
+    };
+    this.publish(
+      'v.owner',
+      owners.drag === null || owners.drag === undefined ? 'none' : owners.drag,
+    );
+    this.publish(
+      'v.barOwner',
+      owners.bar === null || owners.bar === undefined ? 'none' : owners.bar,
+    );
     this.publish('h.offset', Math.round(hScroll.offset));
     this.publish('h.maxOffset', Math.round(hScroll.maxOffset));
     this.publish('nested.offset', Math.round(nested.offset));

@@ -548,6 +548,9 @@ export class ModalScene extends Phaser.Scene {
   override update(): void {
     for (const [key, widget] of this.tracked) {
       if (widget.isDestroyed) {
+        // Say so instead of leaving the last value behind: a check that reads `st.confirm.ok` right
+        // after the dialog closed used to see a stale `pressed`, which reads like a stuck state.
+        this.publish(`st.${key}`, 'gone');
         continue;
       }
       this.publish(`st.${key}`, widget.visualState);

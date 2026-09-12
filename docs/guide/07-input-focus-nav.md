@@ -32,6 +32,7 @@ Phaser 已经负责命中测试，路由层补的是「控件语义」：
 | 按下即聚焦        | 按下的控件若 `focusable` 且未禁用，输入路由会把它交给 `FocusManager`（`InputRouter.onPointerFocus`，插件已接好）。这样焦点环出现在鼠标点的位置，随后的 `Tab`/方向键从那里继续，而不是跳回第一个可聚焦控件                                                                                                            |
 | 拦截层（capture） | 设置 capture 控件（通常是模态遮罩）后，落在它命中区内、但在它子树之外的指针事件会被吞掉，防止点穿到下层                                                                                                                                                                                                              |
 | 不穿透到游戏世界  | 指针落在**任何** UI 目标上时，这次按下由 UI 消费：Phaser 的 `topOnly` 保持开启，UI 之下的游戏对象收不到它（面板的拦截层因此是真的——`Panel.blockPointer` 默认 `true`）。落在没有 UI 目标的位置时照常传给游戏对象。这条由输入路由从**坐标**解析目标，而不是靠「哪个对象收到了事件」，所以容器/子节点的绘制顺序不影响它 |
+| 裁剪也裁剪命中    | 被 `ScrollView` 遮罩裁掉的内容，在它的逻辑位置上**既不悬停也不可点**（`clipsPointer`）：点滚动区外面的空白不会触发看不见的行（V23）                                                                                                                                                                                  |
 | 命中区            | 交互控件需要命中区，`enablePointerInput()` 会按布局分配的矩形自动维护（缩放/重排后自动同步）                                                                                                                                                                                                                         |
 
 ```ts
@@ -270,6 +271,8 @@ const dialog = this.mvvm.modal.open(
 | 关闭后焦点复原                   | `popScope()` 把焦点还给被挂起的那个控件                                    |
 | `Esc`（含手柄 `B`/`○`）          | `Handle` → `modal.handleBack()`，插件已接在 `onBack` 之前                  |
 
+> **触摸也一样**：点遮罩关闭用的是同一条 `onActivate`，而在遮罩/按钮上**拖动**不算点击（`InputRouter` 的 `dragThreshold`），所以手指滑一下不会误关对话框、也不会误触按钮（实测见 [`ACCEPTANCE-touch.md`](../ACCEPTANCE-touch.md) §3.7）。
+
 > **不想要现成的模态框？** 上面每一层都可以自己搭：`ui()` 建一个 `Stack` 包住遮罩 + 对话框 → `this.mvvm.input.setCapture(mask)` → `this.mvvm.focus.pushScope(dialogRoot, { trap: true, focusFirst: true })`，关闭时 `popScope()` 并 `destroy()` 这个子树。`modal.open()` 就是这套流程的封装，验收记录见 [`ACCEPTANCE-modal.md`](../ACCEPTANCE-modal.md)。
 
 ---
@@ -327,6 +330,8 @@ this.mvvm.onBack = () => this.togglePause();
 ### 与模态框的层序
 
 页面和对话框都是 UI 根的子节点，绘制顺序 = 子节点顺序，所以对话框永远在所有页面之上：`push()` 会把已打开的对话框图层重新抬到最上面（`raiseLayers()`），你不需要关心谁先开。
+
+> **触摸**：页面里的列表照样可以用手指拖动（拖动不会误触行内按钮），`pop()` 之后滚动位置与输入内容都还在。
 
 > `mount()`/`render()` 仍然可用（单页应用最简单）：它们把整棵树挂到根上，与页面栈是两条并行的用法，**不要在同一处混用**——`pages.push()` 会把根上的其他内容留在下面不管。
 

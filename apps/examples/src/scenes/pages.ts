@@ -117,11 +117,16 @@ export class PagesScene extends Phaser.Scene {
               'list',
               Scroll({ height: 168, name: 'list.scroll' }, () => {
                 List({ items: () => ROWS, key: (row: Row) => row.id, gap: 6 }, (row: Row) => {
-                  Button(`${row.name} ›`, {
-                    name: `row.${row.id}`,
-                    variant: 'ghost',
-                    onClick: () => this.pushDetail(row),
-                  });
+                  // Rows are tracked too: a row scrolled out of the port is *clipped*, and the probes
+                  // are what make "a clipped row must not hover or click" observable.
+                  this.track(
+                    `row.${row.id}`,
+                    Button(`${row.name} ›`, {
+                      name: `row.${row.id}`,
+                      variant: 'ghost',
+                      onClick: () => this.pushDetail(row),
+                    }),
+                  );
                 });
               }),
             );
@@ -282,6 +287,9 @@ export class PagesScene extends Phaser.Scene {
   override update(): void {
     for (const [key, widget] of this.tracked) {
       if (widget.isDestroyed) {
+        // Say so instead of leaving the last value behind: a check that reads `st.confirm.ok` right
+        // after the dialog closed used to see a stale `pressed`, which reads like a stuck state.
+        this.publish(`st.${key}`, 'gone');
         continue;
       }
       this.publish(`st.${key}`, widget.visualState);

@@ -294,6 +294,18 @@ export class ScrollView extends Widget {
   private dragVelocity = { x: 0, y: 0 };
   private dragging = false;
   private coasting = false;
+
+  /**
+   * Marks this widget as a **clipping container for hit testing**.
+   *
+   * The viewport's mask hides the content that is scrolled out of it, so that content must not be
+   * clickable either: the router skips this node's whole subtree for a point outside its box
+   * (`resolveTargetInTree`). Without it, a row scrolled out of the port still hovered and clicked at
+   * its logical position — including *below* the port, over whatever the user saw there (V23).
+   *
+   * Always `true`: a `ScrollView` always clips (WebGL filter, or a `GeometryMask` on Canvas).
+   */
+  readonly clipsPointer = true;
   private lastTick = 0;
   private rectBuffer: ScrollRect[] = [];
   private listenersInstalled = false;
@@ -1099,6 +1111,29 @@ export class ScrollView extends Widget {
    * derived per frame for the same reason.
    */
   private prunePinchPointers(): void {
+    // A drag owner whose pointer is no longer down wedges the view exactly like a stale pinch pair: the
+    // browser does not always deliver the release (an aborted touch never sends `pointerup`, and CDP's
+    // `touchEnd` can arrive without a point), and `onPointerDown` then refuses every later press. The
+    // hover state is derived per frame for the same reason.
+    if (this.dragPointerId !== null) {
+      const owner = this.pointerOf(this.dragPointerId);
+      if (owner === null || owner.isDown !== true) {
+        this.releaseDrag();
+        if (isDevMode()) {
+          devLog('scroll: dropped a drag whose pointer is gone');
+        }
+      }
+    }
+    if (this.barPointerId !== null) {
+      const owner = this.pointerOf(this.barPointerId);
+      if (owner === null || owner.isDown !== true) {
+        this.endBarDrag();
+        if (isDevMode()) {
+          devLog('scroll: dropped a scrollbar drag whose pointer is gone');
+        }
+      }
+    }
+
     if (this.activePointers.length === 0) {
       return;
     }
@@ -1229,8 +1264,42 @@ export class ScrollView extends Widget {
     }
     if (this.dragStart !== null) {
       this.endDrag();
+      return;
+    }
+    // Ownership can outlive the drag when the press never moved: the arming path clears `dragStart`
+    // (a scrollbar press, a nested port owning the gesture, a click that never travelled), but the
+    // owner itself has to be released here. Leaving it set wedged the view — every later press was
+    // refused by the ownership guard in `onPointerDown`, so a single *click* inside the port
+    // permanently disabled dragging it (V24; measured: after clicking a row, both mouse and touch
+    // drags were dead until a scene restart).
+    if (pointer) {
+      if (this.dragPointerId === pointer.id) {
+        this.releaseDrag();
+      }
+      if (this.barPointerId === pointer.id) {
+        this.endBarDrag();
+      }
     }
   };
+
+  /**
+   * The scene's pointer object with this id, or `null`.
+   *
+   * Phaser keeps one `Pointer` per id in `InputManager#pointers`, indexed by that id (`Pointer` gets
+   * `id` from the loop that creates them), so a pointer that has gone away still has an entry — which
+   * is exactly what the "is it still down?" poll below needs.
+   */
+  private pointerOf(id: number): Phaser.Input.Pointer | null {
+    const pointers = this.scene?.input?.manager?.pointers as Phaser.Input.Pointer[] | undefined;
+    return pointers?.[id] ?? null;
+  }
+
+  /** Drops the drag ownership and the in-flight drag state (the fling keeps coasting if it had started). */
+  private releaseDrag(): void {
+    this.dragStart = null;
+    this.dragPointerId = null;
+    this.dragging = false;
+  }
 
   private endBarDrag(): void {
     this.barDrag = null;
@@ -1240,8 +1309,7 @@ export class ScrollView extends Widget {
 
   private endDrag(): void {
     const wasDragging = this.dragging;
-    this.dragStart = null;
-    this.dragging = false;
+    this.releaseDrag();
     if (!wasDragging || !this.inertiaEnabled) {
       return;
     }

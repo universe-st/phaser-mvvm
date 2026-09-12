@@ -19,7 +19,14 @@ interface Node extends TargetNode {
 
 function node(
   name: string,
-  options: { x?: number; y?: number; width?: number; height?: number; visible?: boolean } = {},
+  options: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    visible?: boolean;
+    clipsPointer?: boolean;
+  } = {},
 ): Node {
   const children: Node[] = [];
   return {
@@ -27,6 +34,7 @@ function node(
     x: options.x ?? 0,
     y: options.y ?? 0,
     visible: options.visible,
+    clipsPointer: options.clipsPointer,
     appliedRect: { width: options.width ?? 100, height: options.height ?? 100 },
     children,
     getWidgetChildren: () => children,
@@ -150,5 +158,76 @@ describe('resolveTargetInTree', () => {
     );
 
     expect(resolveTargetInTree(root, () => ({ x: 10, y: 10 }), target)?.name).toBe('root');
+  });
+});
+
+describe('resolveTargetInTree · clipping containers', () => {
+  /** A port: a 100x100 box whose 500px-tall content sticks out below it (and is masked away). */
+  function portView(): { viewport: Node; farRow: Node; nearRow: Node } {
+    const nearRow = node('nearRow', { y: 10, width: 100, height: 40 });
+    const farRow = node('farRow', { y: 300, width: 100, height: 40 });
+    const content = node('content', { width: 100, height: 500 });
+    content.children.push(nearRow, farRow);
+    const viewport = withChild(
+      node('viewport', { width: 100, height: 100, clipsPointer: true }),
+      content,
+    );
+    return { viewport, farRow, nearRow };
+  }
+
+  it('hits content that is inside the clipping box', () => {
+    const { viewport, nearRow } = portView();
+    const root = withChild(node('root', { width: 300, height: 300 }), viewport);
+
+    // A point inside the port, on the row that is actually visible there.
+    const hit = resolveTargetInTree(root, () => ({ x: 50, y: 20 }), target);
+
+    expect(hit?.name).toBe('nearRow');
+    expect(nearRow.x).toBe(0);
+  });
+
+  it('skips content outside the clipping box, even though its own rect contains the point', () => {
+    // `farRow` spans y 300..340 and does contain the point - it is simply hidden by the viewport's
+    // mask. This is V23: a row scrolled out of a `ScrollView` used to hover and click at its logical
+    // position, including *below* the port.
+    const { viewport, farRow } = portView();
+    const root = withChild(node('root', { width: 300, height: 300 }), viewport);
+
+    const hit = resolveTargetInTree(root, () => ({ x: 50, y: 320 }), target);
+
+    expect(farRow.appliedRect.height).toBe(40);
+    expect(hit).toBeNull();
+  });
+
+  it('lets what is painted below the port win instead of the clipped content', () => {
+    // The port is the *last* child (painted on top, so the walk visits it first); the card underneath
+    // is what the user sees at that point, so the press has to reach it.
+    const { viewport } = portView();
+    const card = withChild(
+      node('card', { y: 300, width: 300, height: 200 }),
+      node('cardInner', { width: 300, height: 200 }),
+    );
+    const root = withChild(withChild(node('root', { width: 300, height: 300 }), card), viewport);
+
+    const hit = resolveTargetInTree(root, () => ({ x: 50, y: 320 }), target);
+
+    expect(hit?.name).toBe('cardInner');
+  });
+
+  it('clips a nested port too', () => {
+    const innerRow = node('innerRow', { y: 200, width: 50, height: 20 });
+    const innerPort = withChild(
+      node('innerPort', { width: 50, height: 50, clipsPointer: true }),
+      withChild(node('innerContent', { width: 50, height: 300 }), innerRow),
+    );
+    const outerPort = withChild(
+      node('outerPort', { width: 100, height: 100, clipsPointer: true }),
+      withChild(node('outerContent', { width: 100, height: 300 }), innerPort),
+    );
+    const root = withChild(node('root', { width: 300, height: 300 }), outerPort);
+
+    // Inside the outer port but outside the inner one, and outside both at the bottom.
+    expect(resolveTargetInTree(root, () => ({ x: 20, y: 120 }), target)?.name).not.toBe('innerRow');
+    expect(resolveTargetInTree(root, () => ({ x: 20, y: 220 }), target)?.name).not.toBe('innerRow');
   });
 });

@@ -71,9 +71,15 @@ export interface InputRouterOptions {
  *   agree with it (ADR-0009).
  * - `isTarget(node)` - whether the node itself can receive input (registered and enabled).
  *
- * Containers are tested *after* their children, which is the "deepest first" order. A node whose
- * `visible` is `false` is not visited at all - neither it nor its subtree can be hit, matching the
- * layout rule that a hidden widget leaves the flow.
+ * Containers are tested *after* their children, which is the "deepest first" order. Two rules cut a
+ * whole subtree out of the walk:
+ *
+ * - a node whose `visible` is `false` (neither it nor its subtree can be hit, matching the layout rule
+ *   that a hidden widget leaves the flow),
+ * - a node whose `clipsPointer` is `true` (a `ScrollView`) **when the point is outside that node's own
+ *   box**: the mask hides the content there, so it must not be clickable either. Without this the
+ *   content of a scrolled port stayed live at its logical position - a row scrolled out of view
+ *   hovered and clicked through the page *below the port* (V23, measured on `#/pages`).
  */
 export function resolveTargetInTree<N extends TargetNode>(
   root: N,
@@ -81,6 +87,21 @@ export function resolveTargetInTree<N extends TargetNode>(
   isTarget: (node: N) => boolean,
 ): N | null {
   const visit = (node: N, offsetX: number, offsetY: number): N | null => {
+    // `offset` already includes this node's own position, so the point is expressed relative to the
+    // node's origin: the box to test is (0,0)-(width,height), *not* its parent-local rect.
+    const rect = node.appliedRect;
+    const point = pointFor(node);
+    const localX = point.x - offsetX;
+    const localY = point.y - offsetY;
+    const inside = localX >= 0 && localX <= rect.width && localY >= 0 && localY <= rect.height;
+
+    // A clipping container hides its content outside its own box, so that content cannot be hit
+    // either. Tested *before* descending, which is the whole point: the content below the port must
+    // not win over whatever the user actually sees there (V23).
+    if (!inside && node.clipsPointer === true) {
+      return null;
+    }
+
     const children = node.getWidgetChildren();
     for (let i = children.length - 1; i >= 0; i--) {
       const child = children[i];
@@ -97,13 +118,6 @@ export function resolveTargetInTree<N extends TargetNode>(
       return null;
     }
 
-    // `offset` already includes this node's own position, so the point is expressed relative to the
-    // node's origin: the box to test is (0,0)-(width,height), *not* its parent-local rect.
-    const rect = node.appliedRect;
-    const point = pointFor(node);
-    const localX = point.x - offsetX;
-    const localY = point.y - offsetY;
-    const inside = localX >= 0 && localX <= rect.width && localY >= 0 && localY <= rect.height;
     return inside ? node : null;
   };
 
@@ -120,6 +134,11 @@ export interface TargetNode {
   y: number;
   /** `false` removes the node *and* its subtree from hit testing. */
   visible?: boolean;
+  /**
+   * `true` for a node that clips its content to its own box (a `ScrollView`): a point outside that box
+   * cannot hit the node *or anything below it*.
+   */
+  clipsPointer?: boolean;
   /** Rect assigned by the layout engine, in the parent's local coordinates. */
   appliedRect: { width: number; height: number };
   getWidgetChildren(): readonly TargetNode[];
