@@ -33,6 +33,8 @@
 
 import { devLog, isDevMode } from '@phaser-mvvm/core';
 import type { PageBackTarget } from './back-plan';
+import { planPageMotion, type PageMotionPlan } from './page-motion';
+import type { TransitionOverride, TransitionRun } from './transition';
 import type { MVVMPlugin } from './plugin';
 import type { Widget } from './Widget';
 import { buildUiPage } from './ui-build';
@@ -56,6 +58,12 @@ export interface PageOptions {
    * host then neither pops nor forwards the action.
    */
   onBack?: (page: PageHandle) => boolean;
+  /**
+   * Motion for this page only: `false` to appear and disappear instantly, or a transition spec to
+   * override the plugin's policy for it. Defaults to the policy from
+   * `MVVMPlugin.configure({ transition: … })`, which is what the modal layers use too.
+   */
+  transition?: TransitionOverride;
 }
 
 /** What `push()` hands back: the page's widgets and its place in the stack. */
@@ -111,6 +119,17 @@ export class PageHost {
   private readonly plugin: MVVMPlugin;
   private readonly stack: PageEntry[] = [];
   private counter = 0;
+  /**
+   * Moves that are still being animated.
+   *
+   * Each entry knows how to apply its own end state (hide the page that was covered / destroy the page
+   * that left). A new stack move **finishes them first**, so fast tapping snaps the previous cross fade
+   * to its end instead of leaving a page painted that nothing will ever hide — `TransitionRunner#cancel`
+   * deliberately does not call a run's `onDone`, which is exactly why the finaliser has to live here.
+   */
+  private readonly pending: Array<{ readonly finish: () => void; readonly targets: Widget[] }> = [];
+  /** The page a `pop()` is currently fading out, if any (it is already off the stack). */
+  private departingEntry: PageEntry | null = null;
 
   constructor(plugin: MVVMPlugin) {
     this.plugin = plugin;
@@ -138,6 +157,17 @@ export class PageHost {
   }
 
   /**
+   * The page that is fading out right now, or `null`.
+   *
+   * A popped page leaves the stack immediately (its handle is closed, focus has already moved on) but is
+   * still painted for one `transition.exit`, and this is the only way to name it — for a dev trace, or
+   * for a check that wants to read its alpha.
+   */
+  get departing(): PageHandle | null {
+    return this.departingEntry ? this.handleOf(this.departingEntry) : null;
+  }
+
+  /**
    * Builds `content` in its own UI scope and shows it as the new top page.
    *
    * The page that was on top is hidden, not destroyed: `pop()` brings it back byte for byte. That is
@@ -157,8 +187,15 @@ export class PageHost {
     this.stack.push(entry);
 
     const previous = this.stack[this.stack.length - 2];
+    const motion = this.motionFor('forward', entry);
     if (previous && previous.widget.isDestroyed !== true) {
-      previous.widget.setVisible(false);
+      // The page below stays **painted** while the new one fades in over it: hiding it first would show
+      // the background through the fade. It loses its routing instead, so a click during those 160 ms
+      // cannot land on a page the user has already left (`Widget#routingEnabled`).
+      previous.widget.routingEnabled = motion.incoming === null;
+      if (motion.incoming === null) {
+        previous.widget.setVisible(false);
+      }
       previous.options.onPause?.(this.handleOf(previous));
     }
 
@@ -177,8 +214,37 @@ export class PageHost {
     plugin.refreshInteraction();
 
     options.onResume?.(this.handleOf(entry));
+
+    if (motion.incoming !== null && previous && previous.widget.isDestroyed !== true) {
+      // The cross fade: the incoming page goes from alpha 0 to its own value while the page below keeps
+      // painting. One target, one run, and the end state is a single `setVisible(false)`.
+      this.finishPending();
+      const covered = previous;
+      this.runMotion([{ target: widget, transition: motion.incoming, props: ['alpha'] }], () => {
+        if (covered.widget.isDestroyed !== true) {
+          covered.widget.routingEnabled = true;
+          // Only hide it while it is still covered. A push that is popped *while its own fade is running*
+          // makes the page below the visible one again — and this finaliser is then a leftover from a
+          // move that no longer applies. Hiding it anyway left the revealed page invisible, so its focus
+          // scope collected nothing and `Tab` had nowhere to go (measured on `#/pages`: `focusables` 18 →
+          // 0 after one `open()` + immediate `pop()`, which is exactly what `churn()` does).
+          if (this.stack[this.stack.length - 1] !== covered) {
+            covered.widget.setVisible(false);
+          }
+          this.plugin.refreshInteraction();
+          this.plugin.root.flushLayout();
+        }
+        if (isDevMode()) {
+          devLog(`pages.push: ${covered.name} settled after the transition`);
+        }
+      });
+    }
+
     if (isDevMode()) {
-      devLog(`pages.push: ${name} (depth ${this.stack.length}, ${built.widgets} widget(s))`);
+      devLog(
+        `pages.push: ${name} (depth ${this.stack.length}, ${built.widgets} widget(s))` +
+          (motion.incoming === null ? '' : ` — fading in over ${motion.incoming.duration} ms`),
+      );
     }
     return this.handleOf(entry);
   }
@@ -204,12 +270,37 @@ export class PageHost {
     // popping first dropped focus instead of handing it back (found by the `#/pages` sweep).
     if (next && next.widget.isDestroyed !== true) {
       next.widget.setVisible(true);
+      // Routed again, whatever a half-finished transition left behind: it is the page the user is on now.
+      next.widget.routingEnabled = true;
       // It was out of flow while hidden, so lay it out again before anything reads its geometry.
       this.plugin.root.flushLayout();
     }
 
     this.plugin.focus.popScope();
-    this.destroyPage(entry);
+
+    // The leaving page is the one that fades here (the revealed page is simply there — fading it in would
+    // flash the background). It stays painted above the revealed page until its run ends, with routing
+    // off, and is destroyed then: "closed" is immediate, "gone" is 120 ms later, exactly like the modal.
+    const motion = this.motionFor('back', entry);
+    this.finishPending();
+    if (motion.outgoing === null) {
+      this.departingEntry = null;
+      this.destroyPage(entry);
+    } else {
+      entry.widget.routingEnabled = false;
+      const leaving = entry;
+      this.departingEntry = leaving;
+      this.plugin.refreshInteraction();
+      this.runMotion(
+        [{ target: leaving.widget, transition: motion.outgoing, props: ['alpha'] }],
+        () => {
+          if (this.departingEntry === leaving) {
+            this.departingEntry = null;
+          }
+          this.destroyPage(leaving);
+        },
+      );
+    }
 
     if (next && next.widget.isDestroyed !== true) {
       this.plugin.modal.raiseLayers();
@@ -217,7 +308,10 @@ export class PageHost {
       next.options.onResume?.(this.handleOf(next));
     }
     if (isDevMode()) {
-      devLog(`pages.pop: ${entry.name} (depth ${this.stack.length})`);
+      devLog(
+        `pages.pop: ${entry.name} (depth ${this.stack.length})` +
+          (motion.outgoing === null ? '' : ` — fading out over ${motion.outgoing.duration} ms`),
+      );
     }
     return true;
   }
@@ -277,6 +371,10 @@ export class PageHost {
    * the pages must stop claiming to be visible, and the app still gets its `onDispose` notifications.
    */
   dispose(): void {
+    // Every page dies with the UI root, so the finalisers must not run: they would touch a root that is
+    // being destroyed (and `destroyPage` would tell `onDispose` twice for the same page).
+    this.pending.length = 0;
+    this.departingEntry = null;
     const entries = this.stack.splice(0, this.stack.length);
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
@@ -289,6 +387,50 @@ export class PageHost {
   }
 
   /** Tears one page's subtree down and tells its `onDispose`. The scope is popped by the caller. */
+  /**
+   * The motion a stack move wants, resolved from the plugin policy plus the page's own override.
+   *
+   * Resolved at the moment of the move (not cached), so `mvvm.configure({ transition: … })` and a
+   * `prefers-reduced-motion` change both reach the next navigation.
+   */
+  private motionFor(direction: 'forward' | 'back', entry: PageEntry): PageMotionPlan {
+    return planPageMotion(direction, this.plugin.transitionFor(entry.options.transition));
+  }
+
+  /**
+   * Starts a move's runs and remembers how to finish it if another move interrupts.
+   *
+   * The runner's `cancel()` deliberately does not call a run's `onDone` (a scene teardown must not touch
+   * a dying tree), so the end state — hide the covered page, destroy the leaving one — is kept here.
+   */
+  private runMotion(runs: readonly TransitionRun[], finish: () => void): number {
+    const started = this.plugin.transitions.runGroup(runs, () => {
+      const index = this.pending.findIndex((entry) => entry.finish === finish);
+      if (index !== -1) {
+        this.pending.splice(index, 1);
+      }
+      finish();
+    });
+    if (started > 0) {
+      this.pending.push({ finish, targets: runs.map((run) => run.target as Widget) });
+    }
+    return started;
+  }
+
+  /** Applies the end state of every move still in flight — a new navigation snaps them to their end. */
+  private finishPending(): void {
+    if (this.pending.length === 0) {
+      return;
+    }
+    const moves = this.pending.splice(0, this.pending.length);
+    for (const move of moves) {
+      for (const target of move.targets) {
+        this.plugin.transitions.cancel(target);
+      }
+      move.finish();
+    }
+  }
+
   private destroyPage(entry: PageEntry): void {
     entry.closed = true;
     const root = this.plugin.root;

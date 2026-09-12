@@ -410,20 +410,35 @@ export class RouterScene extends Phaser.Scene {
 
   private reported = false;
 
+  /**
+   * Resolves once no page transition is running.
+   *
+   * Since round 78 a popped page is destroyed one exit animation after it leaves the stack, so anything
+   * that compares counters has to wait for this first (the gate below, and `#/modal`'s).
+   */
+  settle(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = (): void => {
+        if (this.mvvm.transitions.pending === 0) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    });
+  }
+
   counts(): {
     widgets: number;
     themeListeners: number;
     pointerTargets: number;
     focusables: number;
   } {
-    let widgets = 0;
-    for (const handle of this.mvvm.pages.handles) {
-      if (!handle.widget.isDestroyed) {
-        widgets += countWidgets(handle.widget);
-      }
-    }
+    // From the **UI root**: a popped page is still painted for one exit animation and has already left
+    // the stack, so counting the stack would call a tree clean while a page was still attached.
     return {
-      widgets,
+      widgets: countWidgets(this.mvvm.root),
       themeListeners: themeListenerCount(),
       pointerTargets: this.mvvm.input.widgets.length,
       focusables: this.mvvm.focus.focusables.length,
@@ -530,18 +545,35 @@ export class RouterScene extends Phaser.Scene {
       }),
       counts: () => this.counts(),
       /** Navigates and pops `n` times — the leak gate for pages created through the table. */
-      churn: (
+      // Async, and settled after every pass: since round 78 a popped page stays painted for one exit
+      // animation before it is destroyed, so sampling immediately compared a tree with a fading page in
+      // it against one without (measured: `themeListeners` 16 → 22 on the first run after page
+      // transitions landed). Every pass still has to land on the same numbers.
+      churn: async (
         n: number,
-      ): {
+      ): Promise<{
         before: ReturnType<RouterScene['counts']>;
         after: ReturnType<RouterScene['counts']>;
-      } => {
+      }> => {
         const before = this.counts();
         for (let i = 0; i < n; i++) {
           this.go(`user/${(i % ITEMS.length) + 1}/posts`);
           this.mvvm.router.back();
+          await this.settle();
         }
         return { before, after: this.counts() };
+      },
+      /** Resolves once no page transition is running (the leak gate samples after this). */
+      settle: (): Promise<void> => this.settle(),
+      /** Opens a route and resolves after its transition — the "what does the user see" case. */
+      openAndSettle: async (path: string): Promise<Record<string, unknown>> => {
+        this.go(path);
+        await this.settle();
+        return {
+          path: this.mvvm.router.current?.path ?? 'none',
+          key: this.mvvm.router.current?.key ?? 'none',
+          depth: this.mvvm.router.depth,
+        };
       },
       /** How many navigations this scene has performed (paired with `route.disposes` in the gate). */
       visited: (): number => this.visited,

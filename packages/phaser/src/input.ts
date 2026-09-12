@@ -87,6 +87,11 @@ export function resolveTargetInTree<N extends TargetNode>(
   isTarget: (node: N) => boolean,
 ): N | null {
   const visit = (node: N, offsetX: number, offsetY: number): N | null => {
+    // `routingEnabled: false` is "painted but not a target" (a page fading out under the page above
+    // it, an overlay that must not intercept yet): the subtree keeps its pixels and loses its routing.
+    if (node.routingEnabled === false) {
+      return null;
+    }
     // `offset` already includes this node's own position, so the point is expressed relative to the
     // node's origin: the box to test is (0,0)-(width,height), *not* its parent-local rect.
     const rect = node.appliedRect;
@@ -105,7 +110,7 @@ export function resolveTargetInTree<N extends TargetNode>(
     const children = node.getWidgetChildren();
     for (let i = children.length - 1; i >= 0; i--) {
       const child = children[i];
-      if (!child || child.visible === false) {
+      if (!child || child.visible === false || child.routingEnabled === false) {
         continue;
       }
       const found = visit(child as N, offsetX + child.x, offsetY + child.y);
@@ -134,6 +139,11 @@ export interface TargetNode {
   y: number;
   /** `false` removes the node *and* its subtree from hit testing. */
   visible?: boolean;
+  /**
+   * `false` removes the node *and its subtree* from hit testing while it is still painted and laid out
+   * (`Widget#routingEnabled`) — the difference between "hidden" and "on screen but not a target".
+   */
+  routingEnabled?: boolean;
   /**
    * `true` for a node that clips its content to its own box (a `ScrollView`): a point outside that box
    * cannot hit the node *or anything below it*.
@@ -823,6 +833,10 @@ export function collectInteractive(root: Widget): Widget[] {
   const found: Widget[] = [];
 
   const visit = (widget: Widget): void => {
+    // Note what is *not* here: `routingEnabled`. That flag only steers the hit-test walk, so a subtree
+    // that is painted but not routed stays in this collection — and therefore in the accessibility
+    // mirror, where removing and re-creating thirteen nodes twice per page transition would be worse
+    // than announcing a page that is still on screen.
     // `blockPointer` widgets (the default for panels) are collected too: they are not activatable,
     // but being a target is exactly what makes them swallow a pointer that would otherwise reach
     // whatever is painted behind them.

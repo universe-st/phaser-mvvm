@@ -315,6 +315,21 @@ export class PagesScene extends Phaser.Scene {
     this.publish('appBacks', this.appBacks);
     this.publish('resumes', this.resumeCount);
     this.publish('disposes', this.disposeCount);
+    // Motion probes: which page is fading and how far it has got. `pending` is the honest "is anything
+    // still moving" — a popped page is destroyed one exit animation later, so the leak gate waits for it.
+    const motion = this.motionState();
+    this.publish('motion.pending', motion.pending);
+    this.publish('motion.enter', motion.enter);
+    this.publish('motion.exit', motion.exit);
+    this.publish('motion.routing', motion.routing);
+    this.publish('motion.top', motion.top);
+    this.publish('motion.topAlpha', motion.topAlpha);
+    this.publish('motion.below', motion.below);
+    this.publish('motion.belowAlpha', motion.belowAlpha);
+    this.publish('motion.departing', motion.departing);
+    this.publish('motion.departingAlpha', motion.departingAlpha);
+    this.publish('motion.departingRouted', motion.departingRouted);
+
     this.publish('counts.widgets', counts.widgets);
     this.publish('counts.themeListeners', counts.themeListeners);
     this.publish('counts.pointerTargets', counts.pointerTargets);
@@ -325,6 +340,61 @@ export class PagesScene extends Phaser.Scene {
     );
   }
 
+  /**
+   * What the page stack's motion is doing right now, for the acceptance run.
+   *
+   * `top`/`below` are the two page roots involved in the current move and their alphas are read off the
+   * live widgets (so a curve sampled here is the curve on screen). `routing` reports whether the page
+   * below is still a pointer target — during a cross fade it must not be.
+   */
+  motionState(): {
+    pending: number;
+    enter: number;
+    exit: number;
+    top: string;
+    topAlpha: number;
+    below: string;
+    belowAlpha: number;
+    routing: string;
+    departing: string;
+    departingAlpha: number;
+    departingRouted: string;
+  } {
+    const policy = this.mvvm.transitionFor();
+    const handles = this.mvvm.pages.handles;
+    const top = handles[handles.length - 1];
+    const below = handles[handles.length - 2];
+    const departing = this.mvvm.pages.departing;
+    return {
+      pending: this.mvvm.transitions.pending,
+      enter: policy.enter.duration,
+      exit: policy.exit.duration,
+      top: top?.name ?? 'none',
+      topAlpha: top ? round3(top.widget.alpha) : -1,
+      below: below?.name ?? 'none',
+      belowAlpha: below ? round3(below.widget.alpha) : -1,
+      routing: below ? String(below.widget.routingEnabled) : 'none',
+      // The page a pop is fading out: off the stack already, still on screen.
+      departing: departing?.name ?? 'none',
+      departingAlpha: departing ? round3(departing.widget.alpha) : -1,
+      departingRouted: departing ? String(departing.widget.routingEnabled) : 'none',
+    };
+  }
+
+  /** Resolves once nothing is animating (the leak gate samples after this). */
+  settle(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = (): void => {
+        if (this.mvvm.transitions.pending === 0) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    });
+  }
+
   /** Live-object counters used as the leak gate. */
   counts(): {
     widgets: number;
@@ -332,12 +402,10 @@ export class PagesScene extends Phaser.Scene {
     pointerTargets: number;
     focusables: number;
   } {
-    let widgets = 0;
-    for (const handle of this.mvvm.pages.handles) {
-      if (!handle.widget.isDestroyed) {
-        widgets += countWidgets(handle.widget);
-      }
-    }
+    // Counted from the **UI root**, not from the stack: a popped page is still painted for another
+    // `transition.exit` milliseconds and is no longer in `handles`, so counting the stack would call a
+    // tree clean while a page was still attached (the same trap `#/modal` hit in round 74).
+    const widgets = countWidgets(this.mvvm.root);
     return {
       widgets,
       themeListeners: themeListenerCount(),
@@ -459,6 +527,19 @@ export class PagesScene extends Phaser.Scene {
         return this.listOffsetNow();
       },
       counts: () => this.counts(),
+      /** The page stack's motion right now (`pending`, the two alphas, whether the page below is routed). */
+      motion: (): ReturnType<PagesScene['motionState']> => this.motionState(),
+      /** Resolves once no page transition is running. */
+      settle: (): Promise<void> => this.settle(),
+      /** Pushes a page and resolves after its transition (the "what does the user see" case). */
+      openAndSettle: async (index: number): Promise<string> => {
+        const row = ROWS[index - 1];
+        if (row) {
+          this.pushDetail(row);
+        }
+        await this.settle();
+        return this.mvvm.pages.top?.name ?? 'none';
+      },
       /**
        * Exercises the shared "what may a view lambda produce" rule on the page path.
        *
@@ -493,11 +574,15 @@ export class PagesScene extends Phaser.Scene {
         return { multi, empty };
       },
       /** Push/pop `n` pages: every counter must come back to where it started. */
-      churn: (n: number) => {
+      churn: async (n: number) => {
+        // Async, and settled after every pass: a popped page is destroyed one exit animation later, so
+        // sampling immediately would compare a tree with a ghost in it against one without. The gate is
+        // unchanged in strength — every pass still has to land on the same numbers.
         const before = this.counts();
         for (let i = 0; i < n; i++) {
           this.pushDetail(ROWS[i % ROWS.length] as Row);
           this.mvvm.pages.pop();
+          await this.settle();
         }
         return { before, after: this.counts(), events: this.log.length };
       },
@@ -516,6 +601,11 @@ export class PagesScene extends Phaser.Scene {
     };
     (window as unknown as { pages?: unknown }).pages = api;
   }
+}
+
+/** Three decimals: enough to see a fade curve, short enough for a `#demo-state` line. */
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 /** Number of widgets in a subtree, the root included. */

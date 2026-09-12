@@ -124,6 +124,22 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
   focusable = false;
 
   /**
+   * Whether this widget (and its whole subtree) can be hit by the pointer. `false` means **painted and
+   * laid out, but not a pointer target**.
+   *
+   * `visible: false` is the blunt version of the same idea: it also drops the subtree out of the layout
+   * flow and stops painting it. That is wrong for a page that is still on screen while the page above it
+   * fades in (a transition), or for an overlay that must not intercept the pointer yet — those keep their
+   * pixels and lose only their routing.
+   *
+   * The hit-test walk is the only reader: the widget stays in `InputRouter#widgets` (and therefore in the
+   * accessibility mirror), because a subtree that is painted is still part of what the user sees, and
+   * re-creating its mirror nodes twice per transition would be worse than a page that is briefly not
+   * clickable.
+   */
+  routingEnabled = true;
+
+  /**
    * Ordering hint for the focus manager; ties keep the widget-tree order. Named `focusOrder`
    * because `tabIndex` already exists on `Phaser.GameObjects.GameObject`.
    */

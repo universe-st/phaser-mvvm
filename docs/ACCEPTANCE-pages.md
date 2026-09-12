@@ -124,9 +124,39 @@ depth  1（报错那次没有改动栈）
 
 ## 4. 未覆盖 / 有意不做
 
-- **页面转场动画**：`PageOptions` 里没有动画/过渡钩子（PLAN M8 的这一项仍未实现），`push()`/`pop()` 都是立即生效。
+- ~~**页面转场动画**~~：第 78 轮已交付，见 §5（`PageOptions.transition` + 交叉淡入淡出 + `Widget#routingEnabled` 盾牌）。
 - **URL / 路由表**：`pages` 只是一叠页面，不做路径匹配（PLAN 里也写明「不做 URL 路由」）。
 - **弹出最后一页**：`pop()` 在只剩顶层时返回 `false`（弹空会留下白屏），需要空栈请显式 `dispose()` 或换页。
-- **触摸**：本轮验收全部用鼠标 + 键盘；触摸与鼠标共用同一套命中区与 `onActivate`，但**未在真机上跑过**（同 `ACCEPTANCE-modal.md` §5 的说明）。
+- **触摸**：转场这一项用鼠标 + 键盘 + **CDP 触摸域**都跑过（§5 的 P11）；真机（iOS/Android）与软键盘仍未跑（同 `ACCEPTANCE-modal.md` §5 的说明）。
 - **`mount()`/`render()` 与 `pages` 混用**：两者是并行用法，混用时的层序行为只做了「对话框抬到最上」这一条保护，未做更多约定。
 - **像素门禁**：`#/pages` 没有加进 `scripts/visual-check.mjs`（它的重点是交互与状态，几何由 `#status` 里的三行 + MCP 断言覆盖）。
+
+---
+
+## 5. 页面转场（第 78 轮）
+
+页面前进/后退以前是瞬间切换。现在两个方向都是**在两张都在屏幕上的页面之间做交叉淡入淡出**：推进时新页淡入、下面那页**保持像素**直到淡完才隐藏；返回时下面那页**立刻**出现、离开的那页在它上面淡出，淡完才销毁。
+
+**关键机制**：`Widget#routingEnabled = false` —— "画着，但不是一个指针目标"。`visible: false` 是同一件事的粗暴版本（它还退出布局流、停止绘制），而转场需要的是"保留像素、只失去路由"。这一条只影响命中测试（`resolveTargetInTree` 跳过该子树）；控件**仍然留在** `InputRouter#widgets` 与无障碍镜像里，因为把它们从镜像里摘掉再建回来（每次转场两次）比"页面短暂不可点"更糟。
+
+| #   | 判据                         | 实测                                                                                                                                                                                                                                                                                                  |
+| --- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | 推进：新页淡入               | `list → detail:1` 逐帧 `topAlpha` 0.28 → 0.885 → 1（`pending` 1 → 0，约 160 ms）                                                                                                                                                                                                                      |
+| P2  | 推进：下页保留像素、不接指针 | 转场期间 `motion.routing=false`（下页），淡完 `routing=true` 且 `setVisible(false)`                                                                                                                                                                                                                   |
+| P3  | **点击盾牌**                 | 转场期间在下页按钮（`list.counter`，@640,250）真实点一下：`clicks` 保持 **0**（没有打到已经离开的那一页）                                                                                                                                                                                             |
+| P4  | 返回：离开页淡出后销毁       | `departing=detail:2`，`departingAlpha` 0.998 → 0.828 → 0.106 → `none`；`departingRouted=false` 全程；`widgets` 31 → **25**（幽灵销毁，无泄漏）                                                                                                                                                        |
+| P5  | 返回：语义立即生效           | `pop()` 当帧：`depth` 已减 1、焦点交回下页、`counts` 仍含幽灵（诚实计数：从 **UI 根**数，不是从页面栈数）                                                                                                                                                                                             |
+| P6  | 几何与动效无关               | 同一次导航：动效开/关的 `#status` 矩形**逐字相同**（`list.page=@360,125 560x470` 等）                                                                                                                                                                                                                 |
+| P7  | 关掉动效就是老路径           | `mvvm.configure({ transition: false })` / `prefers-reduced-motion` → 两个方向都当帧完成（`pending=0`）                                                                                                                                                                                                |
+| P8  | 快速连点                     | 同一 tick 内 `open→open→pop→open`：停在 `depth 3 / detail:3`，`names=[list, detail:1, detail:3]`（被 pop 掉的 `detail:2` 不在），随后 `popToRoot` 回到干净基页（`focusables=18`、计数回基线）                                                                                                         |
+| P9  | 转场期间按 `Esc`             | `depth 2 → 1`、`departing=detail:1`（一边淡出一边返回）；基页再按 `Esc` 走到应用层（`appBacks=1`）                                                                                                                                                                                                    |
+| P10 | 泄漏                         | `churn(10)`（每轮 `await settle()`）：`{widgets 25, themeListeners 26, pointerTargets 19, focusables 18}` 前后一致                                                                                                                                                                                    |
+| P11 | 真实输入                     | 鼠标点行 → `detail:2`（`pending=1`）；点详情页「返回」→ `depth 1` + `departing=detail:2`；**触摸**（`Input.dispatchTouchEvent`）tap 行 → `detail:1`（`pending=1`）→ 落定后 `focusables=3`/`counts 31`，tap「返回」→ `depth 1` + `departing=detail:1` → 落定后 `counts 25`/`focusables 18`/`pending 0` |
+
+**策略**：沿用 `MVVMPluginConfig.transition`（默认进场 160 ms `outCubic`、出场 120 ms `inCubic`），逐页用 `PageOptions.transition` 覆盖（`false` = 这一页立刻出现/消失）；默认遵循 `prefers-reduced-motion`。**只动 alpha**：页面的 `x` 归布局所有（`flushLayout()` 在转场步进**之前**跑，动画写完后不会被同一帧覆盖，但下一次布局就会把它放回去），而整页缩放会朝左上角收缩——所以滑入/缩放都不做，这一点与对话框只缩放主体是同一个理由。
+
+### 同轮修掉的缺陷（V46）
+
+**推进的淡入还没播完就被自己 pop 掉时，刚露出来的那页会被隐藏**。`push()` 的收尾动作（"把被盖住的那页隐藏"）挂在动画结束回调上；如果用户（或 `churn()` 这种代码）在同一次 tick 里 pop，那个回调就成了**一次不再成立的移动留下的残留**，它会把 pop 刚刚显示出来的页面又隐藏掉——于是那一页的焦点作用域收集到 0 个控件，`Tab` 无处可去。实测：`open(1)` + 立刻 `pop()` 之后 `focusables 18 → 0`（而且再也不恢复）。修法：收尾回调里先判断"这一页是否仍被覆盖"（`stack` 栈顶 !== 它才隐藏），并且在 `pop()` 里显式把重新露出的页面恢复 `visible` + `routingEnabled`。修复后同一序列 `focusables` 保持 18，`churn(10)` 前后一致。
+
+**同轮顺带修的门禁**（不是产品缺陷，但同样会骗人）：`#/router` 的 `churn(20)` 原来是同步的，转场落地后它在采样时能看到还在淡出的页面（`themeListeners` 16 → 22，看着像泄漏）。现在它也是 async + 每轮 `settle()`，并且和 `#/modal`/`#/pages` 一样**从 UI 根**数控件（从页面栈数会漏掉幽灵）。
