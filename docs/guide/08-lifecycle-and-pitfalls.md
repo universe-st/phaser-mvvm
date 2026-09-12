@@ -210,7 +210,6 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 ### 5.3 已知的小缺口
 
 - **文本框的聚焦/失焦没有事件**：只有 `onFocus`/`onBlur` 构造选项（04 §4）。
-- **`WIDGET_EVENTS` 常量没有从包入口导出**：它定义在 `packages/phaser/src/Widget.ts`，但 `packages/phaser/src/index.ts` 只转出了 `Widget`/`WidgetOptions`。所以监听时请直接写事件名字面量 `'widget:activate'` / `'widget:state'`（`BUTTON_EVENTS`、`TEXT_INPUT_EVENTS`、`MODEL_CHANGE_EVENT` 都是公开的，可以正常 import）。
 - **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，需要运行期自行设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
 - **`UIRoot` 不设置 `scrollFactor`**：源码里没有任何 `setScrollFactor(0)`，主相机一旦滚动整棵 UI 会跟着动。要固定在屏幕上请自己调 `this.mvvm.root.setScrollFactor(0)`。
 - **`hideMode` 尚未生效**：`LayoutParams.hideMode` 会被解析保存，但引擎与 `Widget` 都没有读取它；真正决定「是否退出流」的是 `inFlow`（`Widget.inFlow === visible`），所以 `hideMode: 'keep'` 目前没有效果（[02 §3](./02-layout.md)）。
