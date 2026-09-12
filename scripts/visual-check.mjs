@@ -42,7 +42,7 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack', 'hud'];
+const scenes = ['m0', 'probe', 'stack', 'hud', 'modal'];
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.
@@ -53,6 +53,9 @@ const scenes = ['m0', 'probe', 'stack', 'hud'];
  */
 const SCENE_SETUP = {
   hud: 'window.hud.scroll(260, 140)',
+  // The modal scene's dialog only exists once it is opened; the scene reports the dialog's own rects
+  // into #status on the first open of each kind, so this runs before the status read.
+  modal: 'window.modal.open("confirm")',
 };
 
 /**
@@ -66,6 +69,17 @@ const SCENE_SETUP = {
 const CANVAS_CLEAR_AT = {
   hud: [340, 60],
 };
+
+/**
+ * Scenes whose canvas corner is *deliberately* not the clear colour.
+ *
+ * The modal scene's setup opens a dialog, and a dialog's scrim covers the whole canvas by design: the
+ * corner is a translucent blend of the theme background, which is a GPU-rounding question and not a
+ * stable expectation. The scene's own samples carry the check instead - an opaque `danger` fill, and
+ * the dialog surface showing through a transparent `ghost` button, both of which can only look like
+ * that if the overlay was painted above the page.
+ */
+const CANVAS_CLEAR_SKIP = new Set(['modal']);
 
 /**
  * A stale server on the requested port would silently serve an old bundle, so probe for a port that
@@ -105,6 +119,17 @@ const PIXEL_EXPECTATIONS = {
   hud: {
     score: { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
     tile: 0x161b22,
+  },
+  /**
+   * `#/modal` with the confirm dialog open (`window.modal.open("confirm")`):
+   * - `confirm.ok` is the `danger` button, sampled left of its label (`fx: 0.15`) so the fill shows;
+   * - `confirm.cancel` is a `ghost` button, whose normal background is *transparent* - so the sample
+   *   reads the dialog surface behind it (`colors.surface`), never the scrim-darkened page. If the
+   *   layer were painted under the page, both samples would come back as the blend instead.
+   */
+  modal: {
+    'confirm.ok': { rgb: 0xf85149, fx: 0.15, fy: 0.5 },
+    'confirm.cancel': { rgb: 0x161b22, fx: 0.15, fy: 0.5 },
   },
   m0: {
     'rect.blue': 0x2f6feb,
@@ -273,14 +298,15 @@ function pixelSpec(scene, png, status) {
   // Stage coordinates are canvas-relative; the app reports the canvas rect (Phaser may centre it).
   const canvas = rects.get('canvas') ?? { x: 0, y: 0, width: viewWidth, height: viewHeight };
   const [clearX, clearY] = CANVAS_CLEAR_AT[scene] ?? [4, 4];
-  const checks = [
-    {
+  const checks = [];
+  if (!CANVAS_CLEAR_SKIP.has(scene)) {
+    checks.push({
       label: 'canvas.clear',
       x: canvas.x + clearX,
       y: canvas.y + clearY,
       rgb: [0x0d, 0x11, 0x17],
-    },
-  ];
+    });
+  }
 
   for (const [label, expected] of Object.entries(expectations)) {
     const rect = rects.get(label);

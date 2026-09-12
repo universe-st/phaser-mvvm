@@ -1,18 +1,24 @@
 /**
  * `FocusManager` — keyboard/gamepad focus for a widget tree.
  *
- * The manager owns one *collection* of focusable widgets (a stable, ordered list built from the
- * tree) and the single index inside that list that currently holds focus. Everything device
- * specific lives in `nav.ts`; everything pointer specific lives in `input.ts`; this file decides
- * *which* widget should be focused.
+ * The manager owns a stack of *scopes*; each scope has one collection of focusable widgets (a
+ * stable, ordered list built from that scope's root) and the single index inside that list that
+ * currently holds focus. Everything device specific lives in `nav.ts`; everything pointer specific
+ * lives in `input.ts`; this file decides *which* widget should be focused.
  *
- * Two rules shape the design:
+ * Three rules shape the design:
  *
- * - the collection is the boundary: `focus()` ignores widgets that were not collected, and a
- *   trapped manager (`trapFocus`, used by modal pages in M8) cannot lose focus at all,
- * - the interesting algorithms are exported as pure functions (`collectFocusable`,
- *   `stageRectsOf`, `pickDirectional`, `directionalTolerance`) so they can be tested with plain
- *   objects, without a Phaser runtime.
+ * - the collection is the boundary: `focus()` ignores widgets that were not collected,
+ * - only the **top scope** is live. `attach()` installs the base scope (the page); `pushScope()`
+ *   layers another one on top (a modal dialog, PLAN M8) and suspends the one below — its widget
+ *   keeps its place but loses the focus ring, so exactly one widget in the tree ever looks focused,
+ *   and traversal cannot leave the modal,
+ * - `popScope()` restores what the suspended scope had focused, when that widget is still there.
+ *
+ * The interesting algorithms are exported as pure functions (`collectFocusable`, `stageRectsOf`,
+ * `pickDirectional`, `directionalTolerance`) so they can be tested with plain objects, without a
+ * Phaser runtime; the scope stack is covered by `test/focus-scope.test.ts` with the same kind of
+ * fakes.
  */
 
 import type { Rect } from '@phaser-mvvm/layout';
@@ -231,16 +237,52 @@ export interface FocusManagerOptions {
 }
 
 /**
+ * Options of {@link FocusManager.pushScope}.
+ *
+ * `trap`/`wrap` default to the manager's own, so a host that configured a trapping manager gets
+ * trapping scopes without repeating itself; a modal passes `trap: true` explicitly because the page
+ * below it is usually not trapped.
+ */
+export interface FocusScopeOptions {
+  /** Traversal wraps at the ends **and** `blur()` cannot release focus. */
+  trap?: boolean;
+  /** Traversal wraps at the ends. */
+  wrap?: boolean;
+  /**
+   * Focus the first focusable widget of the new scope immediately, instead of waiting for the first
+   * `Tab`. A dialog wants this: `Enter` should activate its default button, not the page's.
+   */
+  focusFirst?: boolean;
+}
+
+/** One level of the focus stack: a root, the widgets collected under it, and the focus index. */
+interface FocusScope {
+  readonly root: Widget;
+  trap: boolean;
+  wrap: boolean;
+  widgets: Widget[];
+  index: number;
+  /**
+   * Widget that held focus in this scope when a deeper scope was pushed, restored by `popScope()`.
+   * Kept across the suspension, because the widget itself is untouched — only its ring was dropped.
+   */
+  suspended: Widget | null;
+}
+
+/** Shared empty answer, so `focusables` never hands out a fresh array per call. */
+const NO_WIDGETS: readonly Widget[] = [];
+
+/**
  * The focus manager of one widget subtree.
  *
  * It implements `FocusTarget`, so `widget.focus()` / `widget.blur()` (`Widget` forwards those to
  * `widget.focusManager`) work without the widget knowing about the scene plugin.
+ *
+ * The scope stack is what makes a modal dialog possible: the dialog's root is pushed as a new scope,
+ * so `Tab`, the arrow keys and pointer-driven focus all walk the dialog's widgets only, and the page
+ * underneath keeps its state until the dialog closes.
  */
 export class FocusManager implements FocusTarget {
-  /** Whether traversal wraps at the ends of the collection. */
-  wrap: boolean;
-  /** When `true`, focus can neither wrap out of the set nor be released. */
-  trapFocus: boolean;
   /** Advisory focus-ring flag, see `FocusManagerOptions.ring`. */
   ring: boolean;
   /** Change callback, writable so hosts can swap it after construction. */
@@ -248,13 +290,13 @@ export class FocusManager implements FocusTarget {
   /** `back` handler, writable for the same reason. */
   onBack: (() => void) | null;
 
-  private rootWidget: Widget | null = null;
-  private widgets: Widget[] = [];
-  private index = -1;
+  private readonly scopes: FocusScope[] = [];
+  private defaultWrap: boolean;
+  private defaultTrap: boolean;
 
   constructor(options: FocusManagerOptions = {}) {
-    this.wrap = options.wrap ?? true;
-    this.trapFocus = options.trapFocus ?? false;
+    this.defaultWrap = options.wrap ?? true;
+    this.defaultTrap = options.trapFocus ?? false;
     this.ring = options.ring ?? true;
     this.onFocusChange = options.onFocusChange ?? null;
     this.onBack = options.onBack ?? null;
@@ -264,83 +306,180 @@ export class FocusManager implements FocusTarget {
     }
   }
 
-  /** Root of the collected subtree, or `null` while detached. */
-  get root(): Widget | null {
-    return this.rootWidget;
+  /**
+   * Whether traversal wraps at the ends of the scope in play.
+   *
+   * Writing it updates the live scope as well as the default for scopes pushed later — the field
+   * used to be a plain property, and a host that flipped it mid-session expects it to take effect.
+   */
+  get wrap(): boolean {
+    return this.topScope()?.wrap ?? this.defaultWrap;
   }
 
-  /** The collected widgets, in navigation order. */
+  set wrap(value: boolean) {
+    this.defaultWrap = value;
+    const top = this.topScope();
+    if (top) {
+      top.wrap = value;
+    }
+  }
+
+  /** When `true`, focus can neither wrap out of the scope in play nor be released. */
+  get trapFocus(): boolean {
+    return this.topScope()?.trap ?? this.defaultTrap;
+  }
+
+  set trapFocus(value: boolean) {
+    this.defaultTrap = value;
+    const top = this.topScope();
+    if (top) {
+      top.trap = value;
+    }
+  }
+
+  /** Root of the scope in play, or `null` while detached. */
+  get root(): Widget | null {
+    return this.topScope()?.root ?? null;
+  }
+
+  /** The collected widgets of the scope in play, in navigation order. */
   get focusables(): readonly Widget[] {
-    return this.widgets;
+    return this.topScope()?.widgets ?? NO_WIDGETS;
   }
 
   /** Widget that currently holds focus, or `null`. */
   get focusedWidget(): Widget | null {
-    return this.index >= 0 ? (this.widgets[this.index] ?? null) : null;
+    const scope = this.topScope();
+    if (!scope || scope.index < 0) {
+      return null;
+    }
+    return scope.widgets[scope.index] ?? null;
   }
 
-  /** True when `widget` is part of the collected set. */
+  /** Number of scopes on the stack; `0` while detached, `1` for a plain page. */
+  get scopeDepth(): number {
+    return this.scopes.length;
+  }
+
+  /** True when `widget` is part of the collection of the scope in play. */
   has(widget: Widget): boolean {
-    return this.widgets.includes(widget);
+    return this.topScope()?.widgets.includes(widget) ?? false;
   }
 
-  /** Sets the root of the collection and collects its focusable widgets. */
+  /**
+   * Installs the **base** scope: the page. Any scope pushed on top of it belongs to a transient
+   * overlay that cannot outlive the page, so re-attaching drops the whole stack.
+   */
   attach(root: Widget): void {
-    if (this.rootWidget === root) {
+    const only = this.scopes.length === 1 ? this.scopes[0] : undefined;
+    if (only && only.root === root) {
       this.refresh();
       return;
     }
     this.detach();
-    this.rootWidget = root;
-    this.refresh();
+    this.scopes.push(this.createScope(root, {}));
+    this.collect(this.scopes[0] as FocusScope);
   }
 
   /**
-   * Re-collects the focusable widgets.
+   * Pushes a new scope on top of the stack and suspends the one below.
    *
-   * Call after the tree changed (a widget was added/removed, or made focusable/visible) or after
-   * `focusOrder` was changed. Focus is kept when the widget is still collectable.
+   * Suspension is what keeps the illusion intact: the widget that had focus keeps its place in its
+   * own collection (so `popScope()` can hand focus back), but its ring is dropped — otherwise a
+   * button behind a dialog would still look focused while `Tab` walks the dialog.
    */
-  refresh(): void {
-    const previous = this.focusedWidget;
-
-    for (const widget of this.widgets) {
-      if (widget.focusManager === this) {
-        widget.focusManager = null;
+  pushScope(root: Widget, options: FocusScopeOptions = {}): void {
+    const previous = this.topScope();
+    if (previous) {
+      const focused = this.focusedWidget;
+      previous.suspended = focused;
+      if (focused) {
+        focused.setFocusedInternal(false);
       }
+      previous.index = -1;
     }
 
-    this.widgets = this.rootWidget ? collectFocusable(this.rootWidget) : [];
-    for (const widget of this.widgets) {
-      widget.focusManager = this;
-    }
+    const scope = this.createScope(root, options);
+    this.scopes.push(scope);
+    this.collect(scope);
 
-    this.index = previous ? this.widgets.indexOf(previous) : -1;
-    if (previous && this.index === -1) {
-      // The focused widget is no longer focusable: release it instead of keeping a stale reference.
-      previous.setFocusedInternal(false);
-      this.notify(null);
+    if (options.focusFirst === true) {
+      this.step(1);
     }
   }
 
-  /** Moves focus to `widget`. Widgets outside the collected set are ignored. */
+  /**
+   * Pops the top scope and restores the focus of the scope below.
+   *
+   * Focus goes back to the widget that held it when the scope was pushed — unless that widget was
+   * removed in the meantime, in which case focus is simply released.
+   *
+   * @returns `false` when there was no scope to pop.
+   */
+  popScope(): boolean {
+    const scope = this.scopes.pop();
+    if (!scope) {
+      return false;
+    }
+    this.release(scope);
+
+    const next = this.topScope();
+    if (!next) {
+      this.notify(null);
+      return true;
+    }
+
+    const wanted = next.suspended;
+    next.suspended = null;
+    this.collect(next);
+
+    if (wanted && wanted.isDestroyed !== true && next.widgets.includes(wanted)) {
+      this.focus(wanted);
+    } else {
+      this.notify(null);
+    }
+    return true;
+  }
+
+  /**
+   * Re-collects the focusable widgets **of the scope in play**.
+   *
+   * Call after the tree changed (a widget was added/removed, or made focusable/visible) or after
+   * `focusOrder` was changed. Focus is kept when the widget is still collectable. Scopes below the
+   * top one are left alone: they are suspended, and their collections are rebuilt when they become
+   * live again.
+   */
+  refresh(): void {
+    const top = this.topScope();
+    if (!top) {
+      return;
+    }
+    this.collect(top);
+  }
+
+  /** Moves focus to `widget`. Widgets outside the scope in play are ignored (see the trap rule). */
   focus(widget: Widget): void {
-    const index = this.widgets.indexOf(widget);
+    const scope = this.topScope();
+    if (!scope) {
+      return;
+    }
+    const index = scope.widgets.indexOf(widget);
     if (index === -1) {
       return;
     }
     this.applyFocus(widget, index);
   }
 
-  /** Releases focus from `widget` (only if it actually holds it). */
+  /** Releases focus from `widget` (only if it actually holds it, and only when not trapped). */
   blur(widget: Widget): void {
-    if (this.trapFocus) {
+    const scope = this.topScope();
+    if (!scope || scope.trap) {
       return;
     }
     if (this.focusedWidget !== widget) {
       return;
     }
-    this.index = -1;
+    scope.index = -1;
     widget.setFocusedInternal(false);
     this.notify(null);
   }
@@ -368,13 +507,18 @@ export class FocusManager implements FocusTarget {
    * focusable widget), which is what pressing an arrow key in a fresh page should do.
    */
   move(direction: NavDirection): boolean {
+    const scope = this.topScope();
+    if (!scope) {
+      return false;
+    }
+
     const current = this.focusedWidget;
     if (!current) {
       return this.next();
     }
 
-    const rects = stageRectsOf(this.widgets);
-    const currentRect = rects[this.index];
+    const rects = stageRectsOf(scope.widgets);
+    const currentRect = rects[scope.index];
     if (!currentRect) {
       return false;
     }
@@ -389,7 +533,7 @@ export class FocusManager implements FocusTarget {
       return false;
     }
 
-    const widget = this.widgets[picked];
+    const widget = scope.widgets[picked];
     if (!widget) {
       return false;
     }
@@ -446,24 +590,23 @@ export class FocusManager implements FocusTarget {
   }
 
   /**
-   * Releases focus, clears the collection and disconnects every widget's `focusManager` back
+   * Releases focus, clears **every** scope and disconnects each widget's `focusManager` back
    * reference. Idempotent; safe to call from a scene shutdown handler.
    */
   detach(): void {
-    const focused = this.focusedWidget;
-
-    for (const widget of this.widgets) {
-      if (widget.focusManager === this) {
-        widget.focusManager = null;
+    let hadFocus = false;
+    for (const scope of this.scopes) {
+      if (scope.index >= 0 && scope.widgets[scope.index]) {
+        hadFocus = true;
       }
-      widget.setFocusedInternal(false);
     }
 
-    this.widgets = [];
-    this.index = -1;
-    this.rootWidget = null;
+    for (const scope of this.scopes) {
+      this.release(scope);
+    }
+    this.scopes.length = 0;
 
-    if (focused) {
+    if (hadFocus) {
       this.notify(null);
     }
   }
@@ -473,20 +616,80 @@ export class FocusManager implements FocusTarget {
     this.detach();
   }
 
+  private topScope(): FocusScope | undefined {
+    return this.scopes[this.scopes.length - 1];
+  }
+
+  private createScope(root: Widget, options: FocusScopeOptions): FocusScope {
+    return {
+      root,
+      trap: options.trap ?? this.defaultTrap,
+      wrap: options.wrap ?? this.defaultWrap,
+      widgets: [],
+      index: -1,
+      suspended: null,
+    };
+  }
+
+  /** Rebuilds a scope's collection, keeping focus when the widget is still collectable. */
+  private collect(scope: FocusScope): void {
+    const previous = scope.index >= 0 ? (scope.widgets[scope.index] ?? null) : null;
+
+    for (const widget of scope.widgets) {
+      if (widget.focusManager === this) {
+        widget.focusManager = null;
+      }
+    }
+
+    scope.widgets = collectFocusable(scope.root);
+    for (const widget of scope.widgets) {
+      widget.focusManager = this;
+    }
+
+    scope.index = previous ? scope.widgets.indexOf(previous) : -1;
+    if (previous && scope.index === -1) {
+      // The focused widget is no longer focusable: release it instead of keeping a stale reference.
+      previous.setFocusedInternal(false);
+      if (scope === this.topScope()) {
+        this.notify(null);
+      }
+    }
+  }
+
+  /** Drops one scope's references: no widget of a dead scope keeps pointing at this manager. */
+  private release(scope: FocusScope): void {
+    for (const widget of scope.widgets) {
+      if (widget.focusManager === this) {
+        widget.focusManager = null;
+      }
+      if (widget.isDestroyed !== true) {
+        widget.setFocusedInternal(false);
+      }
+    }
+    scope.widgets = [];
+    scope.index = -1;
+    scope.suspended = null;
+  }
+
   private step(delta: number): boolean {
-    const count = this.widgets.length;
+    const scope = this.topScope();
+    if (!scope) {
+      return false;
+    }
+
+    const count = scope.widgets.length;
     if (count === 0) {
       return false;
     }
 
-    if (this.index === -1) {
+    if (scope.index === -1) {
       // Nothing focused yet: tab into the set from the correct end.
       return delta > 0 ? this.focusAt(0) : this.focusAt(count - 1);
     }
 
-    let next = this.index + delta;
+    let next = scope.index + delta;
     if (next < 0 || next >= count) {
-      if (!this.wrap && !this.trapFocus) {
+      if (!scope.wrap && !scope.trap) {
         return false;
       }
       next = next < 0 ? count - 1 : 0;
@@ -495,7 +698,7 @@ export class FocusManager implements FocusTarget {
   }
 
   private focusAt(index: number): boolean {
-    const widget = this.widgets[index];
+    const widget = this.topScope()?.widgets[index];
     if (!widget) {
       return false;
     }
@@ -503,12 +706,13 @@ export class FocusManager implements FocusTarget {
   }
 
   private applyFocus(widget: Widget, index: number): boolean {
-    if (index === this.index && this.focusedWidget === widget) {
+    const scope = this.topScope();
+    if (!scope || (scope.index === index && this.focusedWidget === widget)) {
       return false;
     }
 
     this.focusedWidget?.setFocusedInternal(false);
-    this.index = index;
+    scope.index = index;
     widget.setFocusedInternal(true);
     this.notify(widget);
     return true;

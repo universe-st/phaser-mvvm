@@ -88,8 +88,10 @@ export {
   type AnchorLike,
   type FocusManagerOptions,
   type FocusNodeLike,
+  type FocusScopeOptions,
   type RectSourceLike,
 } from './focus';
+export { ModalHost, type ModalCloseReason, type ModalHandle, type ModalOptions } from './modal';
 export {
   InputRouter,
   shouldFocusOnPress,

@@ -11,12 +11,12 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import type { ThemeColorName } from '@phaser-mvvm/phaser';
+import type { ThemeColorName, ThemeSizeName } from '@phaser-mvvm/phaser';
 import { Widget } from '@phaser-mvvm/phaser';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
-import { fontSizeOf, glyphPadding } from './text-padding';
+import { fontSizeOf, glyphPadding, resolveLabelFontSize } from './text-padding';
 import { textMetricsOf, type SceneTextMetrics } from './text-metrics';
 import { applyLineLimit, rewrapOverflowingLines } from './text-truncate';
 
@@ -28,6 +28,15 @@ export type LabelTone = 'default' | 'muted' | 'danger' | 'success' | 'warning' |
 export interface LabelOptions extends LayoutParams {
   /** Initial text. `\n` starts a new line even when wrapping is off. */
   text?: string;
+  /**
+   * Font size: a theme size token (`'xs'`…`'xl'`, so a theme switch keeps working) or explicit pixels.
+   * Defaults to `'md'`. A `style.fontSize` still wins over it.
+   *
+   * The compose DSL has advertised `Text('标题', { size: 'xl' })` since it landed, but the key was
+   * never read — `size` existed on `Button` only — so the option was silently ignored at runtime
+   * (the same shape of defect as V13).
+   */
+  size?: ThemeSizeName | number;
   /** Overrides merged on top of the theme style (font, colour, stroke, shadow, …). */
   style?: Phaser.Types.GameObjects.Text.TextStyle;
   /** Wrap at the available width. Defaults to `true`. */
@@ -54,6 +63,7 @@ type LabelWidgetOptions = Omit<LabelOptions, keyof LayoutParams | 'name'>;
 
 const LABEL_KEYS = [
   'text',
+  'size',
   'style',
   'wrap',
   'align',
@@ -84,6 +94,8 @@ export class Label extends Widget {
   private maxLines: number;
   private ellipsis: boolean;
   private tone: LabelTone;
+  /** Raw `size` option: a token is resolved against the *current* theme on every repaint. */
+  private readonly size: ThemeSizeName | number | undefined;
   private readonly userStyle: Phaser.Types.GameObjects.Text.TextStyle;
   /** Serialised once: it is part of both the style key and the text-metrics key. */
   private readonly userStyleKey: string;
@@ -105,6 +117,7 @@ export class Label extends Widget {
     this.maxLines = widget.maxLines ?? Number.POSITIVE_INFINITY;
     this.ellipsis = widget.ellipsis === true;
     this.tone = widget.tone ?? 'default';
+    this.size = widget.size;
     this.userStyle = widget.style ?? {};
     this.userStyleKey = JSON.stringify(this.userStyle);
 
@@ -180,16 +193,17 @@ export class Label extends Widget {
   private applyThemeStyle(): void {
     const theme = this.theme;
     const color = toCssColor(theme.colors[TONE_COLORS[this.tone]]);
+    const fontSize = resolveLabelFontSize(this.size, theme.fontSize);
     // The caller's style overrides participate in the key: two labels with the same theme style but a
     // different `userStyle` must not share cached measurements.
-    const styleKey = `${theme.name}|${theme.fontFamily}|${theme.fontSize.md}|${color}|${this.align}|${this.userStyleKey}`;
+    const styleKey = `${theme.name}|${theme.fontFamily}|${fontSize}|${color}|${this.align}|${this.userStyleKey}`;
     if (styleKey === this.styleKey) {
       return;
     }
     this.styleKey = styleKey;
     this.textObject.setStyle({
       fontFamily: theme.fontFamily,
-      fontSize: theme.fontSize.md,
+      fontSize,
       color,
       align: this.align,
       ...this.userStyle,
@@ -204,7 +218,10 @@ export class Label extends Widget {
    * as well, so the layout under-reserved the space. Symmetric so the optical centre does not move.
    */
   private applyGlyphPadding(): void {
-    const size = fontSizeOf(this.textObject.style, this.theme.fontSize.md);
+    const size = fontSizeOf(
+      this.textObject.style,
+      resolveLabelFontSize(this.size, this.theme.fontSize),
+    );
     const pad = glyphPadding(size);
     if (pad === this.glyphPad) {
       return;

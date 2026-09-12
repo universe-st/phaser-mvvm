@@ -25,6 +25,7 @@ import { devLog, isDevMode } from '@phaser-mvvm/core';
 import { flushFrame } from '@phaser-mvvm/core';
 import { FocusManager, type FocusManagerOptions } from './focus';
 import { InputRouter, type InputRouterOptions } from './input';
+import { ModalHost } from './modal';
 import {
   NavRepeat,
   gamepadActionsOf,
@@ -69,7 +70,16 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private lastStructureVersion = -1;
   /** Last widget reported by the development focus trace. */
   private lastFocused: Widget | null = null;
+  /**
+   * Key events already acted on in this frame; see `onKeyDown`.
+   *
+   * A *set* and not "the previous event", because one frame can deliver several keydowns (Shift and
+   * then Tab) and Phaser re-emits the whole queue in order, so the event that repeats is not the one
+   * that came before it.
+   */
+  private readonly handledKeyEvents = new Set<KeyboardEvent>();
   private unsubscribeTheme: (() => void) | null = null;
+  private modalHost: ModalHost | null = null;
 
   constructor(
     scene: Phaser.Scene,
@@ -131,6 +141,18 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     return getTheme();
   }
 
+  /**
+   * Overlay layers of this scene: `this.mvvm.modal.open(() => { … })`.
+   *
+   * Created on first use, so a scene that never shows a dialog pays nothing for the feature.
+   */
+  get modal(): ModalHost {
+    if (!this.modalHost) {
+      this.modalHost = new ModalHost(this);
+    }
+    return this.modalHost;
+  }
+
   /** Switches the theme used by every widget in every scene. */
   setTheme(theme: ThemeName | Theme): Theme {
     return setTheme(theme);
@@ -139,6 +161,8 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   /** Adds a widget to the UI root, wires it for input and lays out immediately. */
   mount<T extends Widget>(child: T): T {
     const mounted = this.root.addWidget(child);
+    // A page appended to the root would paint over an open dialog; the layers go back on top.
+    this.modalHost?.raiseLayers();
     this.refreshInteraction();
     if (isDevMode()) {
       devLog(`mount: page attached and laid out (${countWidgets(child)} widget(s))`);
@@ -186,8 +210,10 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
     this.focusManager = new FocusManager({
       root,
-      onBack: this.config.onBack,
       ...this.config.focus,
+      // The modal stack gets first refusal on `back` (Escape / gamepad B): a dialog that is up owns
+      // the key, and one that must be answered swallows it instead of letting the page act on it.
+      onBack: () => this.handleBack(),
     });
 
     if (this.config.themeBackground !== false) {
@@ -206,7 +232,28 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.scene?.cameras?.main?.setBackgroundColor(theme.colors.background);
   }
 
+  /** `back` action routing: the modal stack first, then the app's own handlers. */
+  private handleBack(): void {
+    if (this.modalHost?.handleBack() === true) {
+      return;
+    }
+    // `focus.onBack` used to be the config key for this; it still works, it is simply the fallback.
+    (this.config.onBack ?? this.config.focus?.onBack)?.();
+  }
+
   private onKeyDown(event: KeyboardEvent): void {
+    // Phaser reaches this listener through `KeyboardPlugin.update()`, which walks the manager's whole
+    // input queue on *every* input event of the frame and only skips **consecutive** duplicates
+    // (`prevCode`/`prevTime`/`prevType`). Two keydowns in one frame therefore deliver the first one
+    // twice - and `Shift+Tab` is two keydowns (Shift, then Tab), so one press navigated two steps
+    // (measured: `prev` arrived twice, `form.ok -> form.cancel -> form.field`). Key repeat and fast
+    // typing do the same thing. Re-emission hands us the *same* event object, so identity is an exact
+    // test; a fresh press always carries a new one.
+    if (this.handledKeyEvents.has(event)) {
+      return;
+    }
+    this.handledKeyEvents.add(event);
+
     const action = keyboardActionOf(event);
     // Never swallow browser shortcuts (copy/paste/reload/devtools).
     if (event.ctrlKey || event.metaKey || event.altKey) {
@@ -255,6 +302,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   private onPreUpdate(time: number): void {
+    // One frame's worth of key events is plenty: Phaser clears its own queue in `postUpdate`, so a
+    // re-emission cannot outlive the frame, and a fresh press always brings a fresh event object.
+    this.handledKeyEvents.clear();
     flushFrame();
     this.uiRoot?.flushLayout();
 
@@ -301,8 +351,12 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.unsubscribeTheme = null;
     this.router?.detach();
     this.router = null;
+    // Before the focus manager, so the app's `onClose` callbacks run while the scopes still exist.
+    this.modalHost?.dispose();
+    this.modalHost = null;
     this.focusManager?.dispose();
     this.focusManager = null;
+    this.handledKeyEvents.clear();
     this.navRepeat.reset();
     this.padState = EMPTY_NAV_STATE;
     if (this.uiRoot) {

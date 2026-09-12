@@ -10,11 +10,11 @@
 
 ## 1. 三层分工
 
-| 层       | 类 / 模块      | 负责                                             | 入口              |
-| -------- | -------------- | ------------------------------------------------ | ----------------- |
-| 指针路由 | `InputRouter`  | 悬停、按下、点击判定、拦截层、`disabled` 屏蔽    | `this.mvvm.input` |
-| 焦点管理 | `FocusManager` | 焦点集合、Tab 顺序、方向导航、激活、`trapFocus`  | `this.mvvm.focus` |
-| 设备映射 | `nav.ts`       | 把键盘事件/手柄状态翻译成统一动作（`NavAction`） | 由插件自动接入    |
+| 层       | 类 / 模块      | 负责                                                         | 入口              |
+| -------- | -------------- | ------------------------------------------------------------ | ----------------- |
+| 指针路由 | `InputRouter`  | 悬停、按下、点击判定、拦截层、`disabled` 屏蔽                | `this.mvvm.input` |
+| 焦点管理 | `FocusManager` | 焦点集合、Tab 顺序、方向导航、激活、**作用域栈（模态陷阱）** | `this.mvvm.focus` |
+| 设备映射 | `nav.ts`       | 把键盘事件/手柄状态翻译成统一动作（`NavAction`）             | 由插件自动接入    |
 
 统一词汇 `NavAction`：`'next' | 'prev' | 'up' | 'down' | 'left' | 'right' | 'activate' | 'back'`。控件**不需要知道**用户用的是键盘还是手柄 —— 它们只会在被激活时收到 `source`。
 
@@ -217,103 +217,77 @@ class MyCard extends Panel {
 
 ---
 
-## 6. 实战：一个纯键盘/手柄可完成的确认框
+## 6. 实战：模态对话框（焦点陷阱）
+
+模态框要同时做到四件事：**画在最上面**、**挡住下面的指针**、**把焦点关在里面**、**`Escape` 把它关掉**。这四件事分散在三层里（层序在 Phaser 容器、拦截在 `InputRouter`、焦点在 `FocusManager`），所以框架把它们包成了一个入口：
 
 ```ts
-import Phaser from 'phaser';
-import { Button, Panel, Row, Stack, Text, ui } from '@phaser-mvvm/widgets/compose';
-
-export class ConfirmScene extends Phaser.Scene {
-  constructor() {
-    super('confirm');
-  }
-
-  create(): void {
-    let ok: ReturnType<typeof Button> | null = null;
-    let mask: ReturnType<typeof Panel> | null = null;
-
-    // 对话框要先建出来才能 setCapture/聚焦，所以这里用 `ui()`（只建不挂），最后整体挂载
-    const overlay = ui(this, () => {
-      Stack({ width: 'fill', height: 'fill' }, () => {
-        // 半透明遮罩 + 居中对话框 = 一个 stack 层
-        mask = Panel(
-          { variant: 'overlay', width: 'fill', height: 'fill', radius: 0, interactive: true },
-          () => {
-            // 空遮罩
-          },
-        );
-
-        Panel({ gap: 14, padding: 20, variant: 'surface', radius: 12, width: 360 }, () => {
-          Text('确认操作', { style: { fontSize: '20px' } });
-          Text('该操作不可撤销。', { tone: 'muted' });
-          Row({ gap: 10, justifyContent: 'end' }, () => {
-            Button('取消', {
-              variant: 'ghost',
-              focusOrder: 2,
-              name: 'cancel',
-              onClick: () => this.close(),
-            });
-            ok = Button('确定', {
-              variant: 'primary',
-              focusOrder: 1,
-              name: 'ok',
-              onClick: () => this.close(),
-            });
-          });
-        });
+const dialog = this.mvvm.modal.open(
+  () => {
+    Panel({ gap: 14, padding: 20, variant: 'surface', radius: 12, width: 420 }, () => {
+      Text('删除这一项？', { size: 'lg' });
+      Text('删除后无法恢复。按 Esc 或点遮罩可以取消。', { tone: 'muted' });
+      Row({ gap: 8, justifyContent: 'end' }, () => {
+        Button('取消', { variant: 'ghost', onClick: () => dialog.close() });
+        Button('删除', { variant: 'danger', onClick: () => this.deleteSelected() });
       });
     });
-
-    this.mvvm.mount(overlay);
-
-    // 遮罩成为指针拦截层：点穿不到下面的 UI
-    if (mask) {
-      this.mvvm.input.setCapture(mask);
-    }
-
-    // 焦点陷阱 + 键盘/手柄的 Escape/B 键关闭
-    this.mvvm.focus.trapFocus = true;
-    this.mvvm.focus.onBack = () => this.close();
-
-    // 打开即把焦点放到主操作上
-    ok?.focus();
-  }
-
-  private close(): void {
-    this.mvvm.focus.trapFocus = false;
-    this.mvvm.focus.onBack = null;
-    this.scene.restart();
-  }
-}
+  },
+  { name: 'confirm.delete' },
+);
 ```
 
-这张图里每一行的作用：
+`modal.open(content, options?)` 返回一个 `ModalHandle`：
 
-| 代码                       | 解决什么                                |
-| -------------------------- | --------------------------------------- |
-| `interactive: true` 的遮罩 | 有命中区 → 能被 `setCapture` 用作拦截层 |
-| `stack` 包住遮罩 + 对话框  | 对话框居中叠在遮罩之上                  |
-| `setCapture(mask)`         | 防止点击穿透到遮罩下面的界面与游戏对象  |
-| `trapFocus = true`         | Tab / 方向键不会跑到对话框外面          |
-| `onBack`                   | Escape 与手柄 B 键都能关闭              |
-| `ok.focus()`               | 打开即有焦点，键盘用户不必先 Tab        |
+| 成员                   | 说明                                                    |
+| ---------------------- | ------------------------------------------------------- |
+| `close(reason?)`       | 关闭（默认原因是 `'api'`）；返回 `false` 表示它已经关了 |
+| `widget` / `content`   | 整个图层 / 你自己的内容根（都可以继续当普通控件用）     |
+| `open` / `dismissible` | 是否还开着 / 是否允许 Esc 与遮罩关闭                    |
+| `id`                   | 打开顺序，从 1 开始                                     |
 
-> 注意：`interactive: true` 会让遮罩进入焦点集合，Tab 会停在它上面。真正做模态时建议用 `FocusManager` 的 `root` 参数**只收集对话框子树**（如上面的对话框焦点管理示例），而不是把整个页面交给它。
+选项：
+
+| 选项           | 默认      | 说明                                                                                |
+| -------------- | --------- | ----------------------------------------------------------------------------------- |
+| `dismissible`  | `true`    | `false` 时 **Esc 与点遮罩都不关**（而且 Esc 会被吞掉，不会漏给页面自己的 `onBack`） |
+| `scrim`        | `0.5`     | 遮罩不透明度；`0` 表示不画遮罩，但图层仍然挡住指针，点空白处依旧可以关闭            |
+| `autoFocus`    | `true`    | 打开后立刻聚焦内容里第一个可聚焦控件                                                |
+| `initialFocus` | —         | 指定打开后聚焦哪个控件                                                              |
+| `onClose`      | —         | 关闭后回调一次，参数是原因（`'api'` / `'back'` / `'backdrop'` / `'scene'`）         |
+| `name`         | `modal#n` | 图层名，出现在 dev 轨迹与 `getByName` 里                                            |
+
+`this.mvvm.modal` 上还有 `depth`、`top`、`handles`、`closeTop()`、`closeAll()` 与 `handleBack()`（`back` 动作先经过它再交给 `onBack`）。**可以叠多层**：`Esc` 只关最上面那层，关掉后焦点回到打开它的那个控件。
+
+它替你做的事，逐条对应上面那三个「层」：
+
+| 机制                             | 由谁实现                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| 图层是根容器的**最后一个子节点** | Phaser 容器的绘制顺序 = 子节点顺序；`mount()` 会把已开的图层重新抬到最上面 |
+| 指针被挡住                       | 图层整块带有命中区并成为 `InputRouter` 的 capture（`setCapture`）          |
+| 半透明遮罩 + 点遮罩关闭          | 主题色 `colors.overlay` 的矩形，带 `onActivate`                            |
+| 焦点陷阱                         | `FocusManager.pushScope(layer, { trap: true })`                            |
+| 关闭后焦点复原                   | `popScope()` 把焦点还给被挂起的那个控件                                    |
+| `Esc`（含手柄 `B`/`○`）          | `Handle` → `modal.handleBack()`，插件已接在 `onBack` 之前                  |
+
+> **不想要现成的模态框？** 上面每一层都可以自己搭：`ui()` 建一个 `Stack` 包住遮罩 + 对话框 → `this.mvvm.input.setCapture(mask)` → `this.mvvm.focus.pushScope(dialogRoot, { trap: true, focusFirst: true })`，关闭时 `popScope()` 并 `destroy()` 这个子树。`modal.open()` 就是这套流程的封装，验收记录见 [`ACCEPTANCE-modal.md`](../ACCEPTANCE-modal.md)。
 
 ---
 
 ## 7. 常见坑
 
-| 现象                               | 原因                                                       | 修法                                                               |
-| ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------ |
-| 新建的控件点不动 / Tab 不到        | 树结构变化后没有重新收集交互目标                           | 用 `this.mvvm.mount()`（自动刷新）或手动 `refreshInteraction()`    |
-| 焦点死死停在某个已经不存在的控件上 | 该控件被移除但没刷新                                       | `this.mvvm.focus.refresh()`（插件会在结构变化后自动做）            |
-| 拖列表时误点按钮                   | 阈值太小                                                   | 调大 `this.mvvm.input.dragThreshold`                               |
-| 点击穿透到下面的游戏对象           | 面板没有命中区（`blockPointer: false`）或没设 capture      | 打开 `blockPointer` / 用 `setCapture`                              |
-| 方向键怎么都走不到旁边那列         | 几何容差与半平面规则不匹配（比如目标斜得很远）             | 调整布局让目标大致正对；或自己监听按键调 `focus.move`              |
-| 空格键在页面里翻页 / 滚动页面      | 浏览器默认行为与 `activate` 冲突                           | 框架只对已处理的按键 `preventDefault`；必要时自己 `preventDefault` |
-| 手柄没反应                         | 浏览器要求先与手柄交互一次才暴露 `navigator.getGamepads()` | 按一下手柄按键；确认用的是 0 号手柄                                |
-| 两个输入框都拿到焦点               | 自己调 `focus()` 绕过了管理器                              | 统一走 `widget.focus()` / `manager.focus()`                        |
+| 现象                               | 原因                                                       | 修法                                                                      |
+| ---------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 新建的控件点不动 / Tab 不到        | 树结构变化后没有重新收集交互目标                           | 用 `this.mvvm.mount()`（自动刷新）或手动 `refreshInteraction()`           |
+| 焦点死死停在某个已经不存在的控件上 | 该控件被移除但没刷新                                       | `this.mvvm.focus.refresh()`（插件会在结构变化后自动做）                   |
+| 拖列表时误点按钮                   | 阈值太小                                                   | 调大 `this.mvvm.input.dragThreshold`                                      |
+| 点击穿透到下面的游戏对象           | 面板没有命中区（`blockPointer: false`）或没设 capture      | 打开 `blockPointer` / 用 `setCapture`，或直接用 `this.mvvm.modal.open()`  |
+| 输入框里按 Tab 没反应              | 输入框 `preventDefault()` 后 Phaser 丢掉了这个按键（V17）  | 第 60 轮起框架已转交 `FocusManager`；自定义输入控件请照抄 `TextInputBase` |
+| 一次按键走了两步（Shift+Tab 尤其） | 同帧两个按键被 Phaser 重复派发（V18）                      | 第 60 轮起插件按帧去重；自定义按键处理请勿绕过插件                        |
+| 方向键怎么都走不到旁边那列         | 几何容差与半平面规则不匹配（比如目标斜得很远）             | 调整布局让目标大致正对；或自己监听按键调 `focus.move`                     |
+| 空格键在页面里翻页 / 滚动页面      | 浏览器默认行为与 `activate` 冲突                           | 框架只对已处理的按键 `preventDefault`；必要时自己 `preventDefault`        |
+| 手柄没反应                         | 浏览器要求先与手柄交互一次才暴露 `navigator.getGamepads()` | 按一下手柄按键；确认用的是 0 号手柄                                       |
+| 两个输入框都拿到焦点               | 自己调 `focus()` 绕过了管理器                              | 统一走 `widget.focus()` / `manager.focus()`                               |
 
 ---
 

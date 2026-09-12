@@ -321,7 +321,7 @@ this.mvvm.mount(page);
 
 单人全职估算；标 ★ 的里程碑可与前一项局部并行。
 
-**执行状态（2026-09）**：**M0 / M1 / M2 / M3 / M4 / M5 / M6 / M7 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3（适配层：文本测量器、主题、状态机、输入/焦点/导航、绑定切片）与 M4（基础控件库 `@phaser-mvvm/widgets`：Label/Panel/Button/Image/Spacer/Divider）已完成，并在 `#/gallery`、`#/dashboard`、`#/bindings` 三个 demo 上用 Playwright 实测交互通过。M5（`TextField`/`TextArea` + 隐藏 DOM 输入桥，中文 IME 已实测）已完成，其后按需增补了 **`Slider`**（拖动取值，鼠标+触摸均验收，见 [`ACCEPTANCE-slider.md`](./ACCEPTANCE-slider.md)）；M6（绑定上下文 + 路径编译 + 转换器 + `Repeat` 键控复用与虚拟化）已完成；M7（`ScrollView` + WebGL 滤镜裁剪 + 手势/惯性/滚动条，并与 `Repeat` 虚拟化协同）已完成；M8 起为未开始状态。
+**执行状态（2026-09）**：**M0 / M1 / M2 / M3 / M4 / M5 / M6 / M7 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3（适配层：文本测量器、主题、状态机、输入/焦点/导航、绑定切片）与 M4（基础控件库 `@phaser-mvvm/widgets`：Label/Panel/Button/Image/Spacer/Divider）已完成，并在 `#/gallery`、`#/dashboard`、`#/bindings` 三个 demo 上用 Playwright 实测交互通过。M5（`TextField`/`TextArea` + 隐藏 DOM 输入桥，中文 IME 已实测）已完成，其后按需增补了 **`Slider`**（拖动取值，鼠标+触摸均验收，见 [`ACCEPTANCE-slider.md`](./ACCEPTANCE-slider.md)）；M6（绑定上下文 + 路径编译 + 转换器 + `Repeat` 键控复用与虚拟化）已完成；M7（`ScrollView` + WebGL 滤镜裁剪 + 手势/惯性/滚动条，并与 `Repeat` 虚拟化协同）已完成；**M8 已部分交付**：`ModalStack` 这一切片（`this.mvvm.modal.open()`：图层置顶 + 遮罩拦截 + 焦点陷阱 + `Esc`/遮罩关闭 + 叠层 + 泄漏门禁）已实现并验收，见 [`ACCEPTANCE-modal.md`](./ACCEPTANCE-modal.md) 与指南 07 §6；同一轮顺带修掉了它暴露的两个输入缺陷（V17 键盘被输入框吞掉、V18 一次按键被重复派发，见 [`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md) §3.4）。`UIScene` 基类、`Page` 生命周期与页面栈、轻量 `Router` 与开闭动效钩子**仍未开始**。
 
 | 里程碑 | 内容 | 交付物 | 验收标准 | 估算 |
 |--------|------|--------|----------|------|
@@ -333,7 +333,7 @@ this.mvvm.mount(page);
 | **M5 文本框** | `TextField`、`TextArea`、DOM 输入桥、光标/选区/快捷键/剪贴板/掩码/校验/IME | widgets 第二批 + 表单页 | 中文输入法可用（含候选期不写回 VM）、软键盘可唤起（移动端手测）、剪贴板/快捷键矩阵测试通过 | 5–7 天 |
 | **M6 绑定与列表** | `BindingContext`、路径编译、单向/双向/命令/转换器、`repeat` 键控复用与虚拟化 | `core/binding` 编译产物 + `Repeat` 控件 | 1000 行列表增删改移后仅挂载可见项；绑定无回环、无泄漏；CSP 环境下无 `eval` | 4–6 天 |
 | **M7 滚动与裁剪** | `ScrollView`（拖拽/滚轮/惯性/滚动条/键盘）、WebGL 遮罩裁剪、与虚拟化协同 | `ScrollView` + 长列表页 | 滚动裁剪无溢出；滚动 + 虚拟化在 5000 项下稳定 60 fps；相机视口降级方案可用 | 4–6 天 |
-| **M8 场景与页面体系** | `UIScene` 基类、`Page` 生命周期与页面栈、`ModalStack`（焦点陷阱 / ESC / 遮罩策略 / 开闭动效钩子）、轻量 `Router` | `packages/phaser/src/scene/*` + 多页示例 | 多页导航（列表→详情→对话框）可返回且状态正确；弹窗打开时焦点不逃逸、下层不可点；反复开关 100 次无泄漏 | 4–6 天 |
+| **M8 场景与页面体系**（**ModalStack 已完成**，其余未开始） | `UIScene` 基类、`Page` 生命周期与页面栈、`ModalStack`（焦点陷阱 / ESC / 遮罩策略 / 开闭动效钩子）、轻量 `Router` | `packages/phaser/src/{scene/*,modal.ts}` + 多页示例 | ✅ 弹窗打开时焦点不逃逸、下层不可点、反复开关 100 次无泄漏（[`ACCEPTANCE-modal.md`](./ACCEPTANCE-modal.md)）；⬜ 多页导航（列表→详情→对话框）可返回且状态正确；⬜ 开闭动效钩子 | 4–6 天 |
 | **M9 导航与无障碍** | `NavSource` 抽象（方向键 / Tab / 手柄 D-Pad + 摇杆 / 鼠标悬停）、手柄按键映射、`A11yBridge` DOM 镜像 + `aria-live` 播报 | `packages/phaser/src/{input,a11y}/*` + 手柄示例 | 纯手柄可完成完整表单流程；VoiceOver 能读出控件名称/状态/错误；键盘无鼠标可用 | 3–5 天 |
 | **M10 主题、文档、1.0** | 主题切换、皮肤、typedoc API 文档、控件规格文档、迁移/使用指南、1.0 发布与 changesets | 全量文档 + `form-demo` 完整示例 | 新同学按文档 1 小时内搭出带校验表单；包体积达标（见 §8） | 4–6 天 |
 

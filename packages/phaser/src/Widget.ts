@@ -558,6 +558,16 @@ export type ActivationSource = 'pointer' | 'keyboard' | 'gamepad';
 export interface FocusTarget {
   focus(widget: Widget): void;
   blur(widget: Widget): void;
+  /**
+   * Dispatches a navigation action (optional; `FocusManager` implements it).
+   *
+   * It exists for widgets that have to drive traversal *themselves*: a text field whose hidden DOM
+   * element holds the browser's focus has to `preventDefault()` the key to keep the caret where it
+   * is, and Phaser's keyboard manager then ignores that event entirely (`KeyboardManager` returns
+   * early on `defaultPrevented`). Without a way to hand the action back, `Tab` would never leave a
+   * focused field and `Escape` would be dead inside a modal.
+   */
+  handleAction?(action: NavAction, source: ActivationSource): boolean;
 }
 
 /** Events emitted by widgets on the Phaser emitter. */

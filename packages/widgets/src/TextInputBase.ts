@@ -1370,12 +1370,23 @@ export abstract class TextInputBase extends Widget {
           this.commit(this.valueAtFocus, this.valueAtFocus.length, this.valueAtFocus.length);
         }
         this.blur();
+        if (this.focused) {
+          // `blur()` was refused, which only happens inside a trapped scope (a modal): the field must
+          // not swallow the key there, or Escape is simply dead while the dialog's field has focus.
+          this.focusManager?.handleAction?.('back', 'keyboard');
+        }
         return true;
       }
       case 'Tab': {
         if (dom) {
-          // Keep the browser from moving DOM focus: traversal belongs to the focus manager.
+          // Keep the browser from moving DOM focus: traversal belongs to the focus manager. It has to
+          // be asked *here* rather than left to the scene plugin: `preventDefault()` marks the event
+          // as handled, and Phaser's keyboard manager drops every `defaultPrevented` keydown before
+          // the plugin ever sees it — which is why `Tab` used to do nothing at all while a bridged
+          // field had focus (V17).
           event.preventDefault();
+          this.focusManager?.handleAction?.(event.shiftKey ? 'prev' : 'next', 'keyboard');
+          return true;
         }
         return false;
       }

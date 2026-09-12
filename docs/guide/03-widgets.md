@@ -100,7 +100,7 @@ button.on('widget:state', (state) => console.log('state →', state));
 **它是什么**：包了一个 `Phaser.GameObjects.Text` 的控件。文本对象**不是**布局子节点 —— `Label` 自己测量它、自己把它摆在内容盒里，因此对齐、换行、截断都是可控的。
 
 ```ts
-Text('账户设置', { style: { fontSize: '20px' } });
+Text('账户设置', { size: 'xl' }); // 主题令牌，换主题自动跟着变
 Text('这是说明文字', { tone: 'muted' });
 Text('很长很长的一段话…', { width: 260, maxLines: 2, ellipsis: true });
 
@@ -111,16 +111,17 @@ Text(vm.title); // ref 直接传
 
 ### 选项
 
-| 选项         | 类型                                                                      | 默认        | 说明                                                                |
-| ------------ | ------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------- |
-| `text`       | `string`                                                                  | `''`        | 逻辑文本；`\n` 强制换行（即使关闭自动换行）                         |
-| `style`      | `Phaser.Types.GameObjects.Text.TextStyle`                                 | —           | 覆盖在主题样式**之上**（字体、颜色、描边、阴影…）                   |
-| `wrap`       | `boolean`                                                                 | `true`      | 在可用宽度内换行                                                    |
-| `align`      | `'left' \| 'center' \| 'right'`                                           | `'left'`    | 内容盒内的水平对齐（同时作用于文本样式与对象位置）                  |
-| `maxLines`   | `number`                                                                  | 不限        | 最多显示几行，超出部分丢弃                                          |
-| `ellipsis`   | `boolean`                                                                 | `false`     | 被截断时在最后一行补 `…`                                            |
-| `tone`       | `'default' \| 'muted' \| 'danger' \| 'success' \| 'warning' \| 'primary'` | `'default'` | 语义色，映射到主题令牌（见 §8）                                     |
-| `selectable` | 只能传 `false`                                                            | —           | 为了表单模板能统一传 `selectable: false`；Canvas 文本本来就不可选中 |
+| 选项         | 类型                                                                      | 默认        | 说明                                                                              |
+| ------------ | ------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------- |
+| `text`       | `string`                                                                  | `''`        | 逻辑文本；`\n` 强制换行（即使关闭自动换行）                                       |
+| `size`       | `'xs' \| 'sm' \| 'md' \| 'lg' \| 'xl'` 或像素数                           | `'md'`      | 字号；**主题令牌**，换主题时跟着变（写数字则固定像素）                            |
+| `style`      | `Phaser.Types.GameObjects.Text.TextStyle`                                 | —           | 覆盖在主题样式**之上**（字体、颜色、描边、阴影…），`style.fontSize` 优先于 `size` |
+| `wrap`       | `boolean`                                                                 | `true`      | 在可用宽度内换行                                                                  |
+| `align`      | `'left' \| 'center' \| 'right'`                                           | `'left'`    | 内容盒内的水平对齐（同时作用于文本样式与对象位置）                                |
+| `maxLines`   | `number`                                                                  | 不限        | 最多显示几行，超出部分丢弃                                                        |
+| `ellipsis`   | `boolean`                                                                 | `false`     | 被截断时在最后一行补 `…`                                                          |
+| `tone`       | `'default' \| 'muted' \| 'danger' \| 'success' \| 'warning' \| 'primary'` | `'default'` | 语义色，映射到主题令牌（见 §8）                                                   |
+| `selectable` | 只能传 `false`                                                            | —           | 为了表单模板能统一传 `selectable: false`；Canvas 文本本来就不可选中               |
 
 ### 方法
 

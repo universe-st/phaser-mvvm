@@ -16,6 +16,12 @@
  * the canvas truncation is always covered.
  */
 
+/** Font sizes a theme publishes; kept structural so this module stays free of Phaser imports. */
+type SizeScale = { readonly [token: string]: number };
+
+/** Fallback when neither the `size` option nor the theme's `md` token is usable. */
+const DEFAULT_FONT_SIZE = 16;
+
 /** Padding (top and bottom, in design pixels) that keeps descenders inside the canvas. */
 export function glyphPadding(fontSize: number): number {
   if (!Number.isFinite(fontSize) || fontSize <= 0) {
@@ -35,4 +41,26 @@ export function fontSizeOf(
   }
   const parsed = typeof raw === 'string' ? Number.parseFloat(raw) : Number.NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Resolves the `size` option to pixels.
+ *
+ * A token is looked up in the *current* theme's scale, so a theme switch re-sizes the text along with
+ * everything else; a number is used as-is. An unknown token or a non-finite number falls back to the
+ * theme's `md` (16px when the scale itself is unusable), which is what a caller who omits the option
+ * gets.
+ */
+export function resolveLabelFontSize(size: string | number | undefined, scale: SizeScale): number {
+  const md = typeof scale.md === 'number' && scale.md > 0 ? scale.md : DEFAULT_FONT_SIZE;
+  if (typeof size === 'number') {
+    return Number.isFinite(size) && size > 0 ? size : md;
+  }
+  if (typeof size === 'string') {
+    const token = scale[size];
+    if (typeof token === 'number' && token > 0) {
+      return token;
+    }
+  }
+  return md;
 }

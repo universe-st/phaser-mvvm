@@ -96,6 +96,7 @@ export {
 
 // Pure helpers: they never import Phaser, so they are reusable (and tested) outside a renderer.
 export { computeFit, type FitResult, type ImageFit } from './fit';
+export { fontSizeOf, glyphPadding, resolveLabelFontSize } from './text-padding';
 export {
   BOUNCE_LIMIT,
   BOUNCE_RESISTANCE,
