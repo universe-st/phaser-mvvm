@@ -23,13 +23,21 @@
 import Phaser from 'phaser';
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { flushFrame } from '@phaser-mvvm/core';
-import { FocusManager, type FocusManagerOptions } from './focus';
-import { InputRouter, type InputRouterOptions } from './input';
-import { A11yBridge, type A11yOptions } from './a11y';
+import { FocusManager } from './focus';
+import { InputRouter } from './input';
+import { A11yBridge } from './a11y';
 import { ModalHost } from './modal';
 import { planBack } from './back-plan';
 import { revealInViewports } from './reveal';
 import { PageHost } from './pages';
+import { mergePluginConfig, type MVVMPluginConfig } from './plugin-config';
+import {
+  TransitionRunner,
+  prefersReducedMotion,
+  resolveTransitions,
+  type ResolvedTransitions,
+  type TransitionOverride,
+} from './transition';
 import {
   NavRepeat,
   gamepadActionsOf,
@@ -40,7 +48,7 @@ import {
   type NavInputState,
 } from './nav';
 import { getTheme, onThemeChange, setTheme, type Theme, type ThemeName } from './theme';
-import { UIRoot, type UIRootOptions } from './UIRoot';
+import { UIRoot } from './UIRoot';
 import type { UISceneBackHook } from './UIScene';
 import { Widget, type ActivationSource } from './Widget';
 
@@ -48,59 +56,6 @@ type GamepadLike = Parameters<typeof gamepadActionsOf>[0];
 
 /** Empty snapshot used until a pad is seen for the first time. */
 const EMPTY_NAV_STATE: NavInputState = { axes: [], buttons: [] };
-
-export interface MVVMPluginConfig extends UIRootOptions {
-  /** Focus behaviour overrides (the root is supplied by the plugin). */
-  focus?: Omit<FocusManagerOptions, 'root'>;
-  /** Pointer routing overrides (the root is supplied by the plugin). */
-  input?: Omit<InputRouterOptions, 'root'>;
-  /** Keyboard/gamepad navigation. Defaults to `true`. */
-  navigation?: boolean;
-  /**
-   * Hidden DOM mirror for screen readers. Defaults to `true`; `false` (or
-   * `this.mvvm.a11y.enabled = false`) keeps the layer out of the DOM entirely.
-   */
-  a11y?: A11yOptions | false;
-  /** Callback for the `back` action (Escape / gamepad B) when no widget handles it. */
-  onBack?: () => void;
-  /**
-   * Paint the scene's main camera with `theme.colors.background` (and keep it in sync on theme
-   * changes). Defaults to `true`; set to `false` for a UI scene that must stay transparent over a
-   * running game scene.
-   */
-  themeBackground?: boolean;
-}
-
-/**
- * Merges two plugin configs one level deep.
- *
- * `input`, `focus`, `a11y` and `layout` are option bags of their own, so a later `configure()` that
- * only mentions `focus.wrap` must not wipe `input.dragThreshold` — a shallow spread would.
- */
-export function mergePluginConfig(
-  base: MVVMPluginConfig,
-  patch: MVVMPluginConfig,
-): MVVMPluginConfig {
-  const merged: MVVMPluginConfig = { ...base, ...patch };
-  if (base.input || patch.input) {
-    merged.input = { ...base.input, ...patch.input };
-  }
-  if (base.focus || patch.focus) {
-    merged.focus = { ...base.focus, ...patch.focus };
-  }
-  if (base.a11y !== undefined || patch.a11y !== undefined) {
-    merged.a11y =
-      patch.a11y === false
-        ? false
-        : patch.a11y === undefined
-          ? base.a11y
-          : { ...(base.a11y === false ? {} : (base.a11y ?? {})), ...patch.a11y };
-  }
-  if (base.layout || patch.layout) {
-    merged.layout = { ...base.layout, ...patch.layout };
-  }
-  return merged;
-}
 
 export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   /**
@@ -148,6 +103,13 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private unsubscribeTheme: (() => void) | null = null;
   private modalHost: ModalHost | null = null;
   private pageHost: PageHost | null = null;
+  /**
+   * Frame-stepped transitions. One runner for the scene: the frame delta it needs is already available
+   * here, and a scene-wide runner is what lets `pending` answer "is any teardown still deferred?".
+   */
+  private readonly transitionRunner = new TransitionRunner();
+  /** Last `PRE_UPDATE` timestamp, to turn Phaser's clock into a per-frame delta (ms). */
+  private lastFrameTime = -1;
   private a11yBridge: A11yBridge | null = null;
   /** Dev-only: whether the "something replaced the back router" warning was already printed. */
   private warnedBackOverride = false;
@@ -301,6 +263,35 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       this.pageHost = new PageHost(this);
     }
     return this.pageHost;
+  }
+
+  /**
+   * The frame-stepped transition runner (PLAN M8's 开闭动效).
+   *
+   * Exposed for the demo pages, and for a scene that wants to animate a layer of its own with the same
+   * timing model: `this.mvvm.transitions.run({ target, transition })`. `pending` is the number of
+   * targets still animating — a dialog's exit is the one teardown in the framework that is *deferred*,
+   * so "nothing animating any more" is the honest way to know it finished.
+   */
+  get transitions(): TransitionRunner {
+    return this.transitionRunner;
+  }
+
+  /**
+   * Resolves the motion policy for one layer: the plugin config, an optional per-layer override, and
+   * what the OS asks for right now.
+   *
+   * Resolved per use rather than cached, so `mvvm.configure({ transition: … })` and a
+   * `prefers-reduced-motion` change both reach the next dialog; the cost is one `matchMedia` read per
+   * open.
+   */
+  transitionFor(override?: TransitionOverride): ResolvedTransitions {
+    const options = this.config.transition;
+    const resolved = resolveTransitions(options, override, prefersReducedMotion());
+    if (isDevMode() && resolved.reduced && options !== false && override !== false) {
+      devLog('transition: collapsed to 0 ms — the page asks for reduced motion');
+    }
+    return resolved;
   }
 
   /**
@@ -555,6 +546,16 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     flushFrame();
     this.uiRoot?.flushLayout();
 
+    // Transitions advance on Phaser's clock, not the wall clock: a paused scene freezes them instead
+    // of letting them jump to the end on resume. The per-frame delta is capped at 250 ms so a long
+    // stall (a tab switch, a breakpoint) moves the animation forward by one visible step rather than
+    // by the whole stall — and the cap only ever applies to a frame nothing was rendered in.
+    if (this.transitionRunner.pending > 0) {
+      const delta = this.lastFrameTime < 0 ? 0 : Math.min(time - this.lastFrameTime, 250);
+      this.transitionRunner.step(delta);
+    }
+    this.lastFrameTime = time;
+
     // Development trace for focus: knowing *what* holds focus explains most "my key press went nowhere"
     // reports. One comparison per frame, and nothing at all once `setDevMode(false)` ran (the log call
     // itself is gated, and the comparison is cheap).
@@ -635,6 +636,10 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.scene?.input.keyboard?.off('keydown', this.onKeyDown, this);
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = null;
+    // Transition runs hold widget references and deferred teardowns; the root is about to destroy
+    // those widgets anyway, so the runs go without calling their `onDone`.
+    this.transitionRunner.clear();
+    this.lastFrameTime = -1;
     this.router?.detach();
     this.router = null;
     // Before the UI root goes away: the mirror holds references to widgets.

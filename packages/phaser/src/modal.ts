@@ -41,6 +41,7 @@ import { StackWidget } from './LayoutWidget';
 import { Widget } from './Widget';
 import { RectWidget } from './widgets';
 import { getTheme, onThemeChange } from './theme';
+import { type ResolvedTransition, type TransitionOverride, type TransitionRun } from './transition';
 import { buildUiPage } from './ui-build';
 
 /** How a modal was closed. */
@@ -65,7 +66,19 @@ export interface ModalOptions {
   initialFocus?: Widget | null;
   /** Debug name of the layer (and of the dev traces). Defaults to `modal#<n>`. */
   name?: string;
-  /** Called once, after the layer is gone. */
+  /**
+   * Motion for this layer only: `false` to appear and disappear on the spot, or a transition spec to
+   * override the plugin's policy for this dialog (a big dialog may want a longer fade than a tooltip).
+   * Defaults to the policy from `MVVMPlugin.configure({ transition: … })`.
+   */
+  transition?: TransitionOverride;
+  /**
+   * Called once, when the modal leaves the stack.
+   *
+   * Not "once the layer is gone": with an exit animation the layer is still fading out for another
+   * `transition.exit` milliseconds. Closing is immediate (focus, input and the stack are updated in
+   * the same call), only the paint is deferred — see `ModalHost#closeEntry`.
+   */
   onClose?: (reason: ModalCloseReason) => void;
 }
 
@@ -90,6 +103,8 @@ interface ModalEntry {
   readonly id: number;
   readonly widget: Widget;
   readonly content: Widget;
+  /** The translucent rectangle behind the content, when the modal draws one (built just below). */
+  scrim: Widget | null;
   readonly options: ModalOptions;
   readonly dismissible: boolean;
   closed: boolean;
@@ -162,6 +177,7 @@ export class ModalHost {
       id,
       widget: layer,
       content: body,
+      scrim: null,
       options,
       dismissible,
       closed: false,
@@ -190,6 +206,7 @@ export class ModalHost {
       scrim.scope.onScopeDispose(() => unsubscribeScrim());
       scene.add.existing(scrim);
       layer.addWidget(scrim);
+      entry.scrim = scrim;
 
       // The scrim is decoration with one job: a click on it dismisses. It must not take focus or
       // show a hover state of its own.
@@ -220,8 +237,20 @@ export class ModalHost {
       plugin.focus.focus(options.initialFocus);
     }
 
+    // The appear animation runs last, so the layer has already been laid out and the capture sized:
+    // nothing below depends on the layer being opaque, and fading in from the first frame means the
+    // dialog is never painted fully visible for one frame. The scrim and the body fade together (two
+    // targets, one group), while only the body scales — scaling the *layer* would shrink the whole
+    // stage towards its top-left corner.
+    const motion = plugin.transitionFor(options.transition);
+    const entered = plugin.transitions.runGroup(transitionTargets(entry, motion.enter), undefined);
     if (isDevMode()) {
-      devLog(`modal.open: ${name} (depth ${this.stack.length}, dismissible ${dismissible})`);
+      devLog(
+        `modal.open: ${name} (depth ${this.stack.length}, dismissible ${dismissible})` +
+          (entered > 0
+            ? ` — entering over ${motion.enter.duration} ms (${motion.enter.easing})`
+            : ' — no enter animation'),
+      );
     }
     return this.handleOf(entry);
   }
@@ -331,19 +360,52 @@ export class ModalHost {
     entry.closed = true;
 
     // Focus first (the widgets are still alive, so their rings clear cleanly), then the tree.
+    const root = this.plugin.root;
     this.plugin.focus.popScope();
     this.plugin.input.setCapture(this.stack[this.stack.length - 1]?.widget ?? null);
-
-    const root = this.plugin.root;
-    if (entry.widget.isDestroyed !== true) {
-      root.removeWidget(entry.widget, true);
-    }
     this.plugin.refreshInteraction();
     root.flushLayout();
 
     entry.options.onClose?.(reason);
+
+    // The exit animation is the one place where "the modal is closed" and "the layer is gone" come
+    // apart, and it is worth being precise about which is which:
+    //
+    // - *Closing* is immediate and synchronous. The entry left the stack, focus went back to the page,
+    //   the capture is the layer below, and `handle.open` is already `false` — so `Esc`, a second
+    //   backdrop click and the app's own code all behave exactly as they did before transitions
+    //   existed, and `close()` keeps returning `true` on the spot.
+    // - *Painting* is deferred: the layer fades out in the tree and is destroyed when the group ends.
+    //   Until then it still swallows clicks, which is deliberate — a dialog that has just been
+    //   dismissed must not pass the same tap through to the button underneath it.
+    //
+    // A zero-length exit (the default policy in a `prefers-reduced-motion` page, or `transition: false`)
+    // therefore takes the old path exactly: removed and destroyed inside this call.
+    const motion = this.plugin.transitionFor(entry.options.transition);
+    const destroy = (): void => {
+      if (entry.widget.isDestroyed !== true) {
+        root.removeWidget(entry.widget, true);
+        this.plugin.refreshInteraction();
+        root.flushLayout();
+      }
+      if (isDevMode()) {
+        devLog(`modal.close: ${entry.widget.name} freed (${reason})`);
+      }
+    };
+
+    const leaving = this.plugin.transitions.runGroup(
+      transitionTargets(entry, motion.exit),
+      destroy,
+    );
+    if (leaving === 0) {
+      destroy();
+    }
+
     if (isDevMode()) {
-      devLog(`modal.close: ${entry.widget.name} (${reason}, depth ${this.stack.length})`);
+      devLog(
+        `modal.close: ${entry.widget.name} (${reason}, depth ${this.stack.length})` +
+          (leaving > 0 ? ` — leaving over ${motion.exit.duration} ms (${motion.exit.easing})` : ''),
+      );
     }
     return true;
   }
@@ -367,4 +429,29 @@ function clamp01(value: number): number {
     return 0.5;
   }
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * The widgets one modal's animation touches, with the properties each is allowed to move.
+ *
+ * Two targets, because a dialog is two things: the veil and the panel. The scrim only fades — scaling
+ * it would shrink a full-stage rectangle towards its top-left corner — while the body fades *and*
+ * scales slightly, which is what reads as "the dialog came out of the page" rather than "a rectangle
+ * appeared". A modal opened with `scrim: 0` has no veil, and the group then holds the body alone.
+ *
+ * A widget already destroyed (a modal closed while the scene was tearing down) is skipped: the runner
+ * reports "nothing to animate", which is the caller's signal to tear the layer down at once.
+ */
+function transitionTargets(entry: ModalEntry, transition: ResolvedTransition): TransitionRun[] {
+  if (transition.duration <= 0) {
+    return [];
+  }
+  const runs: TransitionRun[] = [];
+  if (entry.scrim && entry.scrim.isDestroyed !== true) {
+    runs.push({ target: entry.scrim, transition, props: ['alpha'] });
+  }
+  if (entry.content.isDestroyed !== true) {
+    runs.push({ target: entry.content, transition });
+  }
+  return runs;
 }

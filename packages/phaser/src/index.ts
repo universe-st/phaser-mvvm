@@ -38,7 +38,8 @@ export {
   type UiScopeFrame,
   type UiScopeResult,
 } from './uiscope';
-export { MVVMPlugin, mergePluginConfig, type MVVMPluginConfig } from './plugin';
+export { MVVMPlugin } from './plugin';
+export { mergePluginConfig, type MVVMPluginConfig } from './plugin-config';
 export {
   A11Y_ATTRIBUTE,
   A11Y_LIVE_ATTRIBUTE,
@@ -74,6 +75,31 @@ export {
   type RevealOptions,
 } from './reveal';
 export { PageHost, type PageBackTarget, type PageHandle, type PageOptions } from './pages';
+export {
+  DEFAULT_ENTER,
+  DEFAULT_EXIT,
+  DEFAULT_TRANSITION_OPTIONS,
+  EASINGS,
+  INSTANT,
+  TransitionRunner,
+  easingOf,
+  prefersReducedMotion,
+  progressOf,
+  resolveTransition,
+  resolveTransitions,
+  type Easing,
+  type EasingName,
+  type Endpoint,
+  type ResolvedTransition,
+  type ResolvedTransitions,
+  type TransitionInput,
+  type TransitionOptions,
+  type TransitionOverride,
+  type TransitionProp,
+  type TransitionRun,
+  type TransitionSpec,
+  type TransitionTarget,
+} from './transition';
 export { planBack, type BackState } from './back-plan';
 export { factoriesInstalled, FACTORY_KEYS, installFactories } from './factory';
 export {

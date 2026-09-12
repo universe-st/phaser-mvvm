@@ -25,6 +25,7 @@ import {
   themeListenerCount,
   type ModalCloseReason,
   type ModalHandle,
+  type TransitionOptions,
   type Widget,
 } from '@phaser-mvvm/phaser';
 import { Button, Divider, Panel, Row, Text, TextField, ui } from '@phaser-mvvm/widgets/compose';
@@ -68,6 +69,16 @@ export class ModalScene extends Phaser.Scene {
   private readonly reported = new Set<ModalKind>();
   private readonly tracked = new Map<string, Widget>();
   private readonly published = new Map<string, string>();
+  /**
+   * The widgets of the most recent dialog, kept after it closes.
+   *
+   * Closing a dialog with motion leaves its layer in the tree for another `transition.exit`
+   * milliseconds, so the parts have to outlive the handle: this is what `motion()` samples while the
+   * dialog is fading out (`st.*=gone` once it is destroyed).
+   */
+  private lastParts: { layer: Widget; body: Widget; scrim: Widget | null } | null = null;
+  /** Whether the next dialog skips the animation entirely (`window.modal.instant(true)`). */
+  private instant = false;
 
   constructor() {
     super('modal');
@@ -271,7 +282,7 @@ export class ModalScene extends Phaser.Scene {
   }
 
   private buildDialog(kind: ModalKind): ModalHandle {
-    const base = { onClose: (reason: ModalCloseReason) => this.recordClose(reason) };
+    const base = this.dialogBase();
 
     switch (kind) {
       case 'confirm':
@@ -484,6 +495,23 @@ export class ModalScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Options every demo dialog shares.
+   *
+   * `instant` is the per-dialog opt-out (`ModalOptions.transition: false`): the same button, the same
+   * dialog, no motion. The acceptance runs both ways to show that the animation is a policy on top of
+   * the behaviour, not a change in it.
+   */
+  private dialogBase(): {
+    onClose: (reason: ModalCloseReason) => void;
+    transition: false | undefined;
+  } {
+    return {
+      onClose: (reason) => this.recordClose(reason),
+      transition: this.instant ? false : undefined,
+    };
+  }
+
   /** The dialog the nested case opens on top of the first one. */
   private openSecondLayer(): ModalHandle {
     return this.remember(
@@ -517,14 +545,73 @@ export class ModalScene extends Phaser.Scene {
             },
           );
         },
-        { name: 'modal.second', onClose: (reason) => this.recordClose(reason) },
+        { name: 'modal.second', ...this.dialogBase() },
       ),
     );
   }
 
   private remember(handle: ModalHandle): ModalHandle {
     this.open.push(handle);
+    this.lastParts = {
+      layer: handle.widget,
+      body: handle.content,
+      scrim: findScrim(handle.widget),
+    };
     return handle;
+  }
+
+  /**
+   * What the open (or just-closed) dialog's animation is doing right now.
+   *
+   * The values are read off the live widgets rather than from the runner, because that is what the
+   * frame-sampling acceptance needs to see: `body`/`scale`/`scrim` are the numbers the renderer used
+   * this frame, so a curve sampled here *is* the curve on screen.
+   */
+  motion(): {
+    pending: number;
+    reduced: boolean;
+    enter: number;
+    exit: number;
+    instant: boolean;
+    body: number | null;
+    scale: number | null;
+    scrim: number | null;
+  } {
+    const policy = this.mvvm.transitionFor();
+    const parts = this.lastParts;
+    const alive = parts && parts.layer.isDestroyed !== true;
+    return {
+      pending: this.mvvm.transitions.pending,
+      reduced: policy.reduced,
+      enter: policy.enter.duration,
+      exit: policy.exit.duration,
+      instant: this.instant,
+      body: alive ? round3(parts.body.alpha) : null,
+      scale: alive ? round3(parts.body.scaleX) : null,
+      scrim:
+        alive && parts.scrim && parts.scrim.isDestroyed !== true ? round3(parts.scrim.alpha) : null,
+    };
+  }
+
+  /** Opens one dialog and resolves **after** its enter animation has finished. */
+  async openAndSettle(kind: ModalKind): Promise<number> {
+    const id = this.openDialog(kind).id;
+    await this.settle();
+    return id;
+  }
+
+  /** Resolves once nothing is animating any more (the leak gates sample after this). */
+  settle(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = (): void => {
+        if (this.mvvm.transitions.pending === 0) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    });
   }
 
   private recordClose(reason: ModalCloseReason): void {
@@ -596,6 +683,20 @@ export class ModalScene extends Phaser.Scene {
       'scrim.overlay',
       `#${this.mvvm.theme.colors.overlay.toString(16).padStart(6, '0')}`,
     );
+
+    // Motion probes. `motion.pending` is the one that matters for the leak gate: an exit animation
+    // defers the layer's destruction, so "nothing animating" is the honest moment to compare counters
+    // (`churn` waits for it). The three alpha/scale numbers are read off the last dialog's widgets, and
+    // they keep reading while it fades out — `gone` once it is really destroyed.
+    const motion = this.motion();
+    this.publish('motion.pending', motion.pending);
+    this.publish('motion.enter', motion.enter);
+    this.publish('motion.exit', motion.exit);
+    this.publish('motion.reduced', motion.reduced ? 1 : 0);
+    this.publish('motion.instant', motion.instant ? 1 : 0);
+    this.publish('motion.body', motion.body === null ? 'gone' : motion.body);
+    this.publish('motion.scale', motion.scale === null ? 'gone' : motion.scale);
+    this.publish('motion.scrim', motion.scrim === null ? 'gone' : motion.scrim);
   }
 
   /** The open dialog's scrim fill, or `null` when no dialog has a scrim. */
@@ -629,7 +730,11 @@ export class ModalScene extends Phaser.Scene {
     focusables: number;
   } {
     return {
-      widgets: this.page ? countWidgets(this.page) + this.mvvm.modal.depth : 0,
+      // Counted from the **UI root**, not from the page: a dialog that is still fading out lives in the
+      // root's children for another `transition.exit` milliseconds, and a count that only looked at the
+      // page (+ `modal.depth`) would call that tree clean while a layer was still attached. This is the
+      // number the leak gate compares, so it has to see ghosts.
+      widgets: countWidgets(this.mvvm.root),
       themeListeners: themeListenerCount(),
       pointerTargets: this.mvvm.input.widgets.length,
       focusables: this.mvvm.focus.focusables.length,
@@ -692,16 +797,42 @@ export class ModalScene extends Phaser.Scene {
       /** Fill colour of the open dialog's scrim — must equal `theme.colors.overlay` in every theme. */
       scrim: () => this.scrimColor(),
       /** Opens and closes `n` dialogs, returning the counters before/after (the leak gate). */
-      churn: (
+      churn: async (
         n: number,
-      ): { before: ReturnType<ModalScene['counts']>; after: ReturnType<ModalScene['counts']> } => {
+      ): Promise<{
+        before: ReturnType<ModalScene['counts']>;
+        after: ReturnType<ModalScene['counts']>;
+      }> => {
+        // Async, and settling after every pass: a closing dialog is destroyed one exit animation later,
+        // so sampling immediately would compare a tree with a ghost in it against one without. The gate
+        // is unchanged in strength (every pass must land on the same numbers) — it just now also proves
+        // that the animation leaves nothing behind.
         const before = this.counts();
         for (let i = 0; i < n; i++) {
           this.openDialog(i % 2 === 0 ? 'confirm' : 'form');
           this.mvvm.modal.closeAll('api');
+          await this.settle();
         }
         return { before, after: this.counts() };
       },
+      /** The motion policy in force, and what the last dialog's widgets are doing right now. */
+      motion: (): ReturnType<ModalScene['motion']> => this.motion(),
+      /** Patches the motion policy at runtime (`mvvm.configure`), then reports the result. */
+      transition: (patch?: TransitionOptions | false): ReturnType<ModalScene['motion']> => {
+        if (patch !== undefined) {
+          this.mvvm.configure({ transition: patch });
+        }
+        return this.motion();
+      },
+      /** Makes the next dialogs skip the animation entirely (per-dialog `transition: false`). */
+      instant: (on: boolean): boolean => {
+        this.instant = on;
+        return this.instant;
+      },
+      /** Resolves once nothing is animating (a deferred exit teardown has finished). */
+      settle: (): Promise<void> => this.settle(),
+      /** Opens a dialog and resolves after its enter animation — the "what does the user see" case. */
+      openAndSettle: (kind: ModalKind): Promise<number> => this.openAndSettle(kind),
       /** Names every widget of the modal stack, for a quick structural read in a check. */
       stack: (): string[] =>
         this.mvvm.modal.handles.map((handle) => names(handle.widget).join('/')),
@@ -756,4 +887,23 @@ function names(root: Widget): string[] {
   };
   visit(root);
   return found;
+}
+
+/** The scrim of a modal layer (named `<layer>.scrim`), or `null` for a scrim-less dialog. */
+function findScrim(layer: Widget): Widget | null {
+  for (const child of layer.getWidgetChildren()) {
+    if (child.name.endsWith('.scrim')) {
+      return child;
+    }
+    const nested = findScrim(child);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
+/** Three decimals: enough to see a fade curve, short enough for a `#demo-state` line. */
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }

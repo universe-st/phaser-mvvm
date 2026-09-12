@@ -526,6 +526,26 @@ async function main() {
         });
       }
 
+      // An opening dialog fades in over `transition.enter` (160 ms by default), so a screenshot taken
+      // immediately after the setup would sample a *frame of the animation*: the scrim at 30 % of its
+      // opacity and the danger fill blended with the page behind it — the pixel expectations below
+      // describe the dialog at rest, and they must be read at rest. The wait is generic (any scene, any
+      // layer) and resolves at once for a scene that animates nothing.
+      await waitFor(
+        async () => {
+          const { result } = await session.send('Runtime.evaluate', {
+            expression:
+              '(() => { const scene = window.game?.scene?.scenes?.find((s) => s.scene.isActive());' +
+              ' const pending = scene?.mvvm?.transitions?.pending;' +
+              ' return pending === undefined || pending === 0; })()',
+            returnByValue: true,
+          });
+          return result.value === true;
+        },
+        5000,
+        `${scene} transitions settled`,
+      );
+
       // Wait until the scene reported its layout (or an error) into #status.
       await waitFor(
         async () => {

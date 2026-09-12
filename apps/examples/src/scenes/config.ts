@@ -148,6 +148,23 @@ export class ConfigScene extends Phaser.Scene {
       document.querySelector('[data-mvvm-a11y-live]')?.getAttribute('aria-live') ?? 'none',
     );
     this.publishSafeArea();
+    this.publishMotion();
+  }
+
+  /**
+   * Publishes the motion policy this scene would use right now.
+   *
+   * `transitionFor()` is what `modal.open()` asks, so these numbers are "what the next dialog will do"
+   * rather than a copy of the config: it resolves the game-wide defaults, the runtime patch and
+   * `prefers-reduced-motion` on every call. The acceptance uses it to show that a `patch({
+   * transition })` really reaches the layer, and that patching one duration keeps the other
+   * (`mergePluginConfig` does one level of merging per bag).
+   */
+  private publishMotion(): void {
+    const policy = this.mvvm.transitionFor();
+    this.publish('motion.enter', policy.enter.duration);
+    this.publish('motion.exit', policy.exit.duration);
+    this.publish('motion.reduced', policy.reduced ? 1 : 0);
   }
 
   /** Publishes the safe-area readings so a check can watch them change (see `ACCEPTANCE-mobile.md`). */
@@ -214,6 +231,15 @@ export class ConfigScene extends Phaser.Scene {
       },
       /** The game-wide defaults the app set before creating the game. */
       defaults: (): Record<string, unknown> => ({ ...MVVMPlugin.defaults }),
+      /** The motion policy in force, as `modal.open()` would resolve it (durations in ms). */
+      motion: (): { enter: number; exit: number; reduced: boolean } => {
+        const policy = this.mvvm.transitionFor();
+        return {
+          enter: policy.enter.duration,
+          exit: policy.exit.duration,
+          reduced: policy.reduced,
+        };
+      },
       cameraColor: (): string => this.cameraColor(),
       liveAttrs: (): Record<string, string> => {
         const region = document.querySelector('[data-mvvm-a11y-live]');

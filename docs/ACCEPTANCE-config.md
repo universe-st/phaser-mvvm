@@ -46,15 +46,16 @@ this.mvvm.configure({ navigation: false });
 
 ## 2. 验收矩阵（第 66 轮实测）
 
-| #   | 行为                    | 判据                                                                                                                                                                       |
-| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | 游戏级默认值到达场景    | `main.ts` 里 `MVVMPlugin.configure({ a11y: { politeness: 'assertive' } })` → `#/config` 读出 `defaults.a11y={"politeness":"assertive"}`，live 区域 `aria-live="assertive"` |
-| C2  | 默认值可读              | `MVVMPlugin.defaults` 返回合并后的默认值（只读拷贝）                                                                                                                       |
-| C3  | 关闭键盘导航            | `configure({ navigation: false })` 后 `Tab` **不再移动焦点**；同一场景的鼠标点击照常工作（`patched` +1、焦点跟随）                                                         |
-| C4  | 子选项包一层深合并      | `configure({ input: { dragThreshold: 20 }, focus: { wrap: false } })` → 阈值 8 → **20**，且其余选项未被清空                                                                |
-| C5  | 相机背景跟随/不跟随主题 | `themeBackground: true` + 切 light → 相机 `#0d1117` → **`#f6f8fa`**；`themeBackground: false` + 切回 dark → 相机**保持** `#f6f8fa`                                         |
-| C6  | a11y 运行期开关         | `configure({ a11y: false })` → DOM 里 0 个镜像根；再 `configure({ a11y: { politeness: 'polite' } })` → 1 个根且 `aria-live="polite"`                                       |
-| C7  | 日志                    | dev 模式：`configure: applied navigation, themeBackground`；`setDevMode(false)` 后同样补丁 **0 行**                                                                        |
+| #   | 行为                    | 判据                                                                                                                                                                                                                                               |
+| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | 游戏级默认值到达场景    | `main.ts` 里 `MVVMPlugin.configure({ a11y: { politeness: 'assertive' } })` → `#/config` 读出 `defaults.a11y={"politeness":"assertive"}`，live 区域 `aria-live="assertive"`                                                                         |
+| C2  | 默认值可读              | `MVVMPlugin.defaults` 返回合并后的默认值（只读拷贝）                                                                                                                                                                                               |
+| C3  | 关闭键盘导航            | `configure({ navigation: false })` 后 `Tab` **不再移动焦点**；同一场景的鼠标点击照常工作（`patched` +1、焦点跟随）                                                                                                                                 |
+| C4  | 子选项包一层深合并      | `configure({ input: { dragThreshold: 20 }, focus: { wrap: false } })` → 阈值 8 → **20**，且其余选项未被清空                                                                                                                                        |
+| C5  | 相机背景跟随/不跟随主题 | `themeBackground: true` + 切 light → 相机 `#0d1117` → **`#f6f8fa`**；`themeBackground: false` + 切回 dark → 相机**保持** `#f6f8fa`                                                                                                                 |
+| C6  | a11y 运行期开关         | `configure({ a11y: false })` → DOM 里 0 个镜像根；再 `configure({ a11y: { politeness: 'polite' } })` → 1 个根且 `aria-live="polite"`                                                                                                               |
+| C7  | 日志                    | dev 模式：`configure: applied navigation, themeBackground`；`setDevMode(false)` 后同样补丁 **0 行**                                                                                                                                                |
+| C8  | 动效策略（第 74 轮）    | `patch({ transition: { exit: 0 } })` → `motion.enter` 仍 **160**（子选项包深合并）；再 `patch({ transition: { enter: 250 } })` → `exit` 仍 **0**；`patch({ transition: false })` → 两个都 **0**；补丁打在别的包上（`focus`/`input`）时动效不受影响 |
 
 ### 实测读数
 
@@ -68,6 +69,12 @@ merge               { input: { dragThreshold: 20 }, focus: { wrap: false } } →
 themeBackground:true  切 light  → camera #f6f8fa
 themeBackground:false 切 dark   → camera #f6f8fa（保持，不再跟随）
 a11y:false           roots 0 → 再开 → roots 1 + aria-live="polite"
+motion（初值）       { enter: 160, exit: 120, reduced: false }；#demo-state 的 motion.enter/motion.exit/motion.reduced 同步
+patch transition.exit = 0     → { enter: 160, exit: 0 }
+patch transition.enter = 250  → { enter: 250, exit: 0 }
+patch focus.wrap=false + input.dragThreshold=14 → 动效仍 { enter: 250, exit: 0 }，dragThreshold 14
+patch transition = false      → { enter: 0, exit: 0 }
+恢复                           → { enter: 160, exit: 120 }
 ```
 
 ---

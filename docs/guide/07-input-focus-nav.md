@@ -274,7 +274,8 @@ const dialog = this.mvvm.modal.open(
 | `scrim`        | `0.5`     | 遮罩不透明度；`0` 表示不画遮罩，但图层仍然挡住指针，点空白处依旧可以关闭            |
 | `autoFocus`    | `true`    | 打开后立刻聚焦内容里第一个可聚焦控件                                                |
 | `initialFocus` | —         | 指定打开后聚焦哪个控件                                                              |
-| `onClose`      | —         | 关闭后回调一次，参数是原因（`'api'` / `'back'` / `'backdrop'` / `'scene'`）         |
+| `transition`   | 策略默认  | 这一个对话框的动效：`false` 表示立刻出现/消失，或写一个 spec 覆盖策略（见 §6.1）    |
+| `onClose`      | —         | 关闭时回调一次，参数是原因（`'api'` / `'back'` / `'backdrop'` / `'scene'`）         |
 | `name`         | `modal#n` | 图层名，出现在 dev 轨迹与 `getByName` 里                                            |
 
 `this.mvvm.modal` 上还有 `depth`、`top`、`handles`、`closeTop()`、`closeAll()` 与 `handleBack()`（`back` 动作先经过它再交给 `onBack`）。**可以叠多层**：`Esc` 只关最上面那层，关掉后焦点回到打开它的那个控件。
@@ -293,6 +294,42 @@ const dialog = this.mvvm.modal.open(
 > **触摸也一样**：点遮罩关闭用的是同一条 `onActivate`，而在遮罩/按钮上**拖动**不算点击（`InputRouter` 的 `dragThreshold`），所以手指滑一下不会误关对话框、也不会误触按钮（实测见 [`ACCEPTANCE-touch.md`](../ACCEPTANCE-touch.md) §3.7）。
 
 > **不想要现成的模态框？** 上面每一层都可以自己搭：`ui()` 建一个 `Stack` 包住遮罩 + 对话框 → `this.mvvm.input.setCapture(mask)` → `this.mvvm.focus.pushScope(dialogRoot, { trap: true, focusFirst: true })`，关闭时 `popScope()` 并 `destroy()` 这个子树。`modal.open()` 就是这套流程的封装，验收记录见 [`ACCEPTANCE-modal.md`](../ACCEPTANCE-modal.md)。
+
+### 6.1 开闭动效
+
+对话框默认**淡入并轻微放大**（160 ms `outCubic`），关闭时**淡出**（120 ms `inCubic`）。策略在游戏级配置里定，逐对话框可以覆盖：
+
+```ts
+// 创建游戏之前：全游戏的默认动效
+MVVMPlugin.configure({ transition: { enter: 200, exit: 0 } });
+
+// 运行期：只改这个场景
+this.mvvm.configure({ transition: { respectReducedMotion: false } });
+
+// 单个对话框：不动效（例如一个必须立刻出现的提示）
+this.mvvm.modal.open(
+  () => {
+    /* … */
+  },
+  { transition: false },
+);
+```
+
+| 策略字段               | 默认   | 说明                                                                  |
+| ---------------------- | ------ | --------------------------------------------------------------------- |
+| `enabled`              | `true` | `false` 等于全局关掉动效                                              |
+| `enter`                | `160`  | 进场时长（ms）；也可以写 `{ duration, easing, fromAlpha, fromScale }` |
+| `exit`                 | `120`  | 出场时长（ms）；`0` 表示关闭即销毁（第 60 轮那条同步路径）            |
+| `easing`               | —      | `'linear'` / `'inCubic'` / `'outCubic'` / `'inOutCubic'`              |
+| `respectReducedMotion` | `true` | 系统要求减少动效时（`prefers-reduced-motion: reduce`）把时长折叠成 0  |
+
+**动效不改变关闭的语义**，这一点值得记住：`close()` 当帧就弹栈、归还焦点、把指针捕获交回下一层，`handle.open` 立刻是 `false`，`onClose` 立刻触发——**只有图层的销毁被推迟到出场动画结束**（这段时间里它继续吞掉点击，避免一次触摸同时"关弹窗 + 点下面的按钮"）。所以：
+
+```ts
+this.mvvm.transitions.pending; // 还有多少目标在动（0 = 一切都落定了）
+```
+
+`this.mvvm.transitions.run({ target, transition })` 也可以用同一套时序给自己的图层做动画；它是**逐帧步进**的（不建 Phaser tween，因此生命周期门禁里的 `tweens` 永远是 0），且**一个目标同时只有一个动画**——后来的接管先前的（这条是第 74 轮的 V40：对话框关闭时进场动画还在跑，两批动画写同一批属性，画面会"淡回来"）。矩阵见 [`ACCEPTANCE-transition.md`](../ACCEPTANCE-transition.md)。
 
 ---
 
