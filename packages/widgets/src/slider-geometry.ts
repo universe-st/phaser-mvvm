@@ -52,3 +52,44 @@ export function sliderValueFromPosition(
   const fraction = Math.min(1, Math.max(0, position / length));
   return clampSliderValue(min + fraction * (max - min), min, max, step);
 }
+
+/**
+ * The value a key press produces, or `null` when the key means nothing to a slider.
+ *
+ * The mapping follows the platform conventions a keyboard user expects: arrows move by one step,
+ * `Home`/`End` jump to the ends, `PageUp`/`PageDown` move by a tenth of the range. A *continuous*
+ * slider (no `step`) moves by a twentieth of the range per arrow press, which is the same granularity
+ * `PageUp` uses on a stepped one — big enough to feel responsive, small enough to be usable.
+ */
+export function sliderValueForKey(
+  current: number,
+  key: string,
+  min: number,
+  max: number,
+  step = 0,
+): number | null {
+  const span = Number.isFinite(max - min) ? Math.max(0, max - min) : 0;
+  const unit = step > 0 ? step : span / 20;
+  // A page is a tenth of the range at least — never smaller than a single step, and on a continuous
+  // slider distinctly bigger than the arrow move, which is what makes PageUp/PageDown worth pressing.
+  const page = Math.max(unit, span / 10);
+
+  switch (key) {
+    case 'ArrowRight':
+    case 'ArrowUp':
+      return clampSliderValue(current + unit, min, max, step);
+    case 'ArrowLeft':
+    case 'ArrowDown':
+      return clampSliderValue(current - unit, min, max, step);
+    case 'PageUp':
+      return clampSliderValue(current + page, min, max, step);
+    case 'PageDown':
+      return clampSliderValue(current - page, min, max, step);
+    case 'Home':
+      return clampSliderValue(min, min, max, step);
+    case 'End':
+      return clampSliderValue(max, min, max, step);
+    default:
+      return null;
+  }
+}

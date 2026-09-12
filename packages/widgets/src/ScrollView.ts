@@ -771,11 +771,9 @@ export class ScrollView extends Widget {
     scene?.input?.on('pointerup', this.onPointerUp);
     scene?.input?.on('pointerupoutside', this.onPointerUp);
     scene?.events?.on(Phaser.Scenes.Events.POST_UPDATE, this.onPostUpdate);
-    if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', this.onKeyDown, true);
-    }
     registerScrollView(this);
     this.scope.onScopeDispose(() => this.removeListeners());
+    this.onKeyDown = (event) => this.scrollWithKey(event);
   }
 
   private removeListeners(): void {
@@ -790,9 +788,6 @@ export class ScrollView extends Widget {
     scene?.input?.off('pointerup', this.onPointerUp);
     scene?.input?.off('pointerupoutside', this.onPointerUp);
     scene?.events?.off(Phaser.Scenes.Events.POST_UPDATE, this.onPostUpdate);
-    if (typeof window !== 'undefined') {
-      window.removeEventListener('keydown', this.onKeyDown, true);
-    }
   }
 
   override destroy(fromScene?: boolean): void {
@@ -1002,43 +997,42 @@ export class ScrollView extends Widget {
   }
 
   /**
-   * Keyboard scrolling.
+   * Keyboard scrolling, through the base class's "first refusal" hook.
    *
-   * The guard is a capture-phase window listener, so it runs *before* the scene plugin's navigation
-   * handler and can consume the key. It only acts while **this** view holds the framework focus: a
-   * `TextField` inside the view is focused on its own, so its guard (and the caret keys) are
-   * untouched, and `Tab`/`Enter`/`Escape` are never consumed here, so focus traversal keeps working.
+   * It used to be a capture-phase `window` listener per scroll view, which ran before the plugin's
+   * navigation handler. The hook reaches the same place without a global listener: `MVVMPlugin` asks
+   * the focused widget first, so this runs for the view that holds focus and never for anyone else —
+   * `Tab`/`Enter`/`Escape` and every key a `TextField` inside the view owns stay untouched.
    */
-  private readonly onKeyDown = (event: KeyboardEvent): void => {
+  private readonly scrollWithKey = (event: KeyboardEvent): boolean => {
     if (!this.focused || this.enabled === false || this.isDestroyed) {
-      return;
+      return false;
     }
     if (event.ctrlKey || event.metaKey || event.altKey) {
-      return;
+      return false;
     }
     if (!this.handlesKey(event.key)) {
-      return;
+      return false;
     }
     const step = planScrollKey(event.key, this.viewport.height, KEY_LINE_STEP);
     if (step === null) {
-      return;
+      return false;
     }
-    event.preventDefault();
-    event.stopPropagation();
     this.stopScroll();
     if (step.jump === 'start') {
       this.scrollTo('top');
-      return;
+      return true;
     }
     if (step.jump === 'end') {
       this.scrollTo('bottom');
-      return;
+      return true;
     }
     if (this.direction === 'horizontal') {
       this.scrollBy(step.delta, 0);
-      return;
+      return true;
     }
     this.scrollBy(0, step.delta);
+    return true;
   };
 
   /** How many scroll views enclose this one (0 for a top-level view). */

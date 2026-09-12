@@ -80,6 +80,30 @@ this.mvvm.input.dragThreshold = 12;
 
 带 `Ctrl`/`Cmd`/`Alt` 的组合键**不会被吞**，浏览器快捷键（复制/刷新/开发者工具）照常工作。
 
+### 控件先挑键：`Widget.onKeyDown`
+
+上表是**默认**映射。有焦点的控件可以先拿走它自己要用的键——`MVVMPlugin` 在导航之前问一次：
+
+```ts
+class MyControl extends Widget {
+  constructor(scene: Phaser.Scene) {
+    super(scene);
+    // 返回 true = 这个键我用了（插件会 preventDefault 并跳过导航）
+    this.onKeyDown = (event) => (event.key === 'ArrowUp' ? (this.bump(+1), true) : false);
+  }
+}
+```
+
+返回 `false`/`undefined` 就把键交还给焦点管理器，所以 `Tab`/`Enter`/`Escape` 在默认实现下永远还是导航。当前的使用者：
+
+| 控件            | 拿走的键                                                        | 行为                                                                                                                        |
+| --------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Slider`        | `← → ↑ ↓`、`Home`/`End`、`PageUp`/`PageDown`                    | 按步长/一页/两端移动值（04 章的 `Slider`）                                                                                  |
+| `ScrollView`    | `↑ ↓`（垂直）、`← →`（横向）、`PageUp`/`PageDown`、`Home`/`End` | 按行/按页/到两端滚动                                                                                                        |
+| `TextInputBase` | 光标键、`Backspace`、`Delete`、`Home`/`End` 等                  | **不走这个钩子**：文本框用的是隐藏 DOM 输入框，按键在 DOM 层就被 `stopPropagation()` 拦下（光标必须由浏览器处理），效果等价 |
+
+三种机制里，前两种共用这个钩子；如果你要给自己的控件加键盘语义，**优先用钩子**，不要照抄早期的 `window.addEventListener('keydown', …, true)` 写法（`ScrollView` 第 42 轮已改成钩子，就是为了去掉每个实例一个全局监听）。
+
 ### 方向导航的「漏斗」
 
 `move(direction)` 不是简单的「下一个」，而是几何选择：

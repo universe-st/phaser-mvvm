@@ -20,7 +20,12 @@ import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import { Widget, colorOf, pointerInWidgetSpace } from '@phaser-mvvm/phaser';
 import { paintFocusRing } from './appearance';
-import { clampSliderValue, sliderFraction, sliderValueFromPosition } from './slider-geometry';
+import {
+  clampSliderValue,
+  sliderFraction,
+  sliderValueForKey,
+  sliderValueFromPosition,
+} from './slider-geometry';
 import { optionBag, splitWidgetOptions } from './options';
 
 export interface SliderOptions extends LayoutParams {
@@ -117,6 +122,9 @@ export class Slider extends Widget {
     this.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       this.beginDrag(pointer);
     });
+    // First refusal on the arrows/Home/End/PageUp/PageDown while focused; everything else (Tab, Enter,
+    // Escape) is declined so navigation keeps working (`Widget#onKeyDown`).
+    this.onKeyDown = (_event, _action) => this.handleKey(_event);
 
     if (widget.disabled === true) {
       this.setEnabled(false);
@@ -240,6 +248,24 @@ export class Slider extends Widget {
     this.refreshAppearance();
     this.onChange?.(next, this);
     this.emit(SLIDER_EVENTS.CHANGE, next);
+  }
+
+  /** Moves the value by one step, one page or to an end; reports it exactly like a drag would. */
+  private handleKey(event: KeyboardEvent): boolean {
+    if (!this.enabled) {
+      return false;
+    }
+    const next = sliderValueForKey(this.current, event.key, this.min, this.max, this.step);
+    if (next === null) {
+      return false;
+    }
+    if (next !== this.current) {
+      this.current = next;
+      this.refreshAppearance();
+      this.onChange?.(next, this);
+      this.emit(SLIDER_EVENTS.CHANGE, next);
+    }
+    return true;
   }
 
   // ------------------------------------------------------------------ lifecycle

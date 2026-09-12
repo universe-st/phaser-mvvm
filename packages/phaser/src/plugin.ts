@@ -208,11 +208,18 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
   private onKeyDown(event: KeyboardEvent): void {
     const action = keyboardActionOf(event);
-    if (!action) {
-      return;
-    }
     // Never swallow browser shortcuts (copy/paste/reload/devtools).
     if (event.ctrlKey || event.metaKey || event.altKey) {
+      return;
+    }
+    // The focused widget gets first refusal: a `Slider` moves its own value with the arrows, and every
+    // other widget declines so the keys keep navigating (`Widget#onKeyDown`).
+    const focused = this.focusManager?.focusedWidget ?? null;
+    if (focused && focused.onKeyDown?.(event, action) === true) {
+      event.preventDefault();
+      return;
+    }
+    if (!action) {
       return;
     }
     if (this.focusManager?.handleAction(action, 'keyboard')) {

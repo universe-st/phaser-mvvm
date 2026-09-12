@@ -7,7 +7,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { clampSliderValue, sliderFraction, sliderValueFromPosition } from '../src/slider-geometry';
+import {
+  clampSliderValue,
+  sliderFraction,
+  sliderValueForKey,
+  sliderValueFromPosition,
+} from '../src/slider-geometry';
 
 describe('clampSliderValue', () => {
   it('clamps into the range', () => {
@@ -81,5 +86,52 @@ describe('sliderValueFromPosition', () => {
   it('degrades to the minimum for a zero-length track', () => {
     // A slider that has not been laid out yet (width 0) must not divide by zero.
     expect(sliderValueFromPosition(10, 0, 5, 100)).toBe(5);
+  });
+});
+
+describe('sliderValueForKey', () => {
+  it('moves by one step with the arrows', () => {
+    expect(sliderValueForKey(40, 'ArrowRight', 0, 100, 10)).toBe(50);
+    expect(sliderValueForKey(40, 'ArrowUp', 0, 100, 10)).toBe(50);
+    expect(sliderValueForKey(40, 'ArrowLeft', 0, 100, 10)).toBe(30);
+    expect(sliderValueForKey(40, 'ArrowDown', 0, 100, 10)).toBe(30);
+  });
+
+  it('uses a twentieth of the range for a continuous slider', () => {
+    // Without a step there is no grid to move along, so the arrow has to pick a granularity itself.
+    expect(sliderValueForKey(40, 'ArrowRight', 0, 100)).toBe(45);
+    // A 0..1 range moves by 0.05 per press, not by a whole unit.
+    expect(sliderValueForKey(0.5, 'ArrowRight', 0, 1)).toBeCloseTo(0.55, 10);
+    expect(sliderValueForKey(0.5, 'ArrowLeft', 0, 1)).toBeCloseTo(0.45, 10);
+  });
+
+  it('jumps to the ends with Home/End', () => {
+    expect(sliderValueForKey(40, 'Home', 0, 100, 10)).toBe(0);
+    expect(sliderValueForKey(40, 'End', 0, 100, 10)).toBe(100);
+  });
+
+  it('moves by a tenth of the range with PageUp/PageDown', () => {
+    expect(sliderValueForKey(40, 'PageUp', 0, 100, 10)).toBe(50);
+    expect(sliderValueForKey(40, 'PageDown', 0, 100, 10)).toBe(30);
+    // On a continuous slider a page is still a tenth, i.e. twice the arrow move.
+    expect(sliderValueForKey(40, 'PageUp', 0, 100)).toBe(50);
+    expect(sliderValueForKey(40, 'ArrowRight', 0, 100)).toBe(45);
+    // A coarse step must not make PageUp smaller than the one-step move: `max(step, range/10)`.
+    expect(sliderValueForKey(40, 'PageUp', 0, 100, 20)).toBe(60);
+    // …and the result still lands on the grid: 40 + 30 is snapped back to the nearest multiple of 30.
+    expect(sliderValueForKey(40, 'PageUp', 0, 100, 30)).toBe(60);
+  });
+
+  it('clamps at the ends instead of running past them', () => {
+    expect(sliderValueForKey(100, 'ArrowRight', 0, 100, 10)).toBe(100);
+    expect(sliderValueForKey(0, 'ArrowLeft', 0, 100, 10)).toBe(0);
+  });
+
+  it('declines every other key, so navigation keeps working', () => {
+    // `Tab`, `Enter` and `Escape` must stay with the focus manager.
+    expect(sliderValueForKey(40, 'Tab', 0, 100, 10)).toBeNull();
+    expect(sliderValueForKey(40, 'Enter', 0, 100, 10)).toBeNull();
+    expect(sliderValueForKey(40, 'Escape', 0, 100, 10)).toBeNull();
+    expect(sliderValueForKey(40, 'a', 0, 100, 10)).toBeNull();
   });
 });

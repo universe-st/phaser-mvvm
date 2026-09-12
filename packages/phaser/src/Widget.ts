@@ -27,6 +27,7 @@ import {
 } from '@phaser-mvvm/layout';
 import { effectScope, type EffectScope } from '@phaser-mvvm/core';
 import { getTheme, onThemeChange, type Theme } from './theme';
+import type { NavAction } from './nav';
 import { resolveWidgetState, type WidgetState } from './widget-state';
 
 export interface WidgetOptions {
@@ -108,6 +109,18 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
 
   /** Called when the widget is activated by pointer, keyboard or gamepad. */
   onActivate: ((source: ActivationSource) => void) | null = null;
+
+  /**
+   * First refusal on a key press, while this widget has focus.
+   *
+   * Return `true` to *consume* the key: the plugin then skips navigation for it (and calls
+   * `preventDefault()`). Return `false`/`undefined` to let the focus manager handle it as usual, which
+   * is what keeps `Tab`/`Escape`/arrows working on every other widget.
+   *
+   * This is how a value control owns the keys that mean something to it — a `Slider` moves its value
+   * with the arrows, while the same arrows still navigate focus between widgets (`docs/guide/07`).
+   */
+  onKeyDown: ((event: KeyboardEvent, action: NavAction | null) => boolean) | null = null;
 
   private _enabled = true;
   private _hovered = false;
