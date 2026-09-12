@@ -11,6 +11,7 @@ import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
 import { ScrollScene } from './scenes/scroll';
+import { StatesScene } from './scenes/states';
 import { ShowcaseScene } from './scenes/showcase';
 import { StackScene } from './scenes/stack';
 import { appendStatus, installErrorReporting, setStatus } from './status';
@@ -36,6 +37,7 @@ const SCENES = {
   showcase: ShowcaseScene,
   compose: ComposeScene,
   lifecycle: LifecycleScene,
+  states: StatesScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

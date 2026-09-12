@@ -18,6 +18,7 @@ import {
   isClickGesture,
   isHoverPointer,
   isWithinTree,
+  shouldFocusOnPress,
 } from '../src/input';
 
 /* ------------------------------------------------------------------ fakes */
@@ -242,5 +243,26 @@ describe('collectInteractive', () => {
     const root = fakeWidget({ children: [fakeWidget({ children: [fakeWidget()] })] });
 
     expect(collectInteractive(asWidget(root))).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ shouldFocusOnPress */
+
+describe('shouldFocusOnPress', () => {
+  it('focuses a focusable, enabled widget', () => {
+    expect(shouldFocusOnPress({ focusable: true })).toBe(true);
+    expect(shouldFocusOnPress({ focusable: true, enabled: true })).toBe(true);
+  });
+
+  it('never focuses a widget that is not focusable', () => {
+    // Labels, images, spacers and dividers are not in the focus set, so a press must not try.
+    expect(shouldFocusOnPress({ focusable: false })).toBe(false);
+    expect(shouldFocusOnPress({})).toBe(false);
+  });
+
+  it('never focuses a disabled widget', () => {
+    // A disabled control is skipped by traversal; focusing it would put the ring on a control the user
+    // cannot use and would break `Tab` (it would have to skip back out).
+    expect(shouldFocusOnPress({ focusable: true, enabled: false })).toBe(false);
   });
 });

@@ -92,6 +92,7 @@ export {
 } from './focus';
 export {
   InputRouter,
+  shouldFocusOnPress,
   DEFAULT_DRAG_THRESHOLD,
   collectInteractive,
   diffInteractionState,

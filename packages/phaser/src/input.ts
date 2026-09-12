@@ -44,6 +44,15 @@ export interface InputRouterOptions {
   root?: Widget | null;
   /** Called after a pointer activation was accepted by the widget. */
   onActivate?: (widget: Widget, source: ActivationSource) => void;
+  /**
+   * Called when a pointer press lands on a focusable widget.
+   *
+   * Routing and focus are separate concerns (the router owns hit testing, the focus manager owns the
+   * tab/arrow order), so the host wires them together: `MVVMPlugin` forwards this to
+   * `focusManager.focus()`. Without it a mouse user could never focus a button, and the next `Tab`
+   * would jump back to the first focusable instead of continuing from what was just clicked.
+   */
+  onPointerFocus?: (widget: Widget) => void;
   /** Maximum pointer travel between down and up that still counts as a click. Defaults to 8. */
   dragThreshold?: number;
 }
@@ -100,6 +109,17 @@ export interface HoverPointerState {
   wasTouch?: boolean;
   /** Timestamp of the most recent movement; still `0` until the pointer has actually moved. */
   moveTime?: number;
+}
+
+/**
+ * Whether a pointer press on `widget` should also give it framework focus.
+ *
+ * A disabled widget never takes focus (it is skipped by traversal too), and a widget that is not
+ * focusable stays out of the focus set entirely. Extracted as a plain function for the same reason the
+ * other router decisions are: `InputRouter` needs a live scene, this rule does not.
+ */
+export function shouldFocusOnPress(widget: { focusable?: boolean; enabled?: boolean }): boolean {
+  return widget.focusable === true && widget.enabled !== false;
 }
 
 /**
@@ -190,6 +210,8 @@ function liveSceneOf(widget: Widget): Phaser.Scene | null {
 export class InputRouter {
   /** Activation callback, writable so hosts can swap it after construction. */
   onActivate: ((widget: Widget, source: ActivationSource) => void) | null;
+  /** Pointer-press focus hook; see `InputRouterOptions.onPointerFocus`. */
+  onPointerFocus: ((widget: Widget) => void) | null;
   /** Maximum travel that still counts as a click; see `isClickGesture`. */
   dragThreshold: number;
 
@@ -209,6 +231,7 @@ export class InputRouter {
 
   constructor(options: InputRouterOptions = {}) {
     this.onActivate = options.onActivate ?? null;
+    this.onPointerFocus = options.onPointerFocus ?? null;
     this.dragThreshold = options.dragThreshold ?? DEFAULT_DRAG_THRESHOLD;
     if (options.root) {
       this.rootWidget = options.root;
@@ -528,6 +551,13 @@ export class InputRouter {
     }
     this.pressedAt.set(widget, { x: pointer.worldX, y: pointer.worldY, pointer });
     widget.setPressed(true);
+
+    // Pressing a control gives it focus, the way every desktop toolkit behaves: the focus ring appears
+    // where the user clicked and the next `Tab`/arrow continues from there. A press that turns into a
+    // drag still focuses first — that is what the user grabbed.
+    if (shouldFocusOnPress(widget)) {
+      this.onPointerFocus?.(widget);
+    }
   }
 
   private handleUp(widget: Widget, pointer: Phaser.Input.Pointer): void {

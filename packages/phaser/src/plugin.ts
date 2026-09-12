@@ -172,6 +172,10 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.lastStructureVersion = root.structureVersion;
 
     this.router = new InputRouter({ root, ...this.config.input });
+    // Pointer presses move focus (the router only reports them; the manager owns the order).
+    this.router.onPointerFocus = (widget) => {
+      this.focusManager?.focus(widget);
+    };
     this.router.attach(root, scene);
 
     this.focusManager = new FocusManager({

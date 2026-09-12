@@ -264,6 +264,7 @@ phaser-mvvm/
 | [`docs/guide/`](./docs/guide/README.md)                                    | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表 |
 | [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)       | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                      |
 | [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md) | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                      |
+| [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                 | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                        |
 | [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                       | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
 | [`docs/adr/`](./docs/adr/README.md)                                        | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
 | `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                             | 生成的 API 参考                                                                                                                                              |
