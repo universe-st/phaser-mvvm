@@ -221,7 +221,7 @@ new Phaser.Game({
 8. **新增包、引入运行时依赖、改变包间依赖方向 —— 必须新增一篇 ADR**（新编号，不修改历史 ADR）。见 [`docs/adr/README.md`](./docs/adr/README.md)。
 9. **不使用 `eval` / `new Function`**：路径表达式编译为 getter/setter 闭包，保证 CSP 环境可用。
 10. **提交前自查**：`pnpm format:check`、受影响包的 `typecheck` / `test`；涉及控件的改动需附带示例页（M4 起截图回归）。
-11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。其中 `packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，**它当前没有测试是正常的**（自 M4 起补充）。
+11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。四个包当前都有测试（合计 **1260** 个用例：core 281 / layout 313 / phaser 308 / widgets 358）；`packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，只为「暂时没有测试也不至于失败」，不代表可以长期没有断言。
 
 ---
 
@@ -254,22 +254,23 @@ phaser-mvvm/
 
 ## 7. 文档索引
 
-| 文档                                                                           | 内容                                                                                                                                                         |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`docs/PLAN.md`](./docs/PLAN.md)                                               | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3）      |
-| [`docs/guide/`](./docs/guide/README.md)                                        | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表 |
-| [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)           | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                      |
-| [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)     | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                      |
-| [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                     | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                        |
-| [`docs/ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)           | 验收记录：PLAN §8 性能与体积预算的实测（1000 节点 0.06 ms、无变化帧零测量、缓存 95.6%、体积 18.3/14.7 KB）                                                   |
-| [`docs/ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)               | 验收记录：`render()` 入口、控制流演示、DSL 优先的快速开始与文档对齐                                                                                          |
-| [`docs/ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)                     | 验收记录：命令绑定的指针可达性（V4 复现+修复）与 `#/showcase` 迁移到 DSL 的等价性核对                                                                        |
-| [`docs/ACCEPTANCE-v1-camera-pinned.md`](./docs/ACCEPTANCE-v1-camera-pinned.md) | 验收记录：相机钉住的 UI 可点击（V1 的两道闸门、命中测试读数与修复前后对比）                                                                                  |
-| [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                           | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
-| [`docs/HANDOVER.md`](./docs/HANDOVER.md)                                       | 交接说明：当前状态、已修复清单的证据位置、下一步计划（按建议顺序）与工作约定速记                                                                             |
-| [`docs/adr/`](./docs/adr/README.md)                                            | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
-| `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                                 | 生成的 API 参考                                                                                                                                              |
-| `docs/widget-spec/`（**M10**，尚未创建）                                       | 控件规格文档；落地前以 [`docs/guide/`](./docs/guide/README.md) 的控件章节为现行参考                                                                          |
+| 文档                                                                           | 内容                                                                                                                                                          |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/PLAN.md`](./docs/PLAN.md)                                               | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3）       |
+| [`docs/guide/`](./docs/guide/README.md)                                        | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表  |
+| [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)           | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                       |
+| [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)     | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                       |
+| [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                     | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                         |
+| [`docs/ACCEPTANCE-keyboard.md`](./docs/ACCEPTANCE-keyboard.md)                 | 验收记录：`VirtualKeyboard` 屏幕键盘（手柄 `A` 打字 / 鼠标 / 触摸、`⇧` 一次性与锁定、换键盘泄漏门禁、37 个控制节点的可访问性树断言）与三个缺陷（V47/V48/V49） |
+| [`docs/ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)           | 验收记录：PLAN §8 性能与体积预算的实测（1000 节点 0.06 ms、无变化帧零测量、缓存 95.6%、体积 18.3/14.7 KB）                                                    |
+| [`docs/ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)               | 验收记录：`render()` 入口、控制流演示、DSL 优先的快速开始与文档对齐                                                                                           |
+| [`docs/ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)                     | 验收记录：命令绑定的指针可达性（V4 复现+修复）与 `#/showcase` 迁移到 DSL 的等价性核对                                                                         |
+| [`docs/ACCEPTANCE-v1-camera-pinned.md`](./docs/ACCEPTANCE-v1-camera-pinned.md) | 验收记录：相机钉住的 UI 可点击（V1 的两道闸门、命中测试读数与修复前后对比）                                                                                   |
+| [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                           | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                              |
+| [`docs/HANDOVER.md`](./docs/HANDOVER.md)                                       | 交接说明：当前状态、已修复清单的证据位置、下一步计划（按建议顺序）与工作约定速记                                                                              |
+| [`docs/adr/`](./docs/adr/README.md)                                            | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                          |
+| `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                                 | 生成的 API 参考                                                                                                                                               |
+| `docs/widget-spec/`（**M10**，尚未创建）                                       | 控件规格文档；落地前以 [`docs/guide/`](./docs/guide/README.md) 的控件章节为现行参考                                                                           |
 
 关键 ADR 速览：包划分 [0001](./docs/adr/0001-package-layout.md)｜两阶段布局 [0002](./docs/adr/0002-two-pass-layout.md)｜layout 零 Phaser 依赖 [0003](./docs/adr/0003-layout-is-renderer-agnostic.md)｜DOM 输入桥 [0004](./docs/adr/0004-dom-input-bridge.md)｜Phaser 依赖方式 [0005](./docs/adr/0005-phaser-dependency.md)｜Phase 1 范围 [0006](./docs/adr/0006-phase1-scope.md)｜Phaser 4 WebGL 约束 [0007](./docs/adr/0007-phaser4-webgl-constraints.md)｜响应式与调度器 [0008](./docs/adr/0008-reactivity-and-scheduler.md)。
 

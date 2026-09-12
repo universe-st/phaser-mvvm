@@ -139,7 +139,15 @@ export const TEXT_INPUT_KEYS = [
 
 /** Events a text input emits on the Phaser emitter. */
 export const TEXT_INPUT_EVENTS = {
-  /** Fired with the new value after a *user* edit (never for a programmatic `setValue`). */
+  /**
+   * Fired with the new value whenever the value changes.
+   *
+   * This is the channel a model binding listens on (`bindModel` writes the value back to the source),
+   * so **any** committed change reaches it — including a programmatic `setValue`, because a two-way
+   * `ref` that is not told about a programmatic write would keep a stale value and silently disagree
+   * with what the player sees. What stays user-only is the `onChange` *option* (see
+   * {@link TextInputBase.setValue}).
+   */
   CHANGE: 'change',
   /** Fired when the user submits (Enter, or Ctrl/Cmd+Enter in a text area). */
   SUBMIT: 'submit',
@@ -446,16 +454,19 @@ export abstract class TextInputBase extends Widget {
   /**
    * Replaces the value programmatically.
    *
-   * Deliberately silent: it does not emit `change` and does not call `onChange`, which is what makes
+   * The value, the display, the DOM mirror **and the model binding** all follow, so a two-way `ref`
+   * can never be left describing text the field no longer holds. What it does *not* do is tell the page
+   * "the user typed": the `onChange` option stays silent, which is what keeps
    * `bindValue(field, () => vm.value, (v, w) => w.setValue(v))` a one-way write with no feedback loop
-   * (the same convention `Button.setValue` uses).
+   * (the same convention `Button.setValue` uses) and lets a page clear or prefill a field without
+   * re-entering its own validation.
    */
   setValue(value: string): this {
     const next = this.sanitize(value);
     if (next === this.value) {
       return this;
     }
-    this.commit(next, next.length, next.length, { silent: true });
+    this.commit(next, next.length, next.length, { userEdit: false });
     return this;
   }
 
@@ -522,6 +533,52 @@ export abstract class TextInputBase extends Widget {
   /** Re-runs `validate` and applies its verdict. */
   validateNow(): this {
     this.runValidation();
+    return this;
+  }
+
+  /**
+   * Inserts `text` at the caret, replacing the selection — the programmatic half of typing.
+   *
+   * This is what a soft/virtual keyboard, a paste button or any other input method calls. It goes
+   * through exactly the same path as a real keystroke (`applyEdit` → `sanitize` → `maxLength`,
+   * numeric filtering, code-point snapping), so a virtual keyboard cannot write a character that the
+   * DOM bridge would have rejected, and the change event fires the same way.
+   *
+   * The DOM bridge (if any) is updated too, so a field driven by both a gamepad and an IME never shows
+   * a stale element value.
+   */
+  insertText(text: string): this {
+    if (text.length === 0 || !this.enabled || this.readOnly) {
+      return this;
+    }
+    this.applyEdit(insertText(this.value, this.caret, this.anchor, text));
+    return this;
+  }
+
+  /**
+   * Deletes the selection, or one code point in `direction` — the programmatic half of Backspace and
+   * Delete.
+   *
+   * `'backward'` (the default) is what an on-screen ⌫ key sends: with a selection it deletes the
+   * selection, otherwise it deletes the code point before the caret.
+   */
+  deleteText(direction: 'backward' | 'forward' = 'backward'): this {
+    if (!this.enabled || this.readOnly) {
+      return this;
+    }
+    this.applyEdit(deleteRange(this.value, this.caret, this.anchor, direction));
+    return this;
+  }
+
+  /**
+   * Moves the caret to an absolute index, clamping and clearing any selection.
+   *
+   * The public half of "the caret is somewhere else now": an on-screen keyboard that has just written
+   * a word wants the caret after it, and a demo that drives the field programmatically should not have
+   * to fake an arrow key.
+   */
+  setCaretIndex(index: number): this {
+    this.setCaret(index, false);
     return this;
   }
 
@@ -999,14 +1056,16 @@ export abstract class TextInputBase extends Widget {
   /**
    * Single write path for the value, the caret and the selection.
    *
-   * `silent` is used by `setValue`/`setSelection`-like programmatic writes; user edits go through the
-   * same method so that the display, the DOM mirror and the emitted events can never disagree.
+   * `userEdit: false` marks a programmatic write (`setValue`): it still emits the `change` event — the
+   * model binding has to hear about it (round 81, V49) — but it does not run the page's `onChange`
+   * callback. Both paths share this method so the display, the DOM mirror and the emitted events can
+   * never disagree.
    */
   private commit(
     value: string,
     caret: number,
     anchor: number,
-    options: { silent?: boolean } = {},
+    options: { userEdit?: boolean } = {},
   ): void {
     const changed = value !== this.value;
     this.value = value;
@@ -1020,8 +1079,8 @@ export abstract class TextInputBase extends Widget {
       if (this.layoutParams.width === 'auto') {
         this.markDirty();
       }
-      if (options.silent !== true) {
-        this.emit(TEXT_INPUT_EVENTS.CHANGE, value);
+      this.emit(TEXT_INPUT_EVENTS.CHANGE, value);
+      if (options.userEdit !== false) {
         this.notifyChange(value);
       }
     }

@@ -42,7 +42,7 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y'];
+const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y', 'keyboard'];
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.
@@ -116,6 +116,24 @@ const AX_EXPECTATIONS = {
     { role: 'button', name: '区域内的按钮 5' },
     { role: 'button', name: '区域内的按钮 6' },
   ],
+  /**
+   * The on-screen keyboard: every key is a `Button` with a name a screen reader can act on, and this
+   * page is where a non-visual player would do all of their typing. The letters are generated from the
+   * one string the page's own layout uses, and the count check then makes the list exhaustive: a key
+   * that lost its label (or gained a duplicate node) fails the gate.
+   */
+  keyboard: [
+    ...'qwertyuiopasdfghjklzxcvbnm.-'.split('').map((name) => ({ role: 'button', name })),
+    { role: 'button', name: 'Shift' },
+    { role: 'button', name: 'Numbers and symbols' },
+    { role: 'button', name: 'Space' },
+    { role: 'button', name: 'Delete' },
+    { role: 'button', name: 'Enter' },
+    { role: 'button', name: '清空' },
+    { role: 'button', name: '切到数字键盘' },
+    { role: 'button', name: '切回文字键盘' },
+    { role: 'textbox', name: '玩家名' },
+  ],
 };
 
 /** Roles the AX gate counts as "a control the user can act on" (the mirror's own vocabulary). */
@@ -135,7 +153,7 @@ const AX_CONTROL_ROLES = new Set([
 ]);
 
 /** Scenes where pressing `Tab` must land the computed tree on exactly one control node. */
-const AX_TAB_SCENES = new Set(['a11y']);
+const AX_TAB_SCENES = new Set(['a11y', 'keyboard']);
 
 /**
  * One computed AX property.
@@ -305,6 +323,17 @@ const PIXEL_EXPECTATIONS = {
    * `primary`. Including this scene is the point: the pixel gate is the only automated check that would
    * notice a `UIScene` that builds the right tree and then never mounts it.
    */
+  /**
+   * The on-screen keyboard (`#/keyboard`):
+   * - `kb.keyboard` (`fx: 0.03`) samples the keyboard panel's own padding, left of every key: it is a
+   *   `surfaceAlt` panel, so it is *lighter* than the page behind it in the dark theme and darker in the
+   *   light one - the sample reads the page colour if the panel is not where the layout says it is;
+   * - `kb.key.enter` is the `primary` key, sampled left of its label (`fx: 0.12`) so the fill shows.
+   */
+  keyboard: {
+    'kb.keyboard': { rgb: 0x1f2630, fx: 0.03, fy: 0.5 },
+    'kb.key.enter': { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
+  },
   uiscene: {
     'show.a': { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
   },
@@ -364,6 +393,10 @@ const LIGHT_EXPECTATIONS = {
     // `danger` and `surface` after the switch; the dialog is open (see SCENE_SETUP).
     'confirm.ok': { rgb: 0xcf222e, fx: 0.15, fy: 0.5 },
     'confirm.cancel': { rgb: 0xffffff, fx: 0.15, fy: 0.5 },
+  },
+  keyboard: {
+    'kb.keyboard': { rgb: 0xeef1f4, fx: 0.03, fy: 0.5 },
+    'kb.key.enter': { rgb: 0x0969da, fx: 0.12, fy: 0.5 },
   },
   uiscene: {
     'show.a': { rgb: 0x0969da, fx: 0.12, fy: 0.5 },

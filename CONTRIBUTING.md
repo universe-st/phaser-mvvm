@@ -2,7 +2,7 @@
 
 本文件是 [`README.md`](./README.md) 与 [`docs/PLAN.md`](./docs/PLAN.md) 的补充。**PLAN.md 是唯一事实来源**：任何实现细节与它冲突时，先改 PLAN（或补一篇 ADR），再改代码。
 
-> 当前状态：M0–M2 进行中，API 未冻结。仓库级的 `pnpm typecheck` / `test` / `build` 在并行开发期间可能暂时失败 —— 请用 `pnpm --filter <包名> run <脚本>` 针对自己负责的包验证。
+> 当前状态：M0–M8 已交付；M9（导航与无障碍）已交付三个切片——手柄导航、无障碍镜像、手柄文本输入（`NavSource` 命名抽象、真实屏幕阅读器与真机手柄验证未做）。API 仍在演进但已可用，仓库级的 `pnpm typecheck` / `test` / `build` 应当全绿；日常迭代仍建议用 `pnpm --filter <包名> run <脚本>` 只验证自己负责的包。
 
 ## 1. 环境
 

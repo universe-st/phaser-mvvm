@@ -24,6 +24,28 @@ export {
 } from './Button';
 export { Image, Image as UIImage, type ImageOptions } from './Image';
 export { Spacer, type SpacerOptions } from './Spacer';
+export {
+  VirtualKeyboardWidget,
+  type VirtualKeyboardKind,
+  type VirtualKeyboardOptions,
+  type KeySlot,
+  type KeyboardPage,
+} from './VirtualKeyboard';
+export {
+  afterTyping,
+  CASE_OFF,
+  COMMAND_GLYPH,
+  describeSlot,
+  KEY_GAP,
+  KEY_UNIT,
+  keyboardRows,
+  keyWidth,
+  labelFor,
+  pageOf,
+  pressShift,
+  type CaseState,
+  type KeyCommand,
+} from './keyboard-plan';
 export { Divider, type DividerOptions, type DividerOrientation } from './Divider';
 export { branch, BranchWidget, type BranchOptions } from './Branch';
 export { planBranch, type BranchBuilder, type BranchKey, type BranchPlan } from './branch-plan';

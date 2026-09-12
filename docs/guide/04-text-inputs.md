@@ -99,26 +99,29 @@ TextField({
 
 ### 方法
 
-| 方法                                                                                     | 说明                                                                                    |
-| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `getValue()`                                                                             | 当前值                                                                                  |
-| `setValue(value)`                                                                        | 程序化写入，**静默**：不 emit `change`、不调 `onChange`（双向绑定靠这条短路，见 06 章） |
-| `clear()`                                                                                | 清空（保留焦点、选项与校验状态）                                                        |
-| `getSelection()` / `setSelection(a, b)`                                                  | 选区 `[start, end)`（码元偏移，与 `HTMLInputElement.selectionStart` 同口径）            |
-| `caretIndex` / `selectionAnchor`                                                         | 光标位置 / 选区锚点                                                                     |
-| `isFocused()`                                                                            | 是否持有框架焦点                                                                        |
-| `getError()` / `setError(v)`                                                             | 读/写错误状态；`setError('文案')` 显示消息，`setError(null)` 清除                       |
-| `validateNow()`                                                                          | 立刻跑一次 `validate`                                                                   |
-| `focus()` / `blur()`                                                                     | 聚焦/失焦（会联动 DOM 桥与校验）                                                        |
-| `composing` / `bridged` / `bridgeElement`                                                | 输入法组合中 / 是否走 DOM 桥 / 隐藏元素                                                 |
-| `inputType` / `align` / `maxLength` / `readOnly` / `clearable` / `placeholder` / `label` | 只读配置项                                                                              |
+| 方法                                                                                     | 说明                                                                                                  |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `getValue()`                                                                             | 当前值                                                                                                |
+| `setValue(value)`                                                                        | 程序化写入：值/显示/DOM 镜像/**模型绑定**全部跟上，但**不调 `onChange` 选项**（"用户编辑"才算数）     |
+| `insertText(text)` / `deleteText(dir)` / `setCaretIndex(i)`                              | 按"一次编辑"写入（与真实按键同一条 `applyEdit` 路径，`maxLength`/数字过滤照常生效）——屏幕键盘用这三个 |
+| `clear()`                                                                                | 清空（保留焦点、选项与校验状态）                                                                      |
+| `getSelection()` / `setSelection(a, b)`                                                  | 选区 `[start, end)`（码元偏移，与 `HTMLInputElement.selectionStart` 同口径）                          |
+| `caretIndex` / `selectionAnchor`                                                         | 光标位置 / 选区锚点                                                                                   |
+| `isFocused()`                                                                            | 是否持有框架焦点                                                                                      |
+| `getError()` / `setError(v)`                                                             | 读/写错误状态；`setError('文案')` 显示消息，`setError(null)` 清除                                     |
+| `validateNow()`                                                                          | 立刻跑一次 `validate`                                                                                 |
+| `focus()` / `blur()`                                                                     | 聚焦/失焦（会联动 DOM 桥与校验）                                                                      |
+| `composing` / `bridged` / `bridgeElement`                                                | 输入法组合中 / 是否走 DOM 桥 / 隐藏元素                                                               |
+| `inputType` / `align` / `maxLength` / `readOnly` / `clearable` / `placeholder` / `label` | 只读配置项                                                                                            |
 
 ### 事件
 
-| 事件     | 触发                              | 载荷            |
-| -------- | --------------------------------- | --------------- |
-| `change` | **用户**编辑（`setValue` 不触发） | `value: string` |
-| `submit` | 提交                              | `value: string` |
+| 事件     | 触发                                                      | 载荷            |
+| -------- | --------------------------------------------------------- | --------------- |
+| `change` | 值真的变了（用户编辑**或** `setValue`/`insertText` 写入） | `value: string` |
+| `submit` | 提交                                                      | `value: string` |
+
+> `change` 是**模型通道**：DSL 的 `value: ref` 与 `bindModel()` 都靠它把值写回数据源，所以 `setValue('')` 之后 `ref` 也会变成 `''`（否则字段与状态会各说各话）。页面的 `onChange` **选项**与 `onValueChange` 的语义分工是：前者只在用户编辑时调（"谁动了这个字段"），后者跟着值走（"值是多少"）。
 
 ```ts
 import { TEXT_INPUT_EVENTS } from '@phaser-mvvm/widgets';
@@ -301,26 +304,85 @@ export class LoginScene extends Phaser.Scene {
 
 ---
 
-## 8. 常见坑
+## 8. 手柄与触摸：`VirtualKeyboard`
 
-| 现象                              | 原因                                                                                             | 修法                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| 打不出中文 / 没有候选框           | 没开 `dom.createContainer`，或用了 `dom: false`                                                  | 开 DOM 容器；用 `field.bridged` 自检                                                     |
-| 在输入框里敲空格却激活了别的东西  | 空格在导航里等于 `activate`；框架在输入框聚焦时会消费该键，但你自己挂的全局 keydown 可能抢在前面 | 不要把全局快捷键挂在捕获阶段；需要时先判断 `document.activeElement` 或 `field.composing` |
-| `setValue()` 之后 `change` 没触发 | 这是**设计如此**（静默写入，防回环）；DSL 的 `value` 槽同样遵循                                  | 想感知变化就监听用户输入（`onValueChange`），或在模型侧 `watch`                          |
-| `field.on('blur', …)` 从不触发    | 聚焦/失焦只有**回调选项**，没有事件                                                              | 用 `onBlur` / `onFocus` 选项                                                             |
-| 输入时整个页面在重排              | 用了 `width: 'auto'`。只有 auto 宽度才会因为内容变化而 `markDirty`                               | 表单里给输入框写固定的 `width` 或 `'fill'`                                               |
-| 失焦后校验没跑                    | 焦点没有真正转移（点击画布空白处会失焦，切到别的控件也会）                                       | 明确调用 `field.blur()` 或 `validateNow()`                                               |
-| `maxLength` 把 emoji 截断了       | 不会 —— 它是按码点计数的                                                                         | 若确实发生，检查是不是自己在外层又做了 `slice`                                           |
-| 输入框被其它控件挡住点不到        | 兄弟 `Panel` 的 `blockPointer` 拦了指针                                                          | 关闭那个面板的 `blockPointer`，或调整层级顺序                                            |
+主机/电视/纯手柄场景里**根本没有键盘**：方向键能移动焦点、`A` 能按下按钮，但打不出一个字。`VirtualKeyboard` 就是给这种情况的屏幕键盘——它不是新控件类型，而是**一把普通 `Button`**：所以 D-Pad/左摇杆/`Tab` 走查、`A` 激活、指针悬停与点击、焦点环、按下态、无障碍镜像（每键一个可访问名）全部自动成立，键盘本体只管"这个键是什么、按下它改什么"。
+
+```ts
+import { TextField, VirtualKeyboard, Column, Text } from '@phaser-mvvm/widgets/compose';
+import { ref } from '@phaser-mvvm/core';
+
+const name = ref('');
+
+Column({ gap: 12, padding: 16 }, () => {
+  const field = TextField({ label: '玩家名', value: name, maxLength: 12, width: 'fill' });
+  Text(() => `已输入 ${name.value.length} 个字符`);
+  VirtualKeyboard({
+    target: () => field,
+    onSubmit: () => this.submit(name.value),
+  });
+});
+```
+
+写值走的是**和真实按键同一条路**（`insertText`/`deleteText`）：`maxLength`、`inputType: 'number'` 的过滤、清洗、`change`、校验全部照旧，所以"手柄输入的字段"和"键盘输入的字段"在页面看来没有区别。
+
+| 选项       | 说明                                                                                          |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| `target`   | `() => field`（**getter**：键盘通常写在字段之前，页面也可能换字段）；返回 `null` 时按键不做事 |
+| `kind`     | `'text'`（默认，字母 + `123` 符号页）/ `'numeric'`（`1..9`、`0`、`.`、`⌫`、`Enter` 的九宫格） |
+| `onSubmit` | `Enter` 键（提交键是 `primary` 变体，玩家一眼能找到）                                         |
+| `onChange` | 每次按键产生的编辑之后（页面刷新自己的读数用）                                                |
+| `name`     | 键的调试名前缀，默认 `keyboard`（`keyboard.q`、`keyboard.enter`…）                            |
+| 其余       | 面板选项：`width`/`variant`/`radius`/`padding`/`gap`…（默认 `surfaceAlt`、圆角 12、键距 6）   |
+
+**大小写**：`⇧` 按一次只大写**下一个字符**（打完自动松开，`⇧` 变回普通字形），连按两次**锁定**（`⇪`），按第三次全部放开——和手机键盘一致。**符号页**：`123` 换到数字/符号页（该页没有 `⇧`，没有可大写的东西），页码键变成 `ABC`。
+
+**换键盘要重新构建**（两种键集不同）：这在点击回调里发生，**没有构建作用域**，所以要用 `buildUiSubtree()` 包一层——它不是可选的礼节，而是"在构建趟之外造控件"的唯一入口：
+
+```ts
+import { buildUiSubtree } from '@phaser-mvvm/phaser';
+import { VirtualKeyboard } from '@phaser-mvvm/widgets/compose';
+import type { VirtualKeyboardWidget } from '@phaser-mvvm/widgets';
+
+const replacement = buildUiSubtree(
+  this,
+  () => VirtualKeyboard({ target: () => this.field, kind: 'numeric', onSubmit: this.submit }),
+  'swapKeyboard(): the replacement keyboard',
+) as VirtualKeyboardWidget;
+
+this.keyboardHost.addWidget(replacement); // 然后 removeWidget(旧的, true)
+```
+
+> ⚠️ **两条路径的选项要来自同一个工厂**。`#/keyboard` 第一版在重建时漏了 `onSubmit`，于是"切到数字键盘之后 `Enter` 不提交了"——这条路径没有验收就没人会发现（[`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md) §6 V48）。另一个更隐蔽的坑是给行找错了父节点（V47），DSL 已经用 `withUiParent()` 修好。
+
+**它刻意不是输入法**：没有候选词、没有组合态，打不出中文/日文。需要中文的场景走真实键盘（DOM 输入桥，§2）；`VirtualKeyboard` 服务的是"这台设备上没有键盘"。按住 `A` 也不会连打（`activate` 是边沿触发，只有方向键才有连发节流）——自动重复打字几乎总是误输入。
+
+完整的验收页是 `#/keyboard`：假手柄走查、鼠标/触摸按下、大小写与页码、换键盘泄漏门禁、37 个控制节点的可访问性树断言，矩阵见 [`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md)。
 
 ---
 
-## 9. 小结
+## 9. 常见坑
+
+| 现象                                | 原因                                                                                                        | 修法                                                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 打不出中文 / 没有候选框             | 没开 `dom.createContainer`，或用了 `dom: false`                                                             | 开 DOM 容器；用 `field.bridged` 自检                                                                                  |
+| 在输入框里敲空格却激活了别的东西    | 空格在导航里等于 `activate`；框架在输入框聚焦时会消费该键，但你自己挂的全局 keydown 可能抢在前面            | 不要把全局快捷键挂在捕获阶段；需要时先判断 `document.activeElement` 或 `field.composing`                              |
+| `setValue()` 之后 `onChange` 没触发 | 这是**设计如此**：`onChange` 选项 = "用户编辑了"，程序化写入不该触发它（否则"提交后清空"会再次跑校验/保存） | 想跟着**值**走就用 `onValueChange` 或绑 `ref`（两者都会收到）；想跟着**用户**走就监听 `change` 事件 + `onChange` 选项 |
+| 清空/预填之后 `ref` 还是旧值        | 第 81 轮修掉的 V49（`setValue` 当时把 `change` 一起吞了）                                                   | 升级到第 81 轮之后即正常；`ref` 与字段现在永远一致                                                                    |
+| `field.on('blur', …)` 从不触发      | 聚焦/失焦只有**回调选项**，没有事件                                                                         | 用 `onBlur` / `onFocus` 选项                                                                                          |
+| 输入时整个页面在重排                | 用了 `width: 'auto'`。只有 auto 宽度才会因为内容变化而 `markDirty`                                          | 表单里给输入框写固定的 `width` 或 `'fill'`                                                                            |
+| 失焦后校验没跑                      | 焦点没有真正转移（点击画布空白处会失焦，切到别的控件也会）                                                  | 明确调用 `field.blur()` 或 `validateNow()`                                                                            |
+| `maxLength` 把 emoji 截断了         | 不会 —— 它是按码点计数的                                                                                    | 若确实发生，检查是不是自己在外层又做了 `slice`                                                                        |
+| 输入框被其它控件挡住点不到          | 兄弟 `Panel` 的 `blockPointer` 拦了指针                                                                     | 关闭那个面板的 `blockPointer`，或调整层级顺序                                                                         |
+
+---
+
+## 10. 小结
 
 - **要中文输入就必须开 `dom: { createContainer: true }`**，然后用 `bridged` 自检；纯 Canvas 模式只是降级路径。
-- `setValue` 静默、`change` 只对用户编辑触发 —— 这两条是双向绑定不回环的基础。
+- `setValue` 会同步模型（`change` 照发），但**不触发 `onChange` 选项**；"用户编辑"与"值变化"是两个不同的钩子 —— 这是双向绑定既准确又不回环的基础。
 - 校验挂在 `validate` 上、失焦自动跑；错误消息要自己用 `Label` 展示。
 - `TextArea` = `TextField` + 行策略（`rows`/`wrap`/`submitOnEnter`）。
+- 没有键盘的设备（手柄/主机）用 `VirtualKeyboard`：键是 `Button`，于是导航、焦点、指针、无障碍全部复用；换键盘要在 `buildUiSubtree()` 里重建。
 
 下一篇 [05 列表与滚动](./05-lists-and-scroll.md)：`Repeat` 的键控复用与虚拟化、`ScrollView` 的手势与裁剪。
