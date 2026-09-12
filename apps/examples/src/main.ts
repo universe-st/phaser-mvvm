@@ -5,6 +5,7 @@ import { installWidgetFactories } from '@phaser-mvvm/widgets';
 import { A11yScene } from './scenes/a11y';
 import { BindingsScene } from './scenes/bindings';
 import { ComposeScene } from './scenes/compose';
+import { ConfigScene } from './scenes/config';
 import { DashboardScene } from './scenes/dashboard';
 import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
@@ -46,6 +47,7 @@ setStatus('boot');
 const SCENES = {
   m0: M0Scene,
   a11y: A11yScene,
+  config: ConfigScene,
   modal: ModalScene,
   pages: PagesScene,
   probe: ProbeScene,
@@ -66,6 +68,15 @@ const SCENES = {
 const requested = window.location.hash.replace(/^#\/?/, '');
 const initial = requested in SCENES ? (requested as keyof typeof SCENES) : 'm0';
 document.title = `phaser-mvvm examples · ${initial}`;
+
+// Game-wide plugin options. Phaser instantiates scene plugins as
+// `new Plugin(scene, pluginManager, mapKey)` — a config object in the Game Config entry is never
+// passed — so this static call is *the* way to configure the framework before the first scene boots.
+// (Until round 66 the options could only be set at runtime, one scene at a time; the guide said so in
+// four places.) `#/a11y` reads the result back: its live region reports `aria-live="assertive"`.
+MVVMPlugin.configure({
+  a11y: { politeness: 'assertive' },
+});
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,

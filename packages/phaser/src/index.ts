@@ -38,7 +38,7 @@ export {
   type UiScopeFrame,
   type UiScopeResult,
 } from './uiscope';
-export { MVVMPlugin, type MVVMPluginConfig } from './plugin';
+export { MVVMPlugin, mergePluginConfig, type MVVMPluginConfig } from './plugin';
 export {
   A11Y_ATTRIBUTE,
   A11Y_LIVE_ATTRIBUTE,

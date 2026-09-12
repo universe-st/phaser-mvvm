@@ -40,7 +40,7 @@ Phaser 已经负责命中测试，路由层补的是「控件语义」：
 this.mvvm.input.dragThreshold = 12;
 ```
 
-> ⚠️ **不要在 Game Config 的 `plugins.scene` 条目里传插件选项**：Phaser 只读 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig`（`input`/`focus`/`onBack`/`navigation`/`themeBackground`）**目前传不进去**，写了也不会生效。请像上面这样在运行期改公开字段或用可写属性（见 06 §6.1）。**唯一例外是 `back`**：`FocusManager.onBack` 是插件安装路由钩子的地方，直接覆盖它会让 `Esc` 不再关对话框、不再返回上一页（开发模式下框架会打印一条警告）；应用级的返回处理请写 `this.mvvm.onBack = …`。
+> ⚠️ **不要在 Game Config 的 `plugins.scene` 条目里传插件选项**：Phaser 只读 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig`（`input`/`focus`/`onBack`/`navigation`/`themeBackground`）**传不进去**，写了也不会生效。正确写法：**游戏级**用 `MVVMPlugin.configure({ … })`（创建游戏之前调一次），**单场景**用 `this.mvvm.configure({ … })`，公开字段与可写属性照旧可用（见 06 §6.1）。**唯一例外是 `back`**：`FocusManager.onBack` 是插件安装路由钩子的地方，直接覆盖它会让 `Esc` 不再关对话框、不再返回上一页（开发模式下框架会打印一条警告）；应用级的返回处理请写 `this.mvvm.onBack = …`。
 
 `this.mvvm.input` 的常用成员：
 

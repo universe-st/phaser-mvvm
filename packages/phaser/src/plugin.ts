@@ -69,8 +69,64 @@ export interface MVVMPluginConfig extends UIRootOptions {
   themeBackground?: boolean;
 }
 
+/**
+ * Merges two plugin configs one level deep.
+ *
+ * `input`, `focus`, `a11y` and `layout` are option bags of their own, so a later `configure()` that
+ * only mentions `focus.wrap` must not wipe `input.dragThreshold` — a shallow spread would.
+ */
+export function mergePluginConfig(
+  base: MVVMPluginConfig,
+  patch: MVVMPluginConfig,
+): MVVMPluginConfig {
+  const merged: MVVMPluginConfig = { ...base, ...patch };
+  if (base.input || patch.input) {
+    merged.input = { ...base.input, ...patch.input };
+  }
+  if (base.focus || patch.focus) {
+    merged.focus = { ...base.focus, ...patch.focus };
+  }
+  if (base.a11y !== undefined || patch.a11y !== undefined) {
+    merged.a11y =
+      patch.a11y === false
+        ? false
+        : patch.a11y === undefined
+          ? base.a11y
+          : { ...(base.a11y === false ? {} : (base.a11y ?? {})), ...patch.a11y };
+  }
+  if (base.layout || patch.layout) {
+    merged.layout = { ...base.layout, ...patch.layout };
+  }
+  return merged;
+}
+
 export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
-  private readonly config: MVVMPluginConfig;
+  /**
+   * Game-wide defaults, applied to every plugin created after {@link MVVMPlugin.configure}.
+   *
+   * Phaser instantiates scene plugins as `new Plugin(scene, pluginManager, mapKey)` — the fourth
+   * (config) argument of the Game Config entry is never passed — so before this existed, plugin options
+   * could only be set at runtime, one scene at a time. The guide documented the limitation in four
+   * places; `MVVMPlugin.configure({ … })` next to the Game Config is the supported way now.
+   */
+  private static shared: MVVMPluginConfig = {};
+
+  /** Merges `config` into the defaults every later plugin instance starts from. */
+  static configure(config: MVVMPluginConfig): void {
+    MVVMPlugin.shared = mergePluginConfig(MVVMPlugin.shared, config);
+  }
+
+  /** The current game-wide defaults (read-only copy). */
+  static get defaults(): Readonly<MVVMPluginConfig> {
+    return MVVMPlugin.shared;
+  }
+
+  /** Forgets the game-wide defaults (tests, and a "reconfigure from scratch" in dev tools). */
+  static resetDefaults(): void {
+    MVVMPlugin.shared = {};
+  }
+
+  private config: MVVMPluginConfig;
   private uiRoot: UIRoot | null = null;
   private router: InputRouter | null = null;
   private focusManager: FocusManager | null = null;
@@ -106,7 +162,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     config: MVVMPluginConfig = {},
   ) {
     super(scene, pluginManager, pluginKey);
-    this.config = config;
+    // A per-scene config (never delivered by Phaser, but usable from tests and from `configure()`)
+    // wins over the game-wide defaults.
+    this.config = mergePluginConfig(MVVMPlugin.shared, config);
   }
 
   override boot(): void {
@@ -145,6 +203,55 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       this.attachUi();
     }
     return this.uiRoot;
+  }
+
+  /**
+   * Applies options **at runtime**, to this scene's plugin.
+   *
+   * Options that describe how the UI is *built* (align, depth, `input.dragThreshold`, …) can only take
+   * effect when the root is created, so they are stored and used then; the ones that describe a
+   * *subscription* (`navigation`, `themeBackground`, `a11y`, `focus.wrap`, `focus.trapFocus`,
+   * `input.dragThreshold` on a live router) are applied immediately, because a caller that changes them
+   * mid-session means it.
+   *
+   * ```ts
+   * MVVMPlugin.configure({ themeBackground: false });   // game-wide, before `new Phaser.Game(...)`
+   * this.mvvm.configure({ navigation: false });         // just this scene, right now
+   * ```
+   */
+  configure(patch: MVVMPluginConfig): this {
+    this.config = mergePluginConfig(this.config, patch);
+    if (!this.uiRoot) {
+      return this;
+    }
+
+    if (patch.navigation !== undefined) {
+      this.applyNavigation();
+    }
+    if (patch.themeBackground !== undefined) {
+      this.applyThemeBackground();
+    }
+    if (patch.input?.dragThreshold !== undefined && this.router) {
+      this.router.dragThreshold = patch.input.dragThreshold;
+    }
+    if (patch.focus && this.focusManager) {
+      if (patch.focus.wrap !== undefined) {
+        this.focusManager.wrap = patch.focus.wrap;
+      }
+      if (patch.focus.trapFocus !== undefined) {
+        this.focusManager.trapFocus = patch.focus.trapFocus;
+      }
+      if (patch.focus.ring !== undefined) {
+        this.focusManager.ring = patch.focus.ring;
+      }
+    }
+    if (patch.a11y !== undefined) {
+      this.applyA11yOptions();
+    }
+    if (isDevMode()) {
+      devLog(`configure: applied ${Object.keys(patch).join(', ')}`);
+    }
+    return this;
   }
 
   /** True once a UI root exists (used by tests to avoid creating one accidentally). */
@@ -278,14 +385,53 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       onBack: this.backRouter,
     });
 
-    if (this.config.themeBackground !== false) {
-      this.applyThemeToCamera(getTheme());
-      this.unsubscribeTheme = onThemeChange((theme) => this.applyThemeToCamera(theme));
-    }
+    this.applyThemeBackground();
+    this.applyNavigation();
+    this.applyA11yOptions();
+  }
 
+  /** Subscribes (or not) to theme changes for the camera background; idempotent. */
+  private applyThemeBackground(): void {
+    this.unsubscribeTheme?.();
+    this.unsubscribeTheme = null;
+    if (this.config.themeBackground === false) {
+      // The app owns the camera colour now: stop following the theme, leave what is there.
+      return;
+    }
+    this.applyThemeToCamera(getTheme());
+    this.unsubscribeTheme = onThemeChange((theme) => this.applyThemeToCamera(theme));
+  }
+
+  /** Hooks (or unhooks) the keyboard listener; idempotent, so `configure()` can toggle it. */
+  private applyNavigation(): void {
+    const keyboard = this.scene?.input.keyboard;
+    if (!keyboard) {
+      return;
+    }
+    keyboard.off('keydown', this.onKeyDown, this);
     if (this.config.navigation !== false) {
-      const keyboard = scene.input.keyboard;
-      keyboard?.on('keydown', this.onKeyDown, this);
+      keyboard.on('keydown', this.onKeyDown, this);
+    }
+  }
+
+  /** Creates, enables or reconfigures the accessibility mirror; idempotent. */
+  private applyA11yOptions(): void {
+    const options = this.config.a11y;
+    if (!this.a11yBridge) {
+      if (options === false || options === undefined) {
+        return;
+      }
+      this.a11yBridge = new A11yBridge(this, options);
+      return;
+    }
+    if (options === false) {
+      this.a11yBridge.enabled = false;
+      return;
+    }
+    const next = options ?? {};
+    this.a11yBridge.enabled = next.enabled !== false;
+    if (next.politeness !== undefined) {
+      this.a11yBridge.politeness = next.politeness;
     }
   }
 

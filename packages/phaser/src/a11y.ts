@@ -97,6 +97,21 @@ export class A11yBridge {
     this.on = options.enabled !== false;
   }
 
+  /**
+   * Live-region politeness; writing it updates the region in place.
+   *
+   * A game-wide `MVVMPlugin.configure({ a11y: { politeness: 'assertive' } })` has to reach a bridge that
+   * was already created, so this is a property and not just a constructor option.
+   */
+  get politeness(): 'polite' | 'assertive' {
+    return this.options.politeness ?? 'polite';
+  }
+
+  set politeness(value: 'polite' | 'assertive') {
+    this.options.politeness = value;
+    this.live?.setAttribute('aria-live', value);
+  }
+
   /** Whether the mirror is currently in the DOM. */
   get enabled(): boolean {
     return this.on;
