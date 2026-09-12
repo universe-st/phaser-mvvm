@@ -25,6 +25,7 @@
 | `pnpm dev`                                                    | 示例 dev server → http://localhost:5173（场景：`#/showcase` 工厂 API 验收页、`#/compose` DSL 验收页、`#/m0` 等） |
 | `pnpm build:examples` / `pnpm preview`                        | 构建示例 / 预览产物（4173，`strictPort`）                                                                        |
 | `pnpm --filter @phaser-mvvm/<pkg> run typecheck\|test\|build` | **并行开发期优先用这个**，只验证自己负责的包                                                                     |
+| `pnpm docs:check`                                             | 指南代码片段门禁：`docs/guide/*.md` 的 `ts` 片段里调用的标识符必须真的导出（见 §6）                              |
 | `node scripts/visual-check.mjs`                               | 几何 + 像素验收（见 §6），需要本机 Chrome/Chromium                                                               |
 | `UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test`  | 重新生成布局黄金快照                                                                                             |
 
@@ -76,6 +77,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
   - 要校验的场景在脚本里**硬编码**（当前 `m0`、`probe`、`stack`）——新增场景若需像素断言，必须同时加进 `PIXEL_EXPECTATIONS` 与该场景列表。
   - 被其它控件遮挡的采样点用 `{ rgb, fx, fy }` 指定相对采样位置。
   - 脚本启动 Chrome 时**不传** `--user-data-dir`，因此依赖默认 profile 目录可写（`~/Library/Application Support/Google/Chrome`）。在受限/沙箱环境里 Chrome 会直接崩溃（Crashpad 写盘被拒），脚本报 `timed out waiting for chrome devtools endpoint` —— 这是环境限制而非脚本缺陷；此时请在汇报里说明「像素验收未运行」，并至少断言 `#status` 里的几何。
+- **指南片段门禁**：`pnpm docs:check`（`scripts/check-doc-snippets.mjs`）把 `docs/guide/*.md` 的 `ts` 代码块里**被调用**的标识符与四个包（含 `widgets/compose` 子路径）的公开导出对照，抓「改了 API 没改文档」与拼写错误。它是语法层面的检查（先剥掉注释、字符串与 `{{ … }}` 模板占位，跳过片段内自己声明的名字），不是编译器；新增/重命名导出后请跑一次。
 - **交互状态矩阵**：`#/states`（`apps/examples/src/scenes/states.ts`）把每个有状态的控件摆成一行，并把 `visualState` 逐帧写进 `#demo-state` 的 `st.<name>`，坐标写进 `pt.<name>`。验收方式：用真实 `mouse.move`/`down`/`up`、`keyboard.press` 驱动悬停/按下/聚焦/校验，断言 `st.*` 的迁移（滑杆探针为 `slider.volume`/`slider.stepped`/`slider.disabled`，见 [`ACCEPTANCE-slider.md`](./docs/ACCEPTANCE-slider.md)）；在视口外的探针先用 `window.states.reveal(name)` 滚进视野（否则坐标在画布外，指针事件落不到控件上）。
 - **相机钉住的 HUD**：`#/hud`（`apps/examples/src/scenes/hud.ts`）是 ADR-0009 的常驻验收场：2400×1600 的滚动世界 + `page.setScrollFactor(0)` 钉住的 HUD 页。`window.hud` 提供 `scroll(x,y)`/`auto(on)`/`spawn()`/`hitTest(name,x,y)`/`states()`/`states().<name>`；`#demo-state` 里的 `pt.<name>` 是页面坐标，`world.clicks` 是「点击穿透到游戏世界」的计数：页面的 `blockPointer: false` 让世界区域的点击照常到达游戏对象，而顶栏/底栏面板体与按钮会吞掉它（第 43 轮修复的 V9，矩阵见 `docs/ACCEPTANCE-hud.md` §5）。断言方式：先 `window.hud.scroll(260,140)` 再点 `pt.score`，读数应为 `clicks=1`、`focus=hud.scoreButton`；`spawn()` 后新增的按钮同样可点（`late.clicks=1`）。
 - **生命周期泄漏门禁**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）建一页全控件界面并暴露 `window.lifecycle.churn(n)`：重启场景 n 次、每轮采样 8 项计数（`themeListeners`/`displayList`/`focusables`/`pointerTargets`/`textures`/`tweens`/`timers`/`widgets`）。验收断言：每项只有一个取值 + `pages()` 只剩当前页 + 重启后 `pt.click` 能点、`pt.name` 能输入。改动插件生命周期、控件销毁或主题订阅后必须跑一次。

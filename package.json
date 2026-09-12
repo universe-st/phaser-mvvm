@@ -19,7 +19,8 @@
     "visual-check": "node scripts/visual-check.mjs",
     "size": "node scripts/size-check.mjs",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "docs:check": "node scripts/check-doc-snippets.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

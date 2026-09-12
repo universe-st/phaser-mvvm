@@ -83,6 +83,8 @@
 
 - ✅ **已关闭（第 17/18 轮）**：指南 §5.3 里那两条「导出缺口」已修——`uiScroll` 与 `WIDGET_EVENTS` 都从包入口导出了，对应的告警文字已从指南删除。
 - ⬜ **指南 §5.3 仍列出的框架缺口**（都不是 bug，但读者会撞上）：① 文本框没有聚焦/失焦**事件**（只有构造选项 `onFocus`/`onBlur`）；② `MVVMPluginConfig` 传不进 Game Config（Phaser 只读 `key`/`plugin`/`mapping`），插件选项只能运行期设置；③ `UIRoot` 不自动 `setScrollFactor(0)`；④ `LayoutParams.hideMode` 被解析但不生效（真正决定是否退出流的是 `inFlow === visible`）。②③ 要么写进文档保持现状，要么改成「插件选项从 `mapping` 对象读取」的方案。
+- ✅ **已完成一章（第 44 轮）**：**03 控件参考**整章改为 DSL 书写（`Text`/`Panel`/`Button`/`Slider`/`Image`/`Spacer`/`Divider` + §9 组装练习），并新增 `pnpm docs:check`（`scripts/check-doc-snippets.mjs`）把片段里调用的标识符与包导出对照——已用"故意写错 `Txt(...)`"验证过它会失败。剩下 **02 布局 / 04 文本输入 / 05 列表滚动 / 06 数据与主题 / 07 输入焦点导航** 五章。
+- ⬜ **DSL 的开关按钮还不能直接绑 `ref`**（第 44 轮改写 03 章时发现）：`Button('开', { toggle: true, value: notify })` 里的 `value` 是**普通布尔**（初值），所以「一个 ref 表示开关状态」要写三行（`on('change')` 写回 + `setText` 刷新文案）。`TextField`/`Slider` 的 `value` 都已经是响应式数据槽，开关按钮理应一致——建议做成 `value?: ReactiveSource<boolean>` + 双向写回（`bindValue` + `change`），并同步改 `#/states` 的开关探针。属于 API 增强而非缺陷。
 - ⬜ **指南 02–07 的代码片段仍是工厂写法**：约 140 处 `this.add.uiXxx(...)` / `this.add.vbox(...)`。第 12 轮已在这六章开头加了统一的「写法提示」横幅（说明推荐 DSL、给出等价的读法、并提示用 DSL 无需 `install*Factories()`），但**逐个片段改写**尚未做。这是纯文档工作，可按章分批（建议从最常被复制的 03 控件参考章与 04/05 的完整示例开始），每改一章与 `#/compose`/`#/showcase` 对照一次即可，无需运行验收。
 
 ## 4. 覆盖率缺口（不是缺陷，但值得补门禁）

@@ -1,11 +1,11 @@
-# 03 · 控件参考：Label / Panel / Button / Image / Spacer / Divider
+# 03 · 控件参考：Text / Panel / Button / Slider / Image / Spacer / Divider
 
-本章目标：把 M4 的六个基础控件用透。每个控件都按同一套模板讲：**它是什么 → 最小示例 → 选项 → 方法/事件 → 坑**。
+本章目标：把基础控件用透。每个控件都按同一套模板讲：**它是什么 → 最小示例 → 选项 → 方法/事件 → 坑**。
+
+> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`）：`Text('标题')`、`Button('保存', { variant: 'primary' })`、`Panel({ gap: 12 }, () => { … })`。DSL 直接构造同一批控件类，选项表与工厂写法**完全通用**；只有当你确实需要 `this.add.uiXxx(...)` 时，按下表对照即可（§1.4）。用 DSL 不需要 `install*Factories()`。
 
 > 文本框与滚动相关控件在 [04](./04-text-inputs.md)、[05](./05-lists-and-scroll.md) 两章。
-> 想一次看全部形态，直接开 `pnpm dev` → <http://localhost:5173/#/gallery>（对应 [`apps/examples/src/scenes/gallery.ts`](../../apps/examples/src/scenes/gallery.ts)）。
-
-> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+> 想一次看全部形态，直接开 `pnpm dev` → <http://localhost:5173/#/states>（交互状态矩阵）或 `#/gallery`（工厂写法画廊）。
 
 ---
 
@@ -14,8 +14,7 @@
 ### 1.1 选项是扁平的：节点参数 + 控件选项
 
 ```ts
-this.add.uiButton({
-  text: '保存', // 控件选项
+Button('保存', {
   variant: 'primary', // 控件选项
   width: 160, // 节点参数（LayoutParams，见 02 章）
   margin: [0, 8], // 节点参数
@@ -73,33 +72,38 @@ button.on('widget:activate', (source) => console.log('activated by', source));
 button.on('widget:state', (state) => console.log('state →', state));
 ```
 
-### 1.4 工厂键一览
+### 1.4 DSL 与工厂对照
 
-| 工厂                   | 具名函数                                        | 控件         |
-| ---------------------- | ----------------------------------------------- | ------------ |
-| `this.add.uiLabel`     | `label(scene, opts, children?)`                 | `Label`      |
-| `this.add.uiPanel`     | `panel(scene, opts, children?)`                 | `Panel`      |
-| `this.add.uiButton`    | `button(scene, opts, children?)`                | `Button`     |
-| `this.add.uiImage`     | `uiImage(scene, opts, children?)`               | `Image`      |
-| `this.add.uiSpacer`    | `spacer(scene, opts, children?)`                | `Spacer`     |
-| `this.add.uiDivider`   | `divider(scene, opts, children?)`               | `Divider`    |
-| `this.add.uiTextField` | `textField(scene, opts, children?)`             | `TextField`  |
-| `this.add.uiTextArea`  | `textArea(scene, opts, children?)`              | `TextArea`   |
-| `this.add.uiRepeat`    | `uiRepeat(scene, opts)` / `repeat(scene, opts)` | `Repeat`     |
-| `this.add.uiScroll`    | `scrollView(scene, opts, children?)`            | `ScrollView` |
+| DSL（推荐）               | 工厂                   | 具名函数                                        | 控件         |
+| ------------------------- | ---------------------- | ----------------------------------------------- | ------------ |
+| `Text(str, opts?)`        | `this.add.uiLabel`     | `label(scene, opts, children?)`                 | `Label`      |
+| `Panel(opts?, content?)`  | `this.add.uiPanel`     | `panel(scene, opts, children?)`                 | `Panel`      |
+| `Button(str, opts?)`      | `this.add.uiButton`    | `button(scene, opts, children?)`                | `Button`     |
+| `Slider(opts?)`           | `this.add.uiSlider`    | `uiSlider(scene, opts)`                         | `Slider`     |
+| `Image(opts)`             | `this.add.uiImage`     | `uiImage(scene, opts, children?)`               | `Image`      |
+| `Spacer(opts?)`           | `this.add.uiSpacer`    | `spacer(scene, opts, children?)`                | `Spacer`     |
+| `Divider(opts?)`          | `this.add.uiDivider`   | `divider(scene, opts, children?)`               | `Divider`    |
+| `TextField(opts?)`        | `this.add.uiTextField` | `textField(scene, opts, children?)`             | `TextField`  |
+| `TextArea(opts?)`         | `this.add.uiTextArea`  | `textArea(scene, opts, children?)`              | `TextArea`   |
+| `List(opts, item)`        | `this.add.uiRepeat`    | `uiRepeat(scene, opts)` / `repeat(scene, opts)` | `Repeat`     |
+| `Scroll(opts?, content?)` | `this.add.uiScroll`    | `scrollView(scene, opts, children?)`            | `ScrollView` |
 
-（`vbox`/`hbox`/`uiGrid`/`uiStack`/`uiAbsolute`/`uiRect` 由 `@phaser-mvvm/phaser` 的 `installFactories()` 注册。）
+容器同理：`Column`↔`vbox`、`Row`↔`hbox`、`Grid`↔`uiGrid`、`Stack`↔`uiStack`、`Absolute`↔`uiAbsolute`、`Rect`↔`uiRect`（后六个由 `@phaser-mvvm/phaser` 的 `installFactories()` 注册）。DSL 的名字与 Compose 对齐：`Column`/`Row` 比 `vbox`/`hbox` 更说明问题，`Surface` 是 `Panel` 的别名。
 
 ---
 
-## 2. `Label`：一块主题化文本
+## 2. `Text`：一块主题化文本（控件类 `Label`）
 
 **它是什么**：包了一个 `Phaser.GameObjects.Text` 的控件。文本对象**不是**布局子节点 —— `Label` 自己测量它、自己把它摆在内容盒里，因此对齐、换行、截断都是可控的。
 
 ```ts
-this.add.uiLabel({ text: '账户设置', style: { fontSize: '20px' } });
-this.add.uiLabel({ text: '这是说明文字', tone: 'muted' });
-this.add.uiLabel({ text: '很长很长的一段话…', width: 260, maxLines: 2, ellipsis: true });
+Text('账户设置', { style: { fontSize: '20px' } });
+Text('这是说明文字', { tone: 'muted' });
+Text('很长很长的一段话…', { width: 260, maxLines: 2, ellipsis: true });
+
+// 数据槽可以是 ref 或 getter，值变了自动重绘（不需要手动 setText）
+Text(() => `共 ${rows.value.length} 行`);
+Text(vm.title); // ref 直接传
 ```
 
 ### 选项
@@ -138,10 +142,10 @@ this.add.uiLabel({ text: '很长很长的一段话…', width: 260, maxLines: 2,
 **它是什么**：一个 `box` 布局容器 + 程序化绘制的背景。默认 `direction: 'vertical'`，所以 `Panel` 天然就是「一块竖着排内容的卡片」。
 
 ```ts
-this.add.uiPanel({ direction: 'vertical', gap: 12, padding: 16, variant: 'surface', radius: 10 }, [
-  this.add.uiLabel({ text: '卡片标题' }),
-  this.add.uiLabel({ text: '内容', tone: 'muted' }),
-]);
+Panel({ direction: 'vertical', gap: 12, padding: 16, variant: 'surface', radius: 10 }, () => {
+  Text('卡片标题');
+  Text('内容', { tone: 'muted' });
+});
 ```
 
 ### 容器选项（默认即 `vbox` 的默认值）
@@ -178,19 +182,25 @@ this.add.uiPanel({ direction: 'vertical', gap: 12, padding: 16, variant: 'surfac
 ## 4. `Button`：可激活控件
 
 ```ts
-const save = this.add.uiButton({
-  text: '保存',
+const save = Button('保存', {
   variant: 'primary',
   size: 'md',
   onClick: (button) => console.log('clicked', button.getText()),
 });
 
-// 开关型
-const toggle = this.add.uiButton({ text: '通知', toggle: true, value: false });
-toggle.on('change', (value: boolean) => toggle.setText(`通知: ${value ? '开' : '关'}`));
+// 开关型：`value` 是普通布尔（初始值），后续状态由 `change` 事件带回
+const notify = ref(false);
+const toggle = Button('通知：关', { toggle: true, value: notify.value });
+toggle.on('change', (value: boolean) => {
+  notify.value = value; // 写回你的数据源
+  toggle.setText(`通知：${value ? '开' : '关'}`);
+});
 
-// 加载态
-save.setLoading(true);
+// 加载态 / 禁用态也可以是响应式的：值一变，外观自己跟上
+Button('保存', { variant: 'primary', loading: () => saving.value });
+
+// 纯图标按钮、以及"点整块卡片"（Panel + bindCommand）
+Button('', { icon: 'demo-tile', size: 'sm' });
 ```
 
 ### 选项
@@ -237,14 +247,17 @@ save.setLoading(true);
 ## 4.5 `Slider`：拖动取值（触摸优先）
 
 ```ts
-// 工厂写法
-const volume = this.add.uiSlider({ min: 0, max: 100, value: 40, width: 200 });
-volume.on('change', (v: number) => console.log('volume', v));
-
-// DSL（推荐）：`value` 可以直接绑 ref，双向生效
+// `value` 可以直接绑 ref：拖动即写回（双向）
 const volume = ref(40);
 Slider({ value: volume, min: 0, max: 100, width: 200 });
 Text(() => `volume=${Math.round(volume.value)}`); // 拖动时实时跟着变
+
+// 只关心"用户改了"（例如写进 store），用 onValueChange
+Slider({ value: () => settings.brightness, onValueChange: (next) => save(next) });
+
+// 量化 + 禁用
+Slider({ value: quality, min: 0, max: 3, step: 1 });
+Slider({ value: 60, disabled: true, width: 160 });
 ```
 
 ### 选项
@@ -282,8 +295,8 @@ Text(() => `volume=${Math.round(volume.value)}`); // 拖动时实时跟着变
 ## 5. `Image`：把贴图放进矩形
 
 ```ts
-this.add.uiImage({ texture: 'demo-tile', fit: 'contain', width: 120, height: 64 });
-this.add.uiImage({ texture: 'avatar', frame: 'idle' }); // 用贴图自然尺寸
+Image({ texture: 'demo-tile', fit: 'contain', width: 120, height: 64 });
+Image({ texture: 'avatar', frame: 'idle' }); // 用贴图自然尺寸
 ```
 
 | 选项      | 类型                                       | 默认        | 说明                       |
@@ -314,11 +327,11 @@ this.add.uiImage({ texture: 'avatar', frame: 'idle' }); // 用贴图自然尺寸
 ## 6. `Spacer`：纯布局填充
 
 ```ts
-this.add.hbox({ gap: 8, alignItems: 'center' }, [
-  this.add.uiLabel({ text: '标题' }),
-  this.add.uiSpacer({ flex: true }), // 把后面的按钮推到最右
-  this.add.uiButton({ text: '操作' }),
-]);
+Row({ gap: 8, alignItems: 'center' }, () => {
+  Text('标题');
+  Spacer({ flex: true }); // 把后面的按钮推到最右
+  Button('操作');
+});
 ```
 
 | 选项   | 类型      | 默认    | 说明                                                                        |
@@ -332,17 +345,17 @@ this.add.hbox({ gap: 8, alignItems: 'center' }, [
 ## 7. `Divider`：一条分隔线
 
 ```ts
-this.add.uiPanel({ direction: 'vertical', gap: 10, padding: 16 }, [
-  this.add.uiLabel({ text: '第一段' }),
-  this.add.uiDivider({}), // 横向，自动撑满宽度
-  this.add.uiLabel({ text: '第二段' }),
+Panel({ direction: 'vertical', gap: 10, padding: 16, width: 'fill' }, () => {
+  Text('第一段');
+  Divider({}); // 横向，自动撑满宽度
+  Text('第二段');
 
-  this.add.hbox({ gap: 8, height: 20 }, [
-    this.add.uiLabel({ text: '左' }),
-    this.add.uiDivider({ orientation: 'vertical' }), // 纵向，自动撑满高度
-    this.add.uiLabel({ text: '右' }),
-  ]),
-]);
+  Row({ gap: 8, height: 20 }, () => {
+    Text('左');
+    Divider({ orientation: 'vertical' }); // 纵向，自动撑满高度
+    Text('右');
+  });
+});
 ```
 
 | 选项          | 类型                          | 默认                     | 说明                               |
@@ -380,39 +393,44 @@ this.add.uiPanel({ direction: 'vertical', gap: 10, padding: 16 }, [
 
 ```ts
 create(): void {
-  const row = (label: string, control: Phaser.GameObjects.Container) =>
-    this.add.hbox({ gap: 12, alignItems: 'center' }, [
-      this.add.uiLabel({ text: label, tone: 'muted', width: 120 }),
-      control,
-    ]);
+  const scale = ref(1);
 
-  const card = this.add.uiPanel(
-    { direction: 'vertical', gap: 14, padding: 18, variant: 'surface', radius: 12, width: 460 },
-    [
-      this.add.uiLabel({ text: '通知设置', style: { fontSize: '20px' } }),
-      this.add.uiDivider({}),
+  // 一行的写法就是一行函数：标签 + 控件
+  const row = (label: string, control: () => void) =>
+    Row({ gap: 12, alignItems: 'center' }, () => {
+      Text(label, { tone: 'muted', width: 120 });
+      control();
+    });
 
-      row('邮件通知', this.add.uiButton({ text: '开启', toggle: true, name: 'mail' })),
-      row('头像', this.add.uiImage({ texture: 'demo-tile', fit: 'cover', width: 48, height: 48 })),
+  render(this.mvvm, () => {
+    Panel({ gap: 14, padding: 18, variant: 'surface', radius: 12, width: 460 }, () => {
+      Text('通知设置', { style: { fontSize: '20px' } });
+      Divider({});
 
-      this.add.uiDivider({}),
-      this.add.hbox({ gap: 8, justifyContent: 'end' }, [
-        this.add.uiSpacer({ flex: false }),
-        this.add.uiButton({ text: '重置', variant: 'ghost' }),
-        this.add.uiButton({ text: '保存', variant: 'primary', onClick: () => console.log('saved') }),
-      ]),
-    ],
-  );
+      // 开关：`value` 只是初值，变化通过 `change` 回到数据源（见 §4）
+      const mail = Button('邮件通知：开', { toggle: true, value: true, name: 'mail' });
+      mail.on('change', (on: boolean) => mail.setText(`邮件通知：${on ? '开' : '关'}`));
+      row('邮件通知', () => mail);
+      row('头像', () => Image({ texture: 'demo-tile', fit: 'cover', width: 48, height: 48 }));
+      row('缩放', () => Slider({ value: scale, min: 1, max: 4, step: 0.5, width: 200 }));
 
-  this.mvvm.mount(card);
+      Divider({});
+      Row({ gap: 8, justifyContent: 'end' }, () => {
+        Button('重置', { variant: 'ghost', onClick: () => { mail.setValue(true); scale.value = 1; } });
+        Button('保存', { variant: 'primary', onClick: () => console.log('saved') });
+      });
+    });
+  });
 }
 ```
+
+三种写法都建同一批控件，差别只在"谁记得住顺序"：DSL 里**兄弟顺序就是源码顺序**，`if`/`for` 直接写在 `content` 里（见 [09 章](./09-compose-dsl.md)）。
 
 练习方向：
 
 1. 把 `card` 的 `width` 改成 `'50%'`，观察它在 `UIRoot` 居中时的表现，并解释为什么内层 `hbox` 仍然撑满（提示：`alignItems` 默认 `stretch`）。
 2. 给「头像」那行加一个 `elevation: 4` 的 `Panel` 包一层，体会 `elevation` 是模拟投影而不是真实阴影。
-3. 把按钮的 `onClick` 换成 `toggle` + `change`，再用 `bindTemplateText` 把开关状态显示到 `Label` 上（进 [06 章](./06-data-and-theme.md)）。
+3. 把按钮的文案换成 `Text(() => …)` 派生出来的读数（开关状态、滑杆数值各来一行），体会「数据槽直接吃 getter」——不需要 `bindTemplateText`（进 [06 章](./06-data-and-theme.md)）。
 
 ---
 
