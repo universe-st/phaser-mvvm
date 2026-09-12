@@ -4,7 +4,7 @@
 
 > 布局引擎在 `@phaser-mvvm/layout`，它**零 Phaser 依赖**：算法只认 `LayoutNode` 接口（`measureContent` / `applyRect` / `layoutParams`），渲染是适配层的事（[ADR-0002](../adr/0002-two-pass-layout.md)、[ADR-0003](../adr/0003-layout-is-renderer-agnostic.md)）。所以布局行为可以在 Node 里单测，也可以被别的渲染后端复用。
 
-> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`）：`Column`/`Row`/`Grid`/`Stack`/`Absolute`。布局参数与容器选项**和工厂写法完全通用**（`this.add.vbox(opts, children)` ↔ `Column(opts, () => { children })`），所以本章讲的所有规则对两种写法都成立。
 
 ---
 
@@ -34,20 +34,20 @@
 
 ## 2. 五种容器：先选对算法
 
-| 容器               | 创建方式                                                            | 排布规则                                                           | 典型用途                                         |
+| 容器               | DSL（推荐） / 工厂                                                  | 排布规则                                                           | 典型用途                                         |
 | ------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------ |
-| **box**（纵向）    | `this.add.vbox(opts, children)` / `uiPanel({direction:'vertical'})` | 主轴=`y`，交叉轴=`x`，可选换行                                     | 页面骨架、表单、卡片内部                         |
-| **box**（横向）    | `this.add.hbox(opts, children)`                                     | 主轴=`x`，交叉轴=`y`                                               | 工具栏、一行按钮、卡片行                         |
-| **grid**           | `this.add.uiGrid(opts, children)`                                   | 固定/自动列数的单元格网格，支持跨行列                              | 卡片矩阵、键值对显示、图标墙                     |
-| **stack**          | `this.add.uiStack(opts, children)`                                  | 子节点互相层叠，按 `align` 对齐（默认 `center`）                   | 对话框/遮罩、角标、状态覆盖层                    |
-| **absolute**       | `this.add.uiAbsolute(opts, children)`                               | 只摆放 `position: 'absolute'` 的子节点，按 `left/top/right/bottom` | HUD、固定定位元素                                |
+| **box**（纵向）    | `Column(opts, () => {…})` / `this.add.vbox(opts, children)`         | 主轴=`y`，交叉轴=`x`，可选换行                                     | 页面骨架、表单、卡片内部                         |
+| **box**（横向）    | `Row(opts, () => {…})` / `this.add.hbox(opts, children)`            | 主轴=`x`，交叉轴=`y`                                               | 工具栏、一行按钮、卡片行                         |
+| **grid**           | `Grid(opts, () => {…})` / `this.add.uiGrid(opts, children)`         | 固定/自动列数的单元格网格，支持跨行列                              | 卡片矩阵、键值对显示、图标墙                     |
+| **stack**          | `Stack(opts, () => {…})` / `this.add.uiStack(opts, children)`       | 子节点互相层叠，按 `align` 对齐（默认 `center`）                   | 对话框/遮罩、角标、状态覆盖层                    |
+| **absolute**       | `Absolute(opts, () => {…})` / `this.add.uiAbsolute(opts, children)` | 只摆放 `position: 'absolute'` 的子节点，按 `left/top/right/bottom` | HUD、固定定位元素                                |
 | **scroll**（端口） | 不直接暴露；`ScrollView` 内部使用                                   | 把滚动轴的最大值解除限制，内容可以比视口长                         | 滚动容器（见 [05 章](./05-lists-and-scroll.md)） |
 
 两个容易忽略的点：
 
 - **`position: 'absolute'` 的子节点可以混在任意容器里**。引擎在每个容器排布完之后都会再跑一遍绝对定位，所以 `stack` 里可以同时有「层叠的流式子节点」和「贴右上的绝对子节点」（示例 `#/stack` 就是这么做的）。
 - **`absolute` 容器只排绝对子节点**：里面没写 `position: 'absolute'` 的流式子节点不会被摆放（它们仍在测量里），所以 `absolute` 容器请配合绝对参数使用。
-- **`uiGrid` 而不是 `grid`**：Phaser 已经占了 `this.add.grid`（调试网格）。具名函数仍叫 `grid(scene, ...)`。
+- **工厂键叫 `uiGrid` 而不是 `grid`**：Phaser 已经占了 `this.add.grid`（调试网格），具名函数仍叫 `grid(scene, ...)`。DSL 里没有这个问题：它叫 `Grid`。
 
 ---
 
@@ -69,9 +69,9 @@ type Length = LengthUnit | { value: LengthUnit; min?: number; max?: number };
 | `{ value, min, max }` | 在基础长度上再夹一层该轴专有的上下限                | 同 `value`                                               |
 
 ```ts
-this.add.uiPanel({ width: 'fill', height: 240 }, [...]);       // 横向撑满，高固定
-this.add.uiPanel({ width: '50%', minWidth: 200 }, [...]);       // 一半宽，但不小于 200
-this.add.uiPanel({ width: { value: 'fill', min: 80, max: 240 } }, [...]);
+Panel({ width: 'fill', height: 240 }, () => { … });       // 横向撑满，高固定
+Panel({ width: '50%', minWidth: 200 }, () => { … });       // 一半宽，但不小于 200
+Panel({ width: { value: 'fill', min: 80, max: 240 } }, () => { … });
 ```
 
 还有一组**独立的、全局的**上下限字段（不是写在 `Length` 里）：
@@ -93,11 +93,11 @@ box 容器在排布时，把主轴上的剩余空间按权重分配：
 | `basis`  | 无   | 参与 grow/shrink 之前的初始主轴尺寸，可写百分比                                               |
 
 ```ts
-this.add.hbox({ gap: 8 }, [
-  this.add.uiLabel({ text: '左侧固定', width: 120 }),
-  this.add.uiSpacer({ flex: true }), // = grow: 1，吃掉中间的空白
-  this.add.uiButton({ text: '确定' }),
-]);
+Row({ gap: 8 }, () => {
+  Text('左侧固定', { width: 120 });
+  Spacer({ flex: true }); // = grow: 1，吃掉中间的空白
+  Button('确定');
+});
 ```
 
 `Spacer` 的 `flex: true` 只是 `grow: 1` 的语法糖（显式 `grow` 优先）；它不画任何东西，也不参与命中测试，专门用来「把兄弟节点推开」。
@@ -133,7 +133,7 @@ padding: { top: 8, right: 12, bottom: 8 }    // 缺省边为 0
 - **`margin` 是子节点自己的**：在父容器的流里占位（box 的主轴间距里算它，交叉轴对齐也把它算进去）。
 
 ```ts
-this.add.uiPanel({ padding: 24, direction: 'vertical', gap: 12 }, [...]);
+Panel({ padding: 24, direction: 'vertical', gap: 12 }, () => { … });
 ```
 
 ---
@@ -141,8 +141,7 @@ this.add.uiPanel({ padding: 24, direction: 'vertical', gap: 12 }, [...]);
 ## 5. 定位：绝对定位与偏移
 
 ```ts
-this.add.uiLabel({
-  text: '角标',
+Text('角标', {
   position: 'absolute',
   right: -12,
   top: -8, // 只写一个水平 + 一个垂直偏移即可
@@ -167,10 +166,10 @@ box 容器（vbox/hbox）的对齐分三层，按下面的优先级生效：
 3. 主轴方向则由容器的 `justifyContent` 决定
 
 ```ts
-this.add.hbox({ gap: 12, alignItems: 'center', justifyContent: 'space-between', padding: 16 }, [
-  this.add.uiLabel({ text: '左' }),
-  this.add.uiLabel({ text: '右' }),
-]);
+Row({ gap: 12, alignItems: 'center', justifyContent: 'space-between', padding: 16 }, () => {
+  Text('左');
+  Text('右');
+});
 ```
 
 | 选项             | 取值                                                                           | 默认       |
@@ -194,7 +193,14 @@ this.add.hbox({ gap: 12, alignItems: 'center', justifyContent: 'space-between', 
 ## 7. 网格：`grid` 的规则
 
 ```ts
-this.add.uiGrid({ columns: 'auto', minColumnWidth: 160, columnGap: 12, rowGap: 12 }, cards);
+Grid({ columns: 'auto', minColumnWidth: 160, columnGap: 12, rowGap: 12 }, () => {
+  for (const metric of metrics) {
+    Panel({ gap: 6, padding: 12, variant: 'surfaceAlt' }, () => {
+      Text(metric.label, { tone: 'muted' });
+      Text(metric.display, { style: { fontSize: '26px' } });
+    });
+  }
+});
 ```
 
 | 选项                   | 取值                                    | 默认      |
@@ -211,7 +217,7 @@ this.add.uiGrid({ columns: 'auto', minColumnWidth: 160, columnGap: 12, rowGap: 1
 子节点侧的网格参数：
 
 ```ts
-this.add.uiPanel({ gridColumn: 1, gridRow: 1, gridColumnSpan: 2, gridRowSpan: 1 }, [...]);
+Panel({ gridColumn: 1, gridRow: 1, gridColumnSpan: 2, gridRowSpan: 1 }, () => { … });
 ```
 
 - `gridColumn`/`gridRow` 是 **1 起始**的下标；两者都写就是完全显式定位。
@@ -226,31 +232,31 @@ this.add.uiPanel({ gridColumn: 1, gridRow: 1, gridColumnSpan: 2, gridRowSpan: 1 
 
 ```ts
 create(): void {
-  const page = this.add.uiPanel(
-    { direction: 'vertical', gap: 12, padding: 20, variant: 'surface', radius: 12, width: 560 },
-    [
-      this.add.uiLabel({ text: '账户', style: { fontSize: '20px' } }),
-      this.add.uiDivider({}),
+  render(this.mvvm, () => {
+    Panel(
+      { direction: 'vertical', gap: 12, padding: 20, variant: 'surface', radius: 12, width: 560 },
+      () => {
+        Text('账户', { style: { fontSize: '20px' } });
+        Divider({});
 
-      this.add.uiPanel({ direction: 'horizontal', gap: 10, alignItems: 'center' }, [
-        this.add.uiLabel({ text: '用户名', tone: 'muted', width: 96 }),
-        this.add.uiTextField({ placeholder: '请输入', width: 'fill' }),
-      ]),
+        Row({ gap: 10, alignItems: 'center' }, () => {
+          Text('用户名', { tone: 'muted', width: 96 });
+          TextField({ placeholder: '请输入', width: 'fill' });
+        });
 
-      this.add.hbox({ gap: 8, justifyContent: 'end' }, [
-        this.add.uiButton({ text: '取消', variant: 'ghost' }),
-        this.add.uiButton({ text: '保存', variant: 'primary' }),
-      ]),
-    ],
-  );
-
-  this.mvvm.mount(page);
+        Row({ gap: 8, justifyContent: 'end' }, () => {
+          Button('取消', { variant: 'ghost' });
+          Button('保存', { variant: 'primary' });
+        });
+      },
+    );
+  });
 }
 ```
 
 讲解：
 
-- `page` 宽度固定 560、高度 `auto` → 高度是「各行高度之和 + gap + padding 之和」。
+- 最外层那个 `Panel` 宽度固定 560、高度 `auto` → 高度是「各行高度之和 + gap + padding 之和」。
 - 第一行：`Label` 定宽 96，`TextField` 用 `width: 'fill'` 吃掉剩下的宽度。通常也可以换成 `grow: 1`，但两者**不完全等价**：主轴上的 `fill` 基准是 0（空间不够时会被压成 0），`grow: 1` 保留实测尺寸（空间不够时溢出，除非同时给 `shrink`）。
 - 按钮行用 `justifyContent: 'end'`，不需要 `Spacer`。
 
@@ -261,45 +267,45 @@ create(): void {
 按窗口自适应，参考 `#/dashboard`：
 
 ```ts
-const header = this.add.uiPanel(
-  { direction: 'horizontal', gap: 12, padding: 16, alignItems: 'center', width: 'fill' },
-  [
-    this.add.uiLabel({ text: 'Ops dashboard', style: { fontSize: '20px' } }),
-    this.add.uiSpacer({ flex: true }), // 把右侧内容推到最右
-    this.add.uiButton({ text: '刷新', size: 'sm' }),
-  ],
-);
+render(this.mvvm, () => {
+  Panel(
+    {
+      direction: 'vertical',
+      gap: 12,
+      padding: 16,
+      variant: 'plain',
+      alignItems: 'stretch',
+      width: 'fill',
+    },
+    () => {
+      Row({ gap: 12, padding: 16, alignItems: 'center', width: 'fill' }, () => {
+        Text('Ops dashboard', { style: { fontSize: '20px' } });
+        Spacer({ flex: true }); // 把右侧内容推到最右
+        Button('刷新', { size: 'sm' });
+      });
 
-const cards = this.add.uiGrid(
-  { columns: 'auto', minColumnWidth: 180, columnGap: 12, rowGap: 12, width: 'fill' },
-  metrics.map((m) =>
-    this.add.uiPanel(
-      { direction: 'vertical', gap: 6, padding: 16, variant: 'surfaceAlt', radius: 10 },
-      [
-        this.add.uiLabel({ text: m.label, tone: 'muted' }),
-        this.add.uiLabel({ text: m.display, style: { fontSize: '26px' } }),
-      ],
-    ),
-  ),
-);
-
-const page = this.add.uiPanel(
-  {
-    direction: 'vertical',
-    gap: 12,
-    padding: 16,
-    variant: 'plain',
-    alignItems: 'stretch',
-    width: 'fill',
-  },
-  [header, cards],
-);
-this.mvvm.mount(page);
+      Grid(
+        { columns: 'auto', minColumnWidth: 180, columnGap: 12, rowGap: 12, width: 'fill' },
+        () => {
+          for (const metric of metrics) {
+            Panel(
+              { direction: 'vertical', gap: 6, padding: 16, variant: 'surfaceAlt', radius: 10 },
+              () => {
+                Text(metric.label, { tone: 'muted' });
+                Text(metric.display, { style: { fontSize: '26px' } });
+              },
+            );
+          }
+        },
+      );
+    },
+  );
+});
 ```
 
 这里的关键：
 
-- **`width: 'fill'` 一层层往下传**：`UIRoot` 撑满屏幕 → `page` 撑满根 → `header`/`cards` 撑满 page。
+- **`width: 'fill'` 一层层往下传**：`UIRoot` 撑满屏幕 → 页面那个 `Panel` 撑满根 → 它里面的顶栏 `Row` 与卡片 `Grid` 撑满页面。
 - `columns: 'auto'` + `minColumnWidth: 180` 让卡片数量随宽度变化，不用写媒体查询。
 - 卡片不写宽高：grid 的 `justifyItems`/`alignItems` 默认 `stretch`，单元格决定卡片尺寸；高度由内容（两行文本 + padding）决定。
 
@@ -308,18 +314,17 @@ this.mvvm.mount(page);
 ## 10. 实战三：层叠与角标（`stack` + `absolute`）
 
 ```ts
-const card = this.add.uiStack({ width: 240, height: 140, align: 'center' }, [
-  this.add.uiPanel({ width: 'fill', height: 'fill', variant: 'surfaceAlt', radius: 12 }, [
-    this.add.uiLabel({ text: '库存', tone: 'muted', margin: [0, 0, 0, 0] }),
-  ]),
-  this.add.uiLabel({
-    text: '+12',
+Stack({ width: 240, height: 140, align: 'center' }, () => {
+  Panel({ width: 'fill', height: 'fill', variant: 'surfaceAlt', radius: 12 }, () => {
+    Text('库存', { tone: 'muted' });
+  });
+  Text('+12', {
     position: 'absolute',
     right: -10,
     top: -10,
     tone: 'danger',
-  }),
-]);
+  });
+});
 ```
 
 - `stack` 的默认对齐是 `center`，所以两个子节点都居中；`absolute` 的子节点由偏移决定位置，`right: -10` 表示「比右边界再往外 10px」——角标就是这么做的。
