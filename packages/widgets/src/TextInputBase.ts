@@ -253,6 +253,26 @@ export abstract class TextInputBase extends Widget {
     this.placeCaretAt(local.x, local.y);
   };
 
+  /**
+   * Releases the focus when the pointer goes down somewhere else on the canvas.
+   *
+   * The input router only *moves* focus between widgets, so a click on the background next to a field
+   * would otherwise leave it focused: the caret would keep blinking, the soft keyboard would stay up
+   * and the `validate` on blur would never run. This listener is gated on the field being focused and
+   * never consumes or alters the event, so it cannot interfere with other controls.
+   */
+  private readonly handleScenePointerDown = (pointer: Phaser.Input.Pointer): void => {
+    if (!this.focused || !this.enabled) {
+      return;
+    }
+    const local = this.localPoint(pointer.worldX, pointer.worldY);
+    const inside =
+      local.x >= 0 && local.x <= this.rect.width && local.y >= 0 && local.y <= this.rect.height;
+    if (!inside) {
+      this.blur();
+    }
+  };
+
   protected constructor(
     scene: Phaser.Scene,
     options: TextInputOptions,
@@ -334,6 +354,7 @@ export abstract class TextInputBase extends Widget {
     this.enablePointerInput();
     this.on('pointerdown', this.handlePointerDown);
     scene.input?.keyboard?.on('keydown', this.phaserKeyDown);
+    scene.input?.on('pointerdown', this.handleScenePointerDown);
     scene.scale?.on('resize', this.handleResize);
 
     if (widget.disabled === true) {
@@ -537,6 +558,12 @@ export abstract class TextInputBase extends Widget {
   }
 
   protected override refreshAppearance(): void {
+    // The input router may still poke hover/press state while the scene is shutting down (and a
+    // theme change may arrive after the display list is gone); painting then would touch destroyed
+    // `Text` objects, whose canvas has already been released.
+    if (this.isDestroyed) {
+      return;
+    }
     this.applyDefaultHeight();
     this.applyTextStyle();
     this.syncFocusSideEffects();
@@ -547,6 +574,7 @@ export abstract class TextInputBase extends Widget {
     this.stopBlink();
     this.removeKeyGuard();
     this.scene?.input?.keyboard?.off('keydown', this.phaserKeyDown);
+    this.scene?.input?.off('pointerdown', this.handleScenePointerDown);
     this.scene?.scale?.off('resize', this.handleResize);
     this.off('pointerdown', this.handlePointerDown);
     this.bridge?.dispose();
@@ -556,6 +584,9 @@ export abstract class TextInputBase extends Widget {
   // ------------------------------------------------------------------ painting
 
   private paintAll(): void {
+    if (this.isDestroyed) {
+      return;
+    }
     this.paintBackground();
     this.paintContent();
   }
@@ -583,6 +614,9 @@ export abstract class TextInputBase extends Widget {
    * drift away from the glyphs it is supposed to sit between.
    */
   private paintContent(): void {
+    if (this.isDestroyed) {
+      return;
+    }
     const box = this.contentRect();
     const display = this.displayString();
     const lines = layoutTextLines(display, {
