@@ -279,6 +279,16 @@ M7 起滚轮就会**向上链式传递**（内层到头 → 剩下的增量交�
 
 **下一轮登记的增强（不是缺陷）**：无障碍镜像目前是**平铺的兄弟节点列表**，所以对话框自身拿不到容器角色（`role="dialog"` 会是一个"没有子节点的对话框"，`aria-modal` 的包含关系也无从表达）。要做对得把镜像改成与控件树同构的 DOM 树；`#/a11y` 的 `region: 按钮区域` 与它那 6 个按钮同样是平铺的，会一起受益。→ **第 103 轮已交付**，见 §3.42。
 
+## 3.43 第 104 轮（指南的选项键 vs 代码接受的键：新增门禁，并核实了两处"疑似缺陷"）
+
+第 83 轮的选项审计只覆盖**代码**这一侧（拼错/多余的键会被指名）。这一轮把**指南承诺 vs 代码接受**也做成门禁 `scripts/check-doc-options.mjs`（接进 `pnpm docs:check`）：解析指南里所有键表，按标题栈归属到它文档化的选项包，再用该包真正接受的键核对。当前 **195 个文档键全部通过**，说明见 [`PITFALLS.md`](./PITFALLS.md) §8.65。
+
+**这一轮没有新增缺陷编号**：门禁第一次跑出来的 3 条命中全部核实为**检查器**的归属问题，不是代码或文档的问题，逐条记在 §8.65（DSL 槽位属于 `compose.ts` 的类型而不在控件的键表里；"## 2. 选项" 是兄弟标题；`type X` 也出现在 import 里；带类型标注的 `*_KEYS = […]` 数组被正则漏掉）。
+
+其中一条值得单独记，因为它是"差点被误修"的那类：**`List({ gap })` 看起来是文档谎言**（`RepeatOptions` 里没有 `gap`，`REPEAT_KEYS` 里也没有，`resolveRepeatContainer()` 只读 `container`），但 DSL 的 `List` 通过 `list-flow.ts` 的 `ListFlowShorthands`/`withListFlow()` 把它并进 `container` 了，`#/options` 的 `Repeat.update` 卡一直在用 `gap: 4`，指南 05 §6.1 的示例也是对的。**判据是"文档化的那一层"**：指南写的是 DSL，就该拿 DSL 的类型去核对。
+
+**下一轮登记的增强（不是缺陷）**：**布局参数与容器选项还没有响应式通道**——`width`/`padding`/`gap`/`justifyContent` 这些今天只能在构造时固定，或者走命令式的 `setLayoutParams()`（`docs/guide/02-layout.md` §13 就是这么教的）；`value`/`disabled`/`variant`/`tone`/`maxLines`/`min/max` 都是数据槽，偏偏"间距/尺寸/对齐"这一组不是，于是"把 gap 做成状态"在 API 上不可表达，只能整棵子树重建（连带丢掉焦点、滚动位置与子树状态）。第 104 轮起了一半就按"收尾"要求回退了（不带着半成品提交）：需要的是 `Widget#setContainerOptions(patch)`（与 `setLayoutParams` 对称、含未知键的指名警告）、DSL 侧把布局参数与容器选项也接受 `Ref`/getter（`Slotted` 映射类型 + 在唯一的 `applyDslOptions()` 漏斗里绑定），以及一条"给非槽位选项传了 getter"的开发期警告——否则类型放开了、运行期静默不生效，就又是这一族陷阱。
+
 ## 3.42 第 103 轮（镜像改成与控件树同构的树：对话框、分组与 `aria-owns`）
 
 兑现第 102 轮末尾登记的增强（说明见 [`PITFALLS.md`](./PITFALLS.md) §8.64）。做这件事的过程中翻出一个**静默丢弃选项**的缺陷：

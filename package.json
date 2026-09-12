@@ -20,7 +20,7 @@
     "size": "node scripts/size-check.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "docs:check": "node scripts/check-doc-snippets.mjs"
+    "docs:check": "node scripts/check-doc-snippets.mjs && node scripts/check-doc-options.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.2",

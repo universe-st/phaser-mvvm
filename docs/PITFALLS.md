@@ -441,3 +441,18 @@ Canvas 路径没有 DOM 的 `event.detail`，"这是第几次点击"只能由控
 3. **`label` 在容器上是"静默丢弃"的（V74）**。`label` 是基类选项，选项审计（`BASE_WIDGET_OPTION_KEYS`）明确接受它，但 `Column`/`Row`/`Grid`/`Stack`/`Absolute` 的选项类型里没有它（`tsc` 直接报错），而绕开类型传进去会被 `splitOptions` 扔进布局参数袋、被 `normalizeParams` 静默忽略——正是选项审计当初要消灭的那类陷阱。修法：四个布局容器的选项补上 `label` 并转交给基类，`splitOptions` 把 `label` 与 `name` 一样交给基类；`Widget.describeA11y()` 的默认实现顺势补一条规则——**没有任何描述、但被给了可访问名字的控件，镜像为一个具名 `group`**（`Panel.describeA11y()` 的非交互分支改为回落到它）。于是"给容器起个名字"成了一件有事发生的事：`#/a11y` 的字段区现在是 `group:字段区域`，两个输入框（`aria-owns`）在它里面。
 
 **门禁**：`visual-check` 新增 `AX_STRUCTURE_EXPECTATIONS`（与"控制节点恰好这么多"的 `AX_EXPECTATIONS` 并列），断言的是**包含关系**而不是数量：`a11y` 的 `region:按钮区域` 里 6 个 `button`、`group:字段区域` 里 2 个 `textbox`、`modal` 的 `dialog:删除这一项？`（`aria-modal=true`）里 2 个 `button`。**两条正对照各验一半**：① 让 `mirrorParentOf` 直接返回根（等于回到平铺）→ 3 条断言全红（`3 check(s) failed`），而所有计数断言依然绿——这正说明旧门禁**测不到**这件事；② 只关掉 `aria-owns` → 只有 `字段区域` 那条红（`1 check(s) failed`），嵌套那两条照旧绿——两条断言测的是两套机制，不是同一件的两种写法。
+
+## 8.65 指南里的选项键，必须真的被代码接受（第 104 轮）
+
+第 83 轮的选项审计让**代码**这一侧不再静默：拼错或多余的键会在开发模式下被指名报出。但审计只看得见"代码接收了什么"，看不见**指南承诺了什么**——而指南的选项表正是读者照着写代码的那份契约。两份语料之间的缝里，一个键可以"文档里有、代码里没有"，读起来完全正常，跑起来只有一条开发警告（发布模式连警告都没有）。
+
+所以 `scripts/check-doc-options.mjs` 把这条缝也变成门禁（已接进 `pnpm docs:check`）：解析 `docs/guide/**` 里所有键表（表头首格是「选项」或「字段」），按标题栈把每张表归属到它文档化的那个选项包（widget / `LayoutParams` / `ModalOptions` / `PageOptions` / `TransitionOptions`），再拿**那个包真正接受的键**去核对。当前 **195 个文档键**全部通过。
+
+写这个门禁时踩到的四个"归属"坑，都是**检查器**的问题而不是文档的问题，值得记下来：
+
+1. **DSL 是文档化的那一层**。指南写的是 `TextField({ error })`/`onValueChange`（DSL 槽位），而 `TEXT_INPUT_KEYS` 里没有它们——包必须把 `compose.ts` 的 `*DslOptions` 类型也算进来（`type X = Omit<WidgetOptions, 'slot'> & { slot }` 的**内联对象块**，不是 `interface`）。
+2. **标题栈**。"### 选项"不命名任何东西，属性来自**外层**的 "## 4.5 `Slider`"；但 05 章的 "## 2. 选项" 是**兄弟**标题而不是子标题，所以那里的标题改成了 "## 2. `ScrollView` 选项"——标题自己说清楚归属，比检查器去猜更划算。
+3. **`type X` 出现在 import 里**。`import { withListFlow, type ListFlowShorthands } from './list-flow'` 里也有 "type ListFlowShorthands"，用它当声明去解析会拿到一段无关代码外的 `{ … }`。声明必须**从行首开始**。
+4. **带类型标注的数组**。`export const LAYOUT_PARAM_KEYS: readonly (keyof LayoutParams)[] = [...]` 里 `=` 前面有标注，早期的 `const X_KEYS = [` 正则整个漏掉——于是所有"布局参数"行（`width`/`padding`…）都没被核对过。
+
+**结论**：这一轮**没有**发现代码缺陷（`Repeat` 的 `gap` 曾经看起来是缺陷，核实后是 DSL `List` 的 `ListFlowShorthands` 在撑着它，指南的写法是对的）。门禁的价值在于把"文档承诺 vs 代码接受"变成一条命令，而不是等到某个读者照着写却什么都不发生。
