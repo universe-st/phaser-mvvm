@@ -8,6 +8,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+
 import {
   DEFAULT_ENTER,
   DEFAULT_EXIT,
@@ -15,6 +16,7 @@ import {
   INSTANT,
   TransitionRunner,
   easingOf,
+  modalTransitionTargets,
   prefersReducedMotion,
   progressOf,
   resolveTransition,
@@ -474,5 +476,45 @@ describe('TransitionRunner', () => {
     expect(runner.pending).toBe(0);
     expect(runner.step(500)).toBe(0);
     expect(onDone).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The modal's target list is the *only* place that filtered zero-length transitions out, which made the
+ * runner's documented "a zero-length transition still applies the end state" branch unreachable: a spec
+ * like `{ duration: 0, toAlpha: 0.75 }` was silently ignored (V61).
+ */
+/** The default enter spec, resolved once for the "destroyed part" case. */
+const DEFAULT_ENTER_RESOLVED = resolveTransition(undefined, DEFAULT_ENTER);
+
+describe('modalTransitionTargets', () => {
+  const entry = (
+    over: Record<string, unknown> = {},
+  ): Parameters<typeof modalTransitionTargets>[0] =>
+    ({
+      scrim: { isDestroyed: false, alpha: 0, scaleX: 1, scaleY: 1 },
+      content: { isDestroyed: false, alpha: 0, scaleX: 1, scaleY: 1 },
+      ...over,
+    }) as unknown as Parameters<typeof modalTransitionTargets>[0];
+
+  it('hands a zero-length transition to the runner instead of dropping it', () => {
+    const instant = resolveTransition(
+      { duration: 0, fromAlpha: 0.25, toAlpha: 0.75, fromScale: 0.8, toScale: 1.4 },
+      DEFAULT_ENTER,
+    );
+    expect(instant.duration).toBe(0);
+    const runs = modalTransitionTargets(entry(), instant);
+    expect(runs.map((run: { props?: readonly string[] }) => run.props)).toEqual([
+      ['alpha'],
+      undefined,
+    ]);
+  });
+
+  it('still skips a part that is already destroyed', () => {
+    const runs = modalTransitionTargets(
+      entry({ scrim: { isDestroyed: true } }),
+      DEFAULT_ENTER_RESOLVED,
+    );
+    expect(runs).toHaveLength(1);
   });
 });

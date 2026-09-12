@@ -41,7 +41,7 @@ import { StackWidget } from './LayoutWidget';
 import { Widget } from './Widget';
 import { RectWidget } from './widgets';
 import { getTheme, onThemeChange } from './theme';
-import { type ResolvedTransition, type TransitionOverride, type TransitionRun } from './transition';
+import { modalTransitionTargets, type TransitionOverride } from './transition';
 import { buildUiPage } from './ui-build';
 
 /** How a modal was closed. */
@@ -243,7 +243,10 @@ export class ModalHost {
     // targets, one group), while only the body scales — scaling the *layer* would shrink the whole
     // stage towards its top-left corner.
     const motion = plugin.transitionFor(options.transition);
-    const entered = plugin.transitions.runGroup(transitionTargets(entry, motion.enter), undefined);
+    const entered = plugin.transitions.runGroup(
+      modalTransitionTargets(entry, motion.enter),
+      undefined,
+    );
     if (isDevMode()) {
       devLog(
         `modal.open: ${name} (depth ${this.stack.length}, dismissible ${dismissible})` +
@@ -394,7 +397,7 @@ export class ModalHost {
     };
 
     const leaving = this.plugin.transitions.runGroup(
-      transitionTargets(entry, motion.exit),
+      modalTransitionTargets(entry, motion.exit),
       destroy,
     );
     if (leaving === 0) {
@@ -429,29 +432,4 @@ function clamp01(value: number): number {
     return 0.5;
   }
   return Math.min(1, Math.max(0, value));
-}
-
-/**
- * The widgets one modal's animation touches, with the properties each is allowed to move.
- *
- * Two targets, because a dialog is two things: the veil and the panel. The scrim only fades — scaling
- * it would shrink a full-stage rectangle towards its top-left corner — while the body fades *and*
- * scales slightly, which is what reads as "the dialog came out of the page" rather than "a rectangle
- * appeared". A modal opened with `scrim: 0` has no veil, and the group then holds the body alone.
- *
- * A widget already destroyed (a modal closed while the scene was tearing down) is skipped: the runner
- * reports "nothing to animate", which is the caller's signal to tear the layer down at once.
- */
-function transitionTargets(entry: ModalEntry, transition: ResolvedTransition): TransitionRun[] {
-  if (transition.duration <= 0) {
-    return [];
-  }
-  const runs: TransitionRun[] = [];
-  if (entry.scrim && entry.scrim.isDestroyed !== true) {
-    runs.push({ target: entry.scrim, transition, props: ['alpha'] });
-  }
-  if (entry.content.isDestroyed !== true) {
-    runs.push({ target: entry.content, transition });
-  }
-  return runs;
 }

@@ -254,3 +254,22 @@ else this.scrollBy(0, step.delta);      // 'both' 会落到这里 → 左右键�
 - 要**比较两侧**就无所谓（比值不受影响），第 87 轮的 `wheelSpeed` A/B 就是这么做的。
 
 触摸与拖动没有这个问题（CDP 的坐标就是 CSS 像素）。
+
+## 8.51 `duration: 0` 的语义是"应用终态"，不是"什么都不做"（第 91 轮 V61）
+
+动效的 `duration` 塌成 0（`prefers-reduced-motion`、`transition: false`、显式 `duration: 0`）时，有两套可能的语义：
+
+- **什么都不写**：控件保持它自己的 alpha/scale；
+- **应用终态**：把 `toAlpha`/`toScale`（没写则取目标自己的值）写上去。
+
+框架选的是后者，而且写了三处：`resolveTransition()` 的注释（"A zero duration still keeps the _end_ state … so the properties are carried through with a collapsed range"）、`TransitionRunner.start()` 的 `if (transition.duration <= 0) { applyAt(…, 1); return null; }`、以及 `runGroup()` 用返回值 0 告诉调用方"走同步路径"。
+
+但 `modal.ts` 的 `transitionTargets()` 在更前面就把它过滤掉了：
+
+```ts
+if (transition.duration <= 0) return []; // ← 于是 runner 那段成了死代码
+```
+
+后果：`enter: { duration: 0, toAlpha: 0.75, toScale: 1.4 }` 被**静默忽略**（实测对话框落在 alpha 1 / scale 1）。默认策略与 reduced-motion 两种常见情况下看不出差别（默认终态就是"目标自己的值"），所以只有显式端点才暴露。
+
+**纪律**：把"这次要不要动"的判断放在**一个**地方（这里是 runner），调用方只负责把目标与 spec 交上去；任何"提前 return 空列表"的优化都要问一句「这会不会让下游那个分支永远跑不到」。修法是把这段判断搬进纯函数 `modalTransitionTargets()`（`transition.ts`，无 Phaser，可 Node 单测），删掉 duration 过滤；单测钉住"零长度也要交出 runs"。关闭路径不受影响：全 instant 的组仍然返回 0，`close()` 照旧同步销毁。

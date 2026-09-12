@@ -149,6 +149,31 @@ patch({ transition: false })          → { enter: 0, exit: 0 }
 
 ---
 
+### T16–T19 逐帧采样：`easing` / `delay` / 自定义端点 / `duration: 0`（第 91 轮）
+
+第 74 轮只量了默认策略与 `enter: 400`；这一轮把 spec 的其余字段逐个量了一遍（`window.modal.transition(patch)` 改策略，`window.modal.open('confirm')` 开对话框，页内 rAF 采样 `motion()`）。
+
+**T16 `easing: 'linear'`（`enter: { duration: 400, easing: 'linear', fromAlpha: 0, fromScale: 0.5, toScale: 1.2 }`）**：`[t, body, scale]` 每 ~17ms 一帧，`body` 的**增量恒定 0.0417**（= 16.7/400）—— 线性是"每帧加同样多"，而不是"看起来像直线"：
+
+```
+[11, 0.041] [27, 0.083] [41, 0.120] [60, 0.167] [77, 0.208] [93, 0.250] [110, 0.292]
+[127, 0.333] [143, 0.375] [160, 0.417] [192, 0.497] [243, 0.625] [310, 0.792] [376, 0.958]
+```
+
+`scale` 从 `0.529`（`fromScale: 0.5` + 一帧进度）走到 **`1.2`**，并且动画结束后**停在 1.2**（自定义终态被保留，没有被"恢复成 1"）。
+
+**T17 `easing: 'inOutCubic'`（同样 400ms）**：同一时刻的差别就是曲线的形状 —— 前 25% 只走 `0.036`（linear 那时已 `0.208`），中点在 `t≈196` 处正好 `0.5` ✓：
+
+```
+[13, 0] [46, 0.008] [79, 0.036] [113, 0.099] [163, 0.29] [196, 0.5] [246, 0.789] [295, 0.935] [379, 1]
+```
+
+**T18 `delay: 150`（`duration: 300`）**：`body` 在 `t=15…131` 全程**精确为 0**，`t≈148` 才开始动 ✓；期间 `pending` 一直是 2（动画已排队，`settle()` 会等完 delay）。`scale` 因为显式写了 `fromScale: 1` 而保持 1 ✓。
+
+**T19 `duration: 0` 的终态**（`{ duration: 0, fromAlpha: 0.25, toAlpha: 0.75, fromScale: 0.8, toScale: 1.4 }`）：修 V61 之前，对话框落在 `body 1 / scale 1`（**终态被丢掉**）；修之后第一帧起就是 `body 0.75 / scale 1.4 / scrim 0.75`、`pending 0` ✓，关闭后计数回到基线 ✓。同一路径的回归：默认策略仍是 `body 1 / scale 1`；仿真 `prefers-reduced-motion` 后 `reduced: true`、`enter=exit=0`，对话框落在 `body 1 / scale 1`（**不能因为动效被压成 0 就把 `fromAlpha: 0` 也应用上去**）；逐对话框 `transition: false` 同样落在可见终态 ✓。
+
+**退出方向也量了**（`exit: { duration: 300, easing: 'linear', delay: 100, toAlpha: 0, toScale: 0.5 }`）：关闭后 alpha 前 100ms 保持 1，随后每帧恒定下降（`0.946 → 0.889 → … → 0.056`），scale 同步缩到 `0.528`，最后一帧 `pending 0` 且层被释放（`body: null`）✓。
+
 ## 3. 单元测试（Node，无渲染器）
 
 `packages/phaser/test/transition.test.ts`，36 条：缓动（端点/单调/形状）、`resolveTransition`（默认值合并、裸时长、`false`、零时长仍保留终态、负数与非有限值拒绝、只动提到的属性）、`resolveTransitions`（策略 × 逐层覆盖 × 减少动效）、`prefersReducedMotion`（无 `window`、`matchMedia` 抛错）、`progressOf`（窗口内外的钳制、`delay`）、`TransitionRunner`（首帧即起始帧、插值到终值、`false` 不回调、`'base'` 端点恢复非 1 的 alpha、成组一次回调、最慢成员决定结束、目标被销毁时不回调、拒绝在已销毁目标上开始、取消、抢占、非法 delta、`clear()`）。
@@ -179,5 +204,5 @@ patch({ transition: false })          → { enter: 0, exit: 0 }
 - **页面栈的转场**（`pages.push/pop` 的滑动/淡入）与 `Branch()` 分支切换的转场：`TransitionRunner` 是通用件，但两者的目标都不止一层（整页替换、被覆盖页仍在树上），语义要单独设计，本轮不做，也不假装做了。
 - **主题里的动效时长令牌**：PLAN §4 的令牌清单里有「动效时长」，目前时长写在 `DEFAULT_ENTER`/`DEFAULT_EXIT` 与 `transition` 选项里；等 `#/theme` 令牌体系铺开时再挂过去（否则就是两个真相）。
 - **真机（iOS Safari / Android Chrome）验证**：`prefers-reduced-motion` 用 CDP 仿真验证，系统级开关的真机行为未测；触摸路径用了 CDP 触摸域（等效于上一轮 `ACCEPTANCE-touch.md` 的做法）。
-- **`delay` 与 `fromScale/toScale` 的浏览器实测**：单测覆盖（`progressOf` 的 delay、"scale 端点"），浏览器只跑了默认策略与 `enter: 400` 的变体，没有为每个参数各开一页。
+- ~~**`delay` 与 `fromScale/toScale` 的浏览器实测**~~：第 91 轮补齐（§2 的 T16–T19），连 `duration: 0` 的终态语义一起量了，并在同一轮修掉 V61。
 - **画布被缩放（`?fit=`）下的动效**：动效只改 alpha/scale，与设计像素换算无关，未在 `FIT` 下单独跑一遍。

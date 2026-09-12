@@ -295,6 +295,39 @@ export interface TransitionTarget {
   readonly isDestroyed?: boolean;
 }
 
+/** The two widgets a modal animates: its veil and its panel. */
+export interface ModalTransitionParts {
+  /** `null` when the dialog was opened with `scrim: 0` (no veil to fade). */
+  readonly scrim: TransitionTarget | null;
+  readonly content: TransitionTarget;
+}
+
+/**
+ * The runs one modal transition needs: the veil fades, the panel fades **and** scales.
+ *
+ * Scaling the veil would shrink a full-stage rectangle towards its top-left corner, and scaling the
+ * *layer* would do the same to the whole stage, so each part gets its own property list.
+ *
+ * A part that is already destroyed is skipped (the usual case is a scene shutting down mid-animation):
+ * the runner then reports "nothing to animate", which is the caller's signal to tear the layer down at
+ * once. A **zero-length** transition is deliberately *not* filtered out here — `TransitionRunner.start()`
+ * applies its end state (that is how an explicit `toAlpha`/`toScale` survives reduced motion or an
+ * instant policy), and filtering it here is what made that branch unreachable from the modal path (V61).
+ */
+export function modalTransitionTargets(
+  parts: ModalTransitionParts,
+  transition: ResolvedTransition,
+): TransitionRun[] {
+  const runs: TransitionRun[] = [];
+  if (parts.scrim && parts.scrim.isDestroyed !== true) {
+    runs.push({ target: parts.scrim, transition, props: ['alpha'] });
+  }
+  if (parts.content.isDestroyed !== true) {
+    runs.push({ target: parts.content, transition });
+  }
+  return runs;
+}
+
 /** One animation to start. */
 export interface TransitionRun {
   readonly target: TransitionTarget;
