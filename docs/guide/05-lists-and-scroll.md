@@ -182,8 +182,15 @@ const list = this.add.uiRepeat<Row>({
   virtualize: true,
   itemExtent: ROW_HEIGHT + ROW_GAP, // ← 注意：含行间距
   overscan: 3,
+
+  // 虚拟化需要知道「看得到多高」：自身或某个祖先必须有确定高度。
+  // 只写 virtualize + itemExtent 而不给高度时，窗口会塌成 overscan 行
+  // （开发模式会告警），所以这里给它一个高度——实际项目里通常像 §8 那样放进 Scroll。
+  height: 320,
 });
 ```
+
+> 三个前提缺一不可：`virtualize: true`、正的 `itemExtent`、以及**能解析出高度**的容器（自身 `height`，或祖先/外层 `ScrollView` 的视口高度）。
 
 两个硬性前提（不满足会通过 `warn()` 提示并**退化为渲染全部行**）：
 
