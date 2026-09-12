@@ -37,4 +37,5 @@ export const TEST_THEME: Theme = {
   controlHeight: { sm: 28, md: 36, lg: 44 },
   borderWidth: 1,
   focusRingWidth: 2,
+  motion: { enter: 160, exit: 120 },
 };

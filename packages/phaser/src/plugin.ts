@@ -308,7 +308,15 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    */
   transitionFor(override?: TransitionOverride): ResolvedTransitions {
     const options = this.config.transition;
-    const resolved = resolveTransitions(options, override, prefersReducedMotion());
+    // The durations come from the theme (`Theme.motion`), so switching to a theme with a different
+    // motion vocabulary retimes every dialog and page transition at once; an explicit duration in the
+    // config, in a per-layer option or in a spec still wins (see `resolveTransitions`).
+    const resolved = resolveTransitions(
+      options,
+      override,
+      prefersReducedMotion(),
+      this.theme.motion,
+    );
     if (isDevMode() && resolved.reduced && options !== false && override !== false) {
       devLog('transition: collapsed to 0 ms — the page asks for reduced motion');
     }

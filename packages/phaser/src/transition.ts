@@ -91,6 +91,17 @@ export interface TransitionOptions {
   respectReducedMotion?: boolean;
 }
 
+/**
+ * The theme's motion tokens (`Theme.motion`), passed in rather than imported so this module stays free
+ * of the theme (and of Phaser): a theme decides how long a thing takes, this decides what happens.
+ */
+export interface MotionTokens {
+  /** Milliseconds for an appearing layer or page. */
+  enter: number;
+  /** Milliseconds for a disappearing layer or page. */
+  exit: number;
+}
+
 /** A per-layer override; `true`/`false` mean "use the policy" / "no animation at all". */
 export type TransitionOverride =
   boolean | Omit<TransitionOptions, 'enabled' | 'respectReducedMotion'>;
@@ -215,13 +226,25 @@ function scaleEndpoints(spec: TransitionSpec): readonly [Endpoint, Endpoint] | n
  *
  * A per-layer `false` and `enabled: false` both collapse to {@link INSTANT}, but they are recorded
  * differently (`enabled: false`), because the dev trace prints which one it was.
+ *
+ * `motion` is the theme's duration token pair: it replaces the *duration* of the built-in defaults and
+ * nothing else, so an easing written in a spec survives a theme swap and an explicit duration still
+ * wins over the token.
  */
 export function resolveTransitions(
   options: TransitionOptions | false | undefined,
   override: TransitionOverride | undefined,
   reducedMotion: boolean,
+  motion?: MotionTokens,
 ): ResolvedTransitions {
   const base: TransitionOptions = options === false ? { enabled: false } : (options ?? {});
+  // The theme owns the durations; `DEFAULT_ENTER`/`DEFAULT_EXIT` keep the easing and the endpoints.
+  const enterFallback: TransitionSpec = motion
+    ? { ...DEFAULT_ENTER, duration: motion.enter }
+    : DEFAULT_ENTER;
+  const exitFallback: TransitionSpec = motion
+    ? { ...DEFAULT_EXIT, duration: motion.exit }
+    : DEFAULT_EXIT;
   const explicitOff = override === false || base.enabled === false;
   const overrides: Omit<TransitionOptions, 'enabled' | 'respectReducedMotion'> =
     override === undefined || typeof override === 'boolean' ? {} : override;
@@ -234,8 +257,8 @@ export function resolveTransitions(
   return {
     enabled: !explicitOff,
     reduced,
-    enter: resolveTransition(overrides.enter ?? base.enter, DEFAULT_ENTER, disabled),
-    exit: resolveTransition(overrides.exit ?? base.exit, DEFAULT_EXIT, disabled),
+    enter: resolveTransition(overrides.enter ?? base.enter, enterFallback, disabled),
+    exit: resolveTransition(overrides.exit ?? base.exit, exitFallback, disabled),
   };
 }
 

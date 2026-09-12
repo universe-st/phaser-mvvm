@@ -166,6 +166,43 @@ describe('resolveTransitions', () => {
     expect(policy.reduced).toBe(false);
   });
 
+  it('takes its durations from the theme tokens', () => {
+    const policy = resolveTransitions(undefined, undefined, false, { enter: 400, exit: 40 });
+    expect(policy.enter.duration).toBe(400);
+    expect(policy.exit.duration).toBe(40);
+    // Only the duration comes from the theme: the easing and the endpoints stay the built-in shape.
+    expect(policy.enter.easing).toBe('outCubic');
+    expect(policy.enter.alpha).toEqual([0, 'base']);
+    expect(policy.enter.scale).toEqual([0.96, 'base']);
+    expect(policy.exit.alpha).toEqual(['base', 0]);
+  });
+
+  it('lets an explicit duration win over the theme token, in either place', () => {
+    const tokens = { enter: 400, exit: 40 };
+    expect(resolveTransitions({ enter: 90 }, undefined, false, tokens).enter.duration).toBe(90);
+    expect(
+      resolveTransitions({ enter: { duration: 70 } }, undefined, false, tokens).enter.duration,
+    ).toBe(70);
+    expect(resolveTransitions(undefined, { enter: 50 }, false, tokens).enter.duration).toBe(50);
+    // …while a spec that only states an easing keeps the token's duration.
+    expect(
+      resolveTransitions({ enter: { easing: 'linear' } }, undefined, false, tokens).enter.duration,
+    ).toBe(400);
+    // The other direction is untouched by an override on one of them.
+    expect(resolveTransitions({ enter: 90 }, undefined, false, tokens).exit.duration).toBe(40);
+  });
+
+  it('falls back to the built-in durations when no theme tokens are given', () => {
+    expect(resolveTransitions(undefined, undefined, false).enter.duration).toBe(160);
+    expect(resolveTransitions(undefined, undefined, false).exit.duration).toBe(120);
+  });
+
+  it('still collapses a theme-timed policy for reduced motion', () => {
+    const policy = resolveTransitions(undefined, undefined, true, { enter: 400, exit: 40 });
+    expect(policy.enter.duration).toBe(0);
+    expect(policy.exit.duration).toBe(0);
+  });
+
   it('keeps the reduced-motion flag honest for the dev trace', () => {
     const policy = resolveTransitions(undefined, undefined, true);
     expect(policy.reduced).toBe(true);

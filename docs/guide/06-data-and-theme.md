@@ -274,6 +274,15 @@ const brand: Theme = {
 setTheme(brand); // 也可以：this.mvvm.setTheme(brand)
 ```
 
+**动效时长也是令牌**（`theme.motion`）：转场系统把它当作默认时长，所以换一套主题就能同时改变所有对话框与页面转场的节奏——不用去调用点里找 `duration:`。
+
+```ts
+const snappy: Theme = { ...DARK_THEME, name: 'snappy', motion: { enter: 90, exit: 60 } };
+setTheme(snappy); // 之后打开的对话框 90ms 淡入、页面转场 90/60
+```
+
+优先级是「**写得越具体越赢**」：`MVVMPlugin.configure({ transition: { enter: 300 } })`（游戏级）＞ 逐对话框/逐页的 `transition: { enter: 300 }` ＞ 主题令牌 ＞ 内置默认值（`DEFAULT_ENTER`/`DEFAULT_EXIT` 只提供缓动与端点）。所以主题换掉之后，那些**只写了缓动**的 spec 仍然吃主题的时长，而显式写了时长的那些不受影响。
+
 订阅变化（例如把选中的主题名写进存档）：
 
 ```ts

@@ -323,6 +323,8 @@ this.mvvm.modal.open(
 | `easing`               | —      | `'linear'` / `'inCubic'` / `'outCubic'` / `'inOutCubic'`              |
 | `respectReducedMotion` | `true` | 系统要求减少动效时（`prefers-reduced-motion: reduce`）把时长折叠成 0  |
 
+> 上表的默认时长不是写死的常量，而是**主题令牌** `theme.motion`（`{ enter, exit }`，毫秒）：换主题就换节奏；显式写在配置、逐层选项或 spec 里的时长优先（见指南 06 §6.2）。
+
 **动效不改变关闭的语义**，这一点值得记住：`close()` 当帧就弹栈、归还焦点、把指针捕获交回下一层，`handle.open` 立刻是 `false`，`onClose` 立刻触发——**只有图层的销毁被推迟到出场动画结束**（这段时间里它继续吞掉点击，避免一次触摸同时"关弹窗 + 点下面的按钮"）。所以：
 
 ```ts

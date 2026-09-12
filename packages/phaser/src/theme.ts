@@ -41,6 +41,20 @@ export interface Theme {
   controlHeight: { sm: number; md: number; lg: number };
   borderWidth: number;
   focusRingWidth: number;
+  /**
+   * Motion durations in milliseconds, named after what they are *for* rather than how fast they feel.
+   *
+   * The transition system reads these as its defaults (`DEFAULT_ENTER`/`DEFAULT_EXIT` keep the shape —
+   * easing, endpoints — while the duration comes from here), so a project retunes every dialog and page
+   * transition in one place instead of hunting for `duration:` in call sites. An explicit duration in
+   * `MVVMPlugin.configure({ transition: … })`, in a per-dialog/per-page option or in a `TransitionSpec`
+   * still wins; a spec that only states an easing keeps the token.
+   *
+   * Both built-in themes carry the same numbers on purpose: motion is a property of the design system,
+   * not of the palette — but a theme is allowed to differ (a "reduced motion" theme is the obvious
+   * case), and `setTheme()` takes a whole `Theme` object, so an app can supply its own.
+   */
+  motion: { enter: number; exit: number };
 }
 
 export const DARK_THEME: Theme = {
@@ -72,6 +86,7 @@ export const DARK_THEME: Theme = {
   controlHeight: { sm: 28, md: 36, lg: 44 },
   borderWidth: 1,
   focusRingWidth: 2,
+  motion: { enter: 160, exit: 120 },
 };
 
 export const LIGHT_THEME: Theme = {
@@ -103,6 +118,7 @@ export const LIGHT_THEME: Theme = {
   controlHeight: DARK_THEME.controlHeight,
   borderWidth: DARK_THEME.borderWidth,
   focusRingWidth: DARK_THEME.focusRingWidth,
+  motion: DARK_THEME.motion,
 };
 
 export const BUILT_IN_THEMES: Record<ThemeName, Theme> = {
