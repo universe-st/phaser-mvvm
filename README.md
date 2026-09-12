@@ -2,10 +2,11 @@
 
 基于 **Phaser 4**（`phaser@4.2.1 "Giedi"`）的 **MVVM UI 框架**：在 Phaser 4 渲染管线上提供「响应式数据 + 声明式视图 + 自动布局 + 基础控件」的完整方案 —— 不 fork Phaser，只用公开 API 与插件/工厂注册，游戏逻辑照常使用原生 Phaser。
 
-> **当前状态：M0–M7 已完成并通过验收（2026-09），API 仍未冻结。**
-> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（175 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（251 个单测，含黄金快照）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/主题令牌/绑定切片，98 个单测）、基础控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Spacer/Divider + TextField/TextArea 与 DOM 输入桥，171 个单测）、六个示例场景（含 `#/gallery`、`#/dashboard`、`#/bindings` 三个可交互 demo）与「几何 + 像素」验收脚本。**合计 883 个单测。**
-> 验收证据与已知边界见 [`docs/ACCEPTANCE-M0-M2.md`](./docs/ACCEPTANCE-M0-M2.md)。
-> **API 仍可能调整**（绑定层 M6、控件库 M4/M5 尚未落地），未实现的部分在文中均标注了对应里程碑编号。
+> **当前状态：M0–M7 已完成并通过验收（2026-09），API 仍未冻结；M8/M9（`UIScene`/`Page`/`ModalStack`/`Router`/`A11yBridge`）未开始。**
+> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（278 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（306 个单测，含黄金快照与 `perf.test.ts` 性能门禁）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/主题令牌/绑定，121 个单测）、控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Rect/Spacer/Divider/TextField/TextArea/ScrollView/Repeat + DOM 输入桥，281 个单测）与 **Compose 风格 DSL**（`@phaser-mvvm/widgets/compose`，推荐写视图的方式）。**合计 986 个单测**，另有可执行的性能/体积门禁（`pnpm --filter @phaser-mvvm/layout run test`、`pnpm size`）。
+> 验收场：`#/compose`（DSL，含工厂 API 与 DSL 的逐节点 parity 校验）、`#/showcase`（全部控件与布局形态，已迁移到 DSL）、`#/states`（交互状态矩阵）、`#/lifecycle`（创建→销毁 100 次泄漏门禁），以及 `#/gallery`、`#/dashboard`、`#/bindings`、`#/form`、`#/list`、`#/scroll`。
+> 各轮验收证据与已知边界见 [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)、[`ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)、[`ACCEPTANCE-lifecycle.md`](./docs/ACCEPTANCE-lifecycle.md)、[`ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)、[`ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)、[`ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)、[`ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)；未修/待验证项见 [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)。
+> **API 仍可能调整**：项目仍在起步阶段，破坏式更新与重构是被接受的（见 `AGENTS.md` §4）。
 
 ---
 
