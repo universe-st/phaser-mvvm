@@ -28,6 +28,7 @@
  */
 
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
+import { isWithinTree } from './input';
 import type { MVVMPlugin } from './plugin';
 import type { Widget } from './Widget';
 
@@ -108,6 +109,25 @@ export class A11yBridge {
     this.plugin = plugin;
     this.options = options;
     this.on = options.enabled !== false;
+  }
+
+  /**
+   * Whether a widget sits **behind** an open modal, and therefore must leave the accessibility tree.
+   *
+   * The top-most layer's content is the live surface; everything else is hidden from assistive
+   * technology while it is up. The widget holding DOM focus is never hidden: `aria-hidden` on a focused
+   * element is invalid and browsers either ignore it or drop focus, so the dialog's own focused control
+   * wins even if a refresh happens between "the layer was pushed" and "focus moved inside it".
+   */
+  private isBehindModal(widget: Widget): boolean {
+    const scope = this.plugin.modal.top?.content ?? null;
+    if (scope === null || widget === this.plugin.focus.focusedWidget) {
+      return false;
+    }
+    return !isWithinTree(
+      widget as unknown as { parentContainer?: unknown } as never,
+      scope as never,
+    );
   }
 
   /**
@@ -471,7 +491,14 @@ export class A11yBridge {
     const domElement = widget.getA11yDomElement();
     const attributes = a11yAttributes(descriptor, widget);
     const text = a11yText(descriptor, widget);
-    const signature = `${domElement ? 'dom' : 'node'}|${text}|${attributeSignature(attributes)}`;
+    // A modal blocks the pointer and traps focus, but a screen reader walks neither: it walks the
+    // accessibility tree, and every mirrored widget *below* the dialog was still in it — measured on
+    // `#/keyboard`: 38 page controls **plus** the dialog's own 35 while a dialog was up, so the covered
+    // page's `玩家名` textbox sat right above the dialog's. `aria-hidden` on everything outside the
+    // dialog is ARIA's own answer to that state (the mirror is not a DOM subtree of the layer, so it
+    // cannot be inherited from the layer's node).
+    const inert = this.isBehindModal(widget);
+    const signature = `${domElement ? 'dom' : 'node'}|${inert ? 'inert' : 'live'}|${text}|${attributeSignature(attributes)}`;
     if (this.lastApplied.get(widget) === signature) {
       return;
     }
@@ -479,10 +506,19 @@ export class A11yBridge {
 
     node.setAttribute('data-mvvm-a11y-name', widget.name || descriptor.role);
     node.textContent = text;
-    if (domElement) {
+    if (domElement || inert) {
       node.setAttribute('aria-hidden', 'true');
     } else {
       node.removeAttribute('aria-hidden');
+    }
+    if (domElement) {
+      // The element *is* the surface for this widget, so hiding the mirror node is not enough: an
+      // `<input>` behind a dialog is just as reachable as a `<div role="textbox">`.
+      if (inert) {
+        domElement.setAttribute('aria-hidden', 'true');
+      } else {
+        domElement.removeAttribute('aria-hidden');
+      }
     }
 
     // The node keeps the full attribute set even when it is hidden: it is the surface the DOM-level

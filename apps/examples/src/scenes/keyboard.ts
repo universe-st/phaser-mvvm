@@ -20,9 +20,10 @@
 
 import Phaser from 'phaser';
 import { ref } from '@phaser-mvvm/core';
-import { themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
+import { themeListenerCount, type ModalHandle, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
+  Column,
   Divider,
   Panel,
   Row,
@@ -48,6 +49,13 @@ export class KeyboardScene extends Phaser.Scene {
   private field: ReturnType<typeof TextField> | null = null;
   private keyboard: VirtualKeyboardWidget | null = null;
   private submits = 0;
+  /** The dialog's own field + keyboard (round 101): a second instance, inside a modal layer. */
+  private readonly dialogValue = ref('');
+  private readonly dialogNote = ref('用键盘输入，Enter 提交，Esc 取消');
+  private dialogHandle: ModalHandle | null = null;
+  private dialogField: ReturnType<typeof TextField> | null = null;
+  private dialogKeyboard: VirtualKeyboardWidget | null = null;
+  private dialogSubmits = 0;
   /** Key widgets are rebuilt when the page or the kind changes; this is the generation they belong to. */
   private keysRevision = -1;
 
@@ -136,6 +144,16 @@ export class KeyboardScene extends Phaser.Scene {
                 },
               }),
             );
+            this.track(
+              'dialog',
+              Button('对话框里输入', {
+                variant: 'primary',
+                name: 'kb.dialog',
+                onClick: () => {
+                  this.openDialog();
+                },
+              }),
+            );
           });
         },
       );
@@ -147,6 +165,77 @@ export class KeyboardScene extends Phaser.Scene {
     setDemoState('scene', 'keyboard');
     appendStatus('--- keyboard ---');
     reportCanvas(this.game);
+  }
+
+  /**
+   * Opens a dialog that asks for a name **with its own keyboard** — the console flow (PLAN M9).
+   *
+   * The page already has a field and a keyboard, so this layer is also a test of what a modal has to
+   * do to the widgets underneath: the pad's focus must be trapped inside, the page's field must stop
+   * receiving input, and closing the dialog must leave the counts exactly where they were.
+   *
+   * The keyboard is a *second* instance (its own `target`), because a `VirtualKeyboard` drives one field
+   * and the dialog's value must not be the page's value.
+   */
+  private openDialog(): void {
+    if (this.dialogHandle) {
+      return;
+    }
+    this.dialogNote.value = '用键盘输入，Enter 提交，Esc 取消';
+    const handle = this.mvvm.modal.open(
+      () => {
+        Column({ gap: 10, padding: 16, width: 520, name: 'kb.dlg.body' }, () => {
+          Text('手柄输入：对话框', { size: 'lg', name: 'kb.dlg.title' });
+          const field = TextField({
+            name: 'kb.dlg.field',
+            label: '角色名',
+            value: this.dialogValue,
+            placeholder: '用下面的键盘输入',
+            maxLength: 10,
+            width: 'fill',
+          });
+          this.dialogField = field;
+          const keyboard = VirtualKeyboard({
+            target: () => this.dialogField,
+            onSubmit: () => {
+              this.dialogSubmits += 1;
+              this.dialogNote.value = `提交：${this.dialogValue.value || '(空)'}`;
+              this.closeDialog('submit');
+            },
+            onChange: () => {
+              this.dialogNote.value = `已输入 ${this.dialogValue.value.length} 个字符`;
+            },
+          });
+          this.dialogKeyboard = keyboard;
+          Text(() => this.dialogNote.value, { tone: 'muted', name: 'kb.dlg.note' });
+          Row({ gap: 8 }, () => {
+            Button('取消', {
+              variant: 'ghost',
+              name: 'kb.dlg.cancel',
+              onClick: () => {
+                this.closeDialog('cancel');
+              },
+            });
+          });
+        });
+      },
+      { name: 'kb.dlg' },
+    );
+    this.dialogHandle = handle;
+  }
+
+  /** Closes the dialog's layer; the widgets inside are destroyed with it. */
+  private closeDialog(reason = 'api'): void {
+    if (!this.dialogHandle) {
+      return;
+    }
+    this.dialogNote.value = `已关闭（${reason}）`;
+    this.dialogHandle.close();
+    this.dialogHandle = null;
+    // The layer's widgets are destroyed with it, so the references must go with them: a stale
+    // reference would let `dialogState()` keep reporting a dead field as if the dialog were open.
+    this.dialogField = null;
+    this.dialogKeyboard = null;
   }
 
   /**
@@ -279,6 +368,16 @@ export class KeyboardScene extends Phaser.Scene {
     this.publish('focus', this.mvvm.focus.focusedWidget?.name || 'none');
     this.publish('kb.focusables', this.mvvm.focus.focusables.length);
 
+    // The dialog's own readings. `dlg.open` is the layer's presence; the value/caret come from the
+    // dialog's field *and* from the `ref` behind it, so "the keys reached the model" is visible as data.
+    const dialogOpen = this.dialogHandle !== null;
+    this.publish('dlg.open', dialogOpen ? 'yes' : 'no');
+    this.publish('dlg.value', this.dialogField ? this.dialogValue.value : 'gone');
+    this.publish('dlg.length', this.dialogField ? this.dialogValue.value.length : 'gone');
+    this.publish('dlg.caret', this.dialogField?.caretIndex ?? -1);
+    this.publish('dlg.kind', this.dialogKeyboard?.appearance.kind ?? 'gone');
+    this.publish('dlg.submits', this.dialogSubmits);
+
     const counts = this.counts();
     this.publish('counts.widgets', counts.widgets);
     this.publish('counts.themeListeners', counts.themeListeners);
@@ -383,6 +482,73 @@ export class KeyboardScene extends Phaser.Scene {
         return this.mvvm.focus.focusedWidget?.name ?? 'none';
       },
       counts: () => this.counts(),
+      /** Opens the dialog that asks for a name with its own keyboard (round 101). */
+      openDialog: (): string => {
+        this.openDialog();
+        return this.dialogHandle ? 'open' : 'none';
+      },
+      closeDialog: (): string => {
+        this.closeDialog('api');
+        return 'closed';
+      },
+      /**
+       * The dialog's own readings, or `null` while it is closed.
+       *
+       * `focusables` is the trap's evidence: while the layer is up it must list **only** the dialog's
+       * widgets, never the page's field, keys or buttons underneath.
+       */
+      dialogState: (): Record<string, unknown> | null =>
+        this.dialogHandle === null
+          ? null
+          : {
+              value: this.dialogValue.value,
+              caret: this.dialogField?.caretIndex ?? -1,
+              kind: this.dialogKeyboard?.appearance.kind ?? 'none',
+              keys: this.dialogKeyboard?.keys.length ?? 0,
+              submits: this.dialogSubmits,
+              focus: this.mvvm.focus.focusedWidget?.name || 'none',
+              focusables: this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
+              depth: this.mvvm.modal.depth,
+              top: this.mvvm.modal.top ? `modal#${this.mvvm.modal.top.id}` : 'none',
+            },
+      /** Types through the **dialog's** keyboard (the same code path as a pad press). */
+      dialogType: (text: string): string => {
+        for (const char of text) {
+          if (!this.dialogKeyboard?.typeChar(char)) {
+            return `stopped at "${char}"`;
+          }
+        }
+        return this.dialogValue.value;
+      },
+      /** Presses one key of the dialog's keyboard by id. */
+      dialogPress: (id: string): boolean => this.dialogKeyboard?.press(id) ?? false,
+      /** Page coordinates of a key id (or widget name) **inside** the dialog. */
+      dialogPoint: (idOrName: string): string => {
+        const key = this.dialogKeyboard?.keyOf(idOrName) ?? this.dialogByKeyboardKey(idOrName);
+        if (!key || key.appliedRect.width <= 0) {
+          return 'none';
+        }
+        return `@${Math.round(pagePoint(this.game, key).x)},${Math.round(pagePoint(this.game, key).y)}`;
+      },
+      /**
+       * Opens and closes the dialog `n` times, reporting the counts around it.
+       *
+       * Each round waits for the transitions to finish: a closed layer is destroyed only after its exit
+       * animation, so sampling right after `close()` counts a layer that is still fading (measured: five
+       * rounds with a two-frame wait reported 96 widgets instead of 50 — a phantom leak made entirely of
+       * layers still on their way out, the same shape as the `#/modal` gate's `await settle()`).
+       */
+      dialogChurn: async (n: number): Promise<{ before: unknown; after: unknown }> => {
+        await this.frame();
+        const before = this.counts();
+        for (let i = 0; i < n; i++) {
+          this.openDialog();
+          await this.settle();
+          this.closeDialog('churn');
+          await this.settle();
+        }
+        return { before, after: this.counts() };
+      },
       /**
        * Swaps the keyboard `n` times (text → numeric → text …) and reports the counts around it.
        *
@@ -425,6 +591,38 @@ export class KeyboardScene extends Phaser.Scene {
       }),
     };
     (window as unknown as { keyboard?: unknown }).keyboard = api;
+  }
+
+  /** Resolves once nothing is animating (the modal layer is destroyed after its exit animation). */
+  private settle(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = (): void => {
+        if (this.mvvm.transitions.pending === 0) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    });
+  }
+
+  /** A widget inside the **dialog** by debug name (the page's lookup does not see the layer). */
+  private dialogByKeyboardKey(name: string): Widget | null {
+    if (!this.dialogHandle) {
+      return null;
+    }
+    let found: Widget | null = null;
+    const visit = (widget: Widget): void => {
+      if (widget.name === name) {
+        found = widget;
+      }
+      for (const child of widget.getWidgetChildren()) {
+        visit(child);
+      }
+    };
+    visit(this.dialogHandle.content);
+    return found;
   }
 
   /** A widget by debug name, or `null` — the lookup both `point(name)` and `focus(name)` use. */

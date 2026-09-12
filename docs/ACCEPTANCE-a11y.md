@@ -197,3 +197,27 @@ live 区域属性（`Accessibility.getFullAXTree` 读出的计算值）：`role=
 机制：`Widget#a11yListener`（与 `structureListener` 同型）由 `A11yBridge` 在**建节点时**装上、节点移除或控件销毁时清掉；`setEnabled`/`setError`/`Button.setValue`/`Button.setText`/`Slider.setValue`/`TextInputBase.commit` 调 `notifyA11yChanged()`，桥用原有的签名比对决定是否真的写 DOM。
 
 常驻门禁在 `scripts/visual-check.mjs`：`SCENE_SETUP.a11y` 调 `window.a11y.validate()` 与 `window.a11y.setVolume(65)`（**都不再手动 sync**），`AX_EXPECTATIONS.a11y` 要求 `名字` 的 `invalid=true`、`音量` 的 `value=65`。矩阵 §0 的其余判据不受影响（14 个控制节点、无重名、`Tab` 后恰好一个带 focus）。
+
+---
+
+## 9. 第 101 轮：模态对话框必须也让**无障碍树**失效（V72）
+
+把虚拟键盘搬进对话框验收时（见 [`ACCEPTANCE-keyboard.md`](./ACCEPTANCE-keyboard.md) §9）顺手量了无障碍树：**对话框打开时，被盖住的整页仍然在树里**。
+
+| 读数（CDP `Accessibility.getFullAXTree`，只数 textbox/button） | 修前                                    | 修后                       |
+| -------------------------------------------------------------- | --------------------------------------- | -------------------------- |
+| 无对话框（`#/keyboard` 页面本身）                              | 38                                      | 38                         |
+| 打开「对话框里输入」                                           | **73** = 页面的 38 **加上** 对话框的 35 | **35**（只有对话框自己的） |
+| 页面上的 `玩家名` 文本框                                       | **仍在树里**（读屏用户可以走到它）      | 已从树里消失               |
+| 对话框的 `角色名` / 33 个键 / `取消`                           | 在                                      | 在                         |
+| 关闭后                                                         | 38                                      | 38（`玩家名` 回来）        |
+
+根因：模态层挡住了指针（画布命中）也接管了焦点作用域，但**读屏软件走的是无障碍树**——桥把 `input.widgets ∪ focus.focusables` 里每个有描述的控件都镜像出来，与"哪一层在上面"无关；而文本框这类**自带 DOM 元素**的控件，其表面就是那个隐藏 `<input>`，遮住镜像节点根本不够。
+
+修法（`packages/phaser/src/a11y.ts`）：桥新增 `isBehindModal(widget)` —— 顶层模态的 `content` 是"当前活着的表面"，不在它子树里的控件一律 `aria-hidden`（镜像节点与它自己的 DOM 元素都标），而**当前持有 DOM 焦点的控件永不隐藏**（`aria-hidden` 标在聚焦元素上是无效 ARIA，浏览器可能直接丢掉焦点）。缓存签名里带上 `inert`，所以开关模态时重新应用；模态的 `open`/`close` 本来就会 `refreshInteraction()`，时序不需要新的钩子。
+
+**常驻门禁**：`scripts/visual-check.mjs` 的 `AX_EXPECTATIONS` 新增 `modal` 一条（该场景的 `SCENE_SETUP` 本来就开着 `confirm` 对话框），只列对话框自己的两个控件（`取消` / `删除`），而 AX 门禁的语义是"**控制节点恰好这么多**"——于是"被盖住的页面按钮还在树里"会当场红掉。实测修后 `a11y tree ok for modal (2 control nodes, no duplicates)`；同一次运行里 `a11y` 14 个、`keyboard` 38 个（第 101 轮新增的 `对话框里输入` 按钮算第 38 个）。
+
+**正对照**：把 `isBehindModal` 强制返回 `false` 再跑一次 —— `modal` 这一条如期失败（`1 check(s) failed`），恢复后重新全绿。
+
+> 这一条**无法用 Node 单测回归**：它验的是浏览器算出来的无障碍树，所以门禁落在 `visual-check` 的 AX 表上（与第 76 轮 V42/V43 同一条路）。

@@ -170,7 +170,20 @@ const AX_EXPECTATIONS = {
     { role: 'button', name: '清空' },
     { role: 'button', name: '切到数字键盘' },
     { role: 'button', name: '切回文字键盘' },
+    // Round 101's dialog trigger: the count check below means a new control here has to be listed.
+    { role: 'button', name: '对话框里输入' },
     { role: 'textbox', name: '玩家名' },
+  ],
+  /**
+   * A modal is open in `SCENE_SETUP` (`confirm`), so this table is the gate for **what a screen reader
+   * may reach while a dialog is up**: only the dialog's own controls are listed, and the exact-count
+   * check then proves the page's buttons underneath are gone from the tree. Before round 101 they were
+   * not: measured on `#/keyboard`, a dialog over a page of 38 controls produced 38 **plus** 35 nodes, so
+   * a screen-reader user could walk the covered page (V72).
+   */
+  modal: [
+    { role: 'button', name: '取消' },
+    { role: 'button', name: '删除' },
   ],
 };
 
