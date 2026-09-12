@@ -382,3 +382,15 @@ Canvas 路径没有 DOM 的 `event.detail`，"这是第几次点击"只能由控
 实测（`#/compose`，滑块绑定到 `stateVolume`）：`setRange(0, 30)` 把值从 90 钳到 30，控件显示 30，而 `ref` 一直停在 **90**（页面按帧发布的 `volume=90` 与画面对不上）；`setValue(80)` 更直接——控件 80、`ref` 40，且不会回弹（向下绑定不会主动重读没变过的源）。
 
 修法是把"值变了"这件事在**所有**值变更路径上统一上报：`setValue`/`setRange` 的钳制结果都 emit `change`，而**用户专属**的回调仍然是 `onChange`（选项）——这正是文本框早就写明的分工（`TEXT_INPUT_EVENTS.CHANGE` 是模型通道，`onChange` 选项才是"用户动了它"）。于是 DSL 的 `onValueChange` 也跟着变成"值真的变了就给"，与 Compose 的 `onValueChange` 语义一致。
+
+**同一族的第二个实例（第 100 轮 V70，开关按钮）**：`Button.setValue()` 也是静默写值，而开关的 `value: ref` 同样是双向数据槽（`bindBooleanModel` 只听 `change`）。实测 `#/a11y`：`setValue(false)` 之后控件已关，而页面按帧发布的 `notify` 仍是 `true`。修法一致——值真的变了就 emit `change`，用户专属回调仍是 `onClick`。**修的时候要注意别把激活路径改成发两次**：`handleActivation()` 原本自己 emit 一次，`setValue` 现在也会 emit，所以那行必须删掉（实测：点击一次恰好一个 `change`，`#/gallery` 两次点击 = `true` → `false`）。
+
+判据可以一句话概括：**控件自己动的值，和用户动的值，都要走过同一个上报通道**；只有"这是不是用户干的"这件事才分两条路。
+
+## 8.61 公开读数要报告**解析后**的值，不是"请求的值"（第 100 轮 V71）
+
+给 `Image` 的 `frame` 槽做 A/B 验收时顺手量了一次"帧名写错会怎样"：Phaser 的 `Texture#get` 打印一条警告（`Texture "compose.atlas" has no frame "nope"`）并按**第一帧**绘制——而 `Image#currentFrame` 当时报告的是 `'nope'`，也就是**请求**，不是屏幕上那一帧。这类读数最危险的地方在于它专门用来断言"槽位有没有生效"：一个撒谎的读数会让检查读到它想看到的东西。
+
+修法：`setTexture(texture, frame?)` 记录 `image.frame.name`（Phaser 解析后的帧），只在"调用方根本没点名帧"时保留 `undefined`——那种情况下"第一帧"是贴图的默认，不是一个可命名的选择。实测修后同一个错名字：画面 `red`、`currentFrame === 'red'`、控制台仍有一条指名警告（警告保留是对的，它才是让调用方去改名字的那条信息）。
+
+**同族的判据**：任何 `current*`/`get*()` 形态的读数，都要问一句"它报告的是我上文写下的东西，还是这个东西实际变成的样子？" 请求与结果在**失败路径**上分叉的地方（缺帧、被钳制、被四舍五入、被平台改写），必须报告结果。

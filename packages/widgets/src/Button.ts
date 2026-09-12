@@ -169,7 +169,16 @@ export class Button extends Widget {
     return this.value;
   }
 
-  /** Sets the toggle value without emitting `change`. */
+  /**
+   * Sets the toggle value, reporting a real change on `change`.
+   *
+   * A toggle's `value` is a data slot (`Button({ toggle: true, value: ref })`), and the binding that
+   * keeps the `ref` in step listens on `change`. Writing silently therefore left the widget and the
+   * model disagreeing forever — the down-binding only runs when the *source* changes (measured on
+   * `#/a11y`: `setValue(false)` switched the button off while the page still published
+   * `notify=true`, the slider's V69 in another widget). `change` fires for any committed change;
+   * `onClick` stays the user-only callback.
+   */
   setValue(value: boolean): this {
     if (this.value === value) {
       return this;
@@ -178,6 +187,7 @@ export class Button extends Widget {
     this.appearanceChanged();
     // A toggle's value is its `checked` state to a screen reader.
     this.notifyA11yChanged();
+    this.emit(BUTTON_EVENTS.CHANGE, value);
     return this;
   }
 
@@ -349,8 +359,9 @@ export class Button extends Widget {
       return;
     }
     if (decision.toggles) {
+      // `setValue` reports the change itself (`BUTTON_EVENTS.CHANGE`), so emitting here as well would
+      // fire twice for one click.
       this.setValue(decision.value);
-      this.emit(BUTTON_EVENTS.CHANGE, decision.value);
       return;
     }
     if (decision.invokesClick) {

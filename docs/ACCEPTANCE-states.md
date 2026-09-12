@@ -167,3 +167,17 @@ export const WIDGET_EVENTS = { ACTIVATE: 'widget:activate', STATE_CHANGE: 'widge
 
 - **真实手柄**：第 4 条用的是 `window.fakePad`（替换 `navigator.getGamepads`），真机与蓝牙手柄未验。
 - **长按/连发**：`activate` 是单次事件，框架没有重复激活的概念（第 51 轮登记过的导航连发在 `NavSource` 层）。
+
+---
+
+## 8. 第 100 轮追加：绑定到 `ref` 的开关，程序化写值也要到达模型（V70）
+
+`#/states` 的 `button.toggle` 是 `toggle: true` + `value: this.toggled`（双向数据槽），页面上另有两个「外部置开/置关」按钮（写 `ref`）。本轮补的是**反方向**：控件自己被写入时，`ref` 是否跟着走。
+
+| 操作                                                                                      | 修前                                                                  | 修后                                                                                                                         |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `toggle.setValue(!toggle.getValue())`（模拟"控件自己动了"，例如键盘激活之外的程序化写入） | 控件 `false → true`，而 `#demo-state` 的 `toggled` 仍是 **`false`** ✗ | `toggled` 同步变 **`true`** ✓                                                                                                |
+| `#/a11y` 的开关（`value: this.notify`）`setValue(false)`                                  | 控件已关，页面仍发布 `notify=true` ✗                                  | `notify=false` ✓                                                                                                             |
+| `#/gallery` 的开关：真实鼠标点两下                                                        | —                                                                     | `toggle=true` → `toggle=false`，**每次点击恰好一个 `change`**（修 `setValue` 时删掉了激活路径里那次显式 emit，否则会发两次） |
+
+根因与滑杆的量程钳制同族：`change` 是**模型通道**，而双向绑定的向下方向只在"源变了"时才跑——控件自己改的值不发事件，就永远没人纠正它。详见 [`PITFALLS.md`](./PITFALLS.md) §8.60。

@@ -92,3 +92,34 @@ export function makeTileTexture(scene: Phaser.Scene, key: string, size = 64): st
     graphics.strokeRect(1, 1, size - 2, size - 2);
   });
 }
+
+/**
+ * A one-row atlas of flat colour squares, one frame per entry.
+ *
+ * Frames need a real atlas: `Image`'s `frame` slot can only be exercised by a texture that has more
+ * than one, and the demos otherwise ship single-frame textures. The squares are flat literals, so a
+ * pixel check of a frame swap reads the swap itself rather than a theme token.
+ */
+export function makeAtlasTexture(
+  scene: Phaser.Scene,
+  key: string,
+  frames: Record<string, number>,
+  size = 44,
+): string {
+  if (scene.textures.exists(key)) {
+    return key;
+  }
+  const names = Object.keys(frames);
+  const width = size * names.length;
+  makeTexture(scene, key, width, size, (graphics) => {
+    names.forEach((name, index) => {
+      graphics.fillStyle(frames[name] as number, 1);
+      graphics.fillRect(index * size, 0, size, size);
+    });
+  });
+  const texture = scene.textures.get(key);
+  names.forEach((name, index) => {
+    texture.add(name, 0, index * size, 0, size, size);
+  });
+  return key;
+}

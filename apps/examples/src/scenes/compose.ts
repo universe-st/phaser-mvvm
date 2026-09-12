@@ -48,7 +48,7 @@ import {
   TextField,
   ui,
 } from '@phaser-mvvm/widgets/compose';
-import { makeTexture, makeTileTexture, setDemoState } from '../demo';
+import { makeAtlasTexture, makeTexture, makeTileTexture, setDemoState } from '../demo';
 import { appendStatus, pagePoint, reportCanvas, reportWidget, stagePosition } from '../status';
 
 type SectionId =
@@ -93,6 +93,8 @@ const ICON_TEXTURE = 'compose.icon';
 /** The two solid textures the reactive `Image.texture` slot swaps between (round 98). */
 const TEXTURE_A = 'compose.slot.a';
 const TEXTURE_B = 'compose.slot.b';
+/** One atlas with a `red` and a `green` frame, for the reactive `frame` slot. */
+const ATLAS_TEXTURE = 'compose.atlas';
 /**
  * The paragraph the reactive `maxLines`/`ellipsis` slot collapses.
  *
@@ -152,6 +154,8 @@ export class ComposeScene extends Phaser.Scene {
   private readonly stateNote = ref('这段文字可以选中、可以复制，但改不了');
   /** Round 99: the slider's upper bound as state (the A/B pair and the button share it). */
   private readonly rangeMax = ref(100);
+  /** Round 100: the atlas frame as state — the second half of the `texture`/`frame` slot pair. */
+  private readonly altFrame = ref(false);
   /** The `Scroll` slot of the `list` section: the scroll position as state (two-way). */
   private readonly listOffset = ref(0);
   /** Which branch the `Branch()` demo shows ('a' | 'b' | 'missing'). */
@@ -205,6 +209,10 @@ export class ComposeScene extends Phaser.Scene {
       graphics.fillStyle(0x3fb950, 1);
       graphics.fillRect(0, 0, 44, 44);
     });
+    // A two-frame atlas for the reactive `frame` slot: one texture, two flat frames, so a check can
+    // tell "the frame changed" from "the texture changed" (round 100 closes the gap left by round 98,
+    // where only the `texture` half of the pair was exercised).
+    makeAtlasTexture(this, ATLAS_TEXTURE, { red: 0xf85149, green: 0x3fb950 });
     // A control-sized icon: the 64px tile overflows a 36px button, which looks like a layout bug.
     makeTexture(this, ICON_TEXTURE, 16, 16, (graphics) => {
       graphics.fillStyle(0x2f6feb, 1);
@@ -285,6 +293,7 @@ export class ComposeScene extends Phaser.Scene {
       this.publish('state.rangeMax', slots.rangeMax);
       this.publish('state.rangeBMax', slots.rangeBMax);
       this.publish('state.rangeBValue', slots.rangeBValue);
+      this.publish('state.frameAlt', slots.frameAlt);
     }
     this.publish('rows', this.rows.value.length);
     if (this.listWidget) {
@@ -1314,28 +1323,67 @@ export class ComposeScene extends Phaser.Scene {
             }),
           );
 
-          // Which picture is on screen is state too. The two textures are solid literals, so the pixel
-          // gate can assert the swap in both themes without confusing it with a theme token.
-          const stateTex = Image({
-            texture: () => (this.altTexture.value ? TEXTURE_B : TEXTURE_A),
-            width: 44,
-            height: 44,
-            alignSelf: 'start',
-            name: 'state.tex',
+          // Which picture is on screen is state too, in **both** halves of the pair: `texture` swaps the
+          // whole image, `frame` moves between two rects of the *same* atlas. Everything lives in one
+          // wrapping row: this card is the tallest on the page, and a widget pushed past the stage band
+          // is clipped away *and* unclickable — the first two versions of this demo put the images in
+          // the column (measured: the frame image landed at y=658 with the buttons at y=714, past the
+          // 616px section; its pixel read `#000000` and the swap buttons did nothing).
+          Row({ gap: 10, alignItems: 'center', wrap: true }, () => {
+            const stateTex = Image({
+              texture: () => (this.altTexture.value ? TEXTURE_B : TEXTURE_A),
+              width: 44,
+              height: 44,
+              name: 'state.tex',
+            });
+            const frameStatic = Image({
+              texture: ATLAS_TEXTURE,
+              frame: 'red',
+              width: 44,
+              height: 44,
+              name: 'state.frame',
+            });
+            const frameSlot = Image({
+              texture: ATLAS_TEXTURE,
+              frame: () => (this.altFrame.value ? 'green' : 'red'),
+              width: 44,
+              height: 44,
+              name: 'state.frameAlt',
+            });
+            for (const [key, widget] of [
+              ['state.tex', stateTex],
+              ['state.frame', frameStatic],
+              ['state.frameAlt', frameSlot],
+            ] as const) {
+              this.track(key, widget);
+              this.reportStateProbes.set(key, widget);
+            }
+            this.track(
+              'state.swap',
+              Button('换贴图', {
+                variant: 'secondary',
+                size: 'sm',
+                name: 'state.swap',
+                onClick: () => {
+                  this.altTexture.value = !this.altTexture.value;
+                },
+              }),
+            );
+            this.track(
+              'state.frameSwap',
+              Button(() => `换帧 ${this.altFrame.value ? 'green' : 'red'}`, {
+                variant: 'secondary',
+                size: 'sm',
+                name: 'state.frameSwap',
+                onClick: () => {
+                  this.altFrame.value = !this.altFrame.value;
+                },
+              }),
+            );
           });
-          this.track('state.tex', stateTex);
-          this.reportStateProbes.set('state.tex', stateTex);
-          this.track(
-            'state.swap',
-            Button('换贴图', {
-              variant: 'secondary',
-              size: 'sm',
-              name: 'state.swap',
-              onClick: () => {
-                this.altTexture.value = !this.altTexture.value;
-              },
-            }),
-          );
+          Row({ gap: 8, alignItems: 'center' }, () => {
+            Text(() => `frameAlt=${this.altFrame.value ? 'green' : 'red'}`, { tone: 'muted' });
+          });
           this.track(
             'state.frozenPanel',
             Panel({ variant: 'surfaceAlt', radius: 8, padding: 10, width: 'fill' }, () => {
@@ -1549,6 +1597,7 @@ export class ComposeScene extends Phaser.Scene {
     rangeMax: number;
     rangeBMax: number;
     rangeBValue: number;
+    frameAlt: string;
   } {
     const paragraph = this.tracked.get('state.text') as
       (Widget & { getDisplayText?: () => string; truncated?: boolean }) | undefined;
@@ -1561,6 +1610,8 @@ export class ComposeScene extends Phaser.Scene {
     // healthy if this read the ref back.
     const rangeB = this.tracked.get('state.rangeB') as
       (Widget & { min?: number; max?: number; getValue?: () => number }) | undefined;
+    const frameSlot = this.tracked.get('state.frameAlt') as
+      (Widget & { currentFrame?: string }) | undefined;
     return {
       expanded: this.expanded.value,
       /** Lines actually painted: the observable half of `maxLines` + `ellipsis`. */
@@ -1573,6 +1624,7 @@ export class ComposeScene extends Phaser.Scene {
       rangeMax: this.rangeMax.value,
       rangeBMax: rangeB?.max ?? -1,
       rangeBValue: rangeB?.getValue?.() ?? -1,
+      frameAlt: frameSlot?.currentFrame ?? 'none',
     };
   }
 
@@ -1635,6 +1687,7 @@ export class ComposeScene extends Phaser.Scene {
         altTexture?: boolean;
         rangeMax?: number;
         volume?: number;
+        altFrame?: boolean;
       }): Record<string, unknown> => {
         if (patch.locked !== undefined) {
           this.locked.value = patch.locked;
@@ -1644,6 +1697,9 @@ export class ComposeScene extends Phaser.Scene {
         }
         if (patch.rangeMax !== undefined) {
           this.rangeMax.value = patch.rangeMax;
+        }
+        if (patch.altFrame !== undefined) {
+          this.altFrame.value = patch.altFrame;
         }
         if (patch.frozen !== undefined) {
           this.frozen.value = patch.frozen;

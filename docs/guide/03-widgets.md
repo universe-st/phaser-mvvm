@@ -251,24 +251,25 @@ Button('', { icon: 'demo-tile', size: 'sm' });
 
 ### 方法
 
-| 方法                                                 | 说明                                               |
-| ---------------------------------------------------- | -------------------------------------------------- |
-| `getValue()` / `setValue(v)`                         | 开关值；`setValue` **不** emit `change`            |
-| `getText()` / `setText(t)`                           | 文案                                               |
-| `setVariant(v)` / `setLoading(v)` / `setDisabled(v)` | 改状态                                             |
-| `setIcon(icon)` / `clearIcon()` / `get icon`         | 换/清/读图标                                       |
-| `activate(source?)`                                  | `loading` 时**直接返回 `false`**（不吞掉这次交互） |
+| 方法                                                 | 说明                                                         |
+| ---------------------------------------------------- | ------------------------------------------------------------ |
+| `getValue()` / `setValue(v)`                         | 开关值；值真的变了就 emit `change`（模型因此不会落后，见下） |
+| `getText()` / `setText(t)`                           | 文案                                                         |
+| `setVariant(v)` / `setLoading(v)` / `setDisabled(v)` | 改状态                                                       |
+| `setIcon(icon)` / `clearIcon()` / `get icon`         | 换/清/读图标                                                 |
+| `activate(source?)`                                  | `loading` 时**直接返回 `false`**（不吞掉这次交互）           |
 
 ### 事件
 
-| 事件              | 触发         | 载荷             |
-| ----------------- | ------------ | ---------------- |
-| `change`          | 开关被激活   | `value: boolean` |
-| `widget:activate` | 任意成功激活 | `source`         |
+| 事件              | 触发                                         | 载荷             |
+| ----------------- | -------------------------------------------- | ---------------- |
+| `change`          | 开关值变化（用户激活**或** `setValue` 写入） | `value: boolean` |
+| `widget:activate` | 任意成功激活                                 | `source`         |
 
 ### 坑
 
 - **`toggle: true` 时 `onClick` 不会被调用**：用 `value: ref`（写回数据源）或监听 `change`。
+- **`setValue()` 与用户点击走同一条上报路径**：开关的 `value` 是数据槽，而双向绑定（`bindBooleanModel`）靠 `change` 写回 `ref` —— 程序化写值若静默，`ref` 会永远停在旧值上（向下绑定只在**源**变化时才跑，谁也不会有机会纠正它）。实测：`#/a11y` 的开关 `setValue(false)` 后，控件已关、页面仍发布 `notify=true`。用户专属的回调仍是 `onClick`。
 - **开关的 `value` 与文本可以各自响应式**：`Button(() => \`开：${on.value}\`, { toggle: true, value: on })`里，文案与开关状态读的是同一个`ref`，不会各说各话。
 - **图标对象的原点**：传字符串最省事；传自定义对象时请确保它是左上原点（`Image`/`Sprite` 记得 `setOrigin(0,0)`），否则居中算法会偏。
 - **`loading` 的按钮仍然可聚焦、可被点击**，只是 `activate()` 返回 `false`。如果你的业务需要它在加载期间也不接收焦点，请自己 `setEnabled(false)`。
@@ -360,6 +361,8 @@ Image({ texture: () => avatars.value[selected.value] ?? 'avatar.empty', width: 4
 | `'none'`    | 不缩放，按原始像素居中原样绘制                                         |
 
 方法：`setTexture(texture, frame?)`、`setFit(fit)`、`get naturalSize`（当前帧的原始尺寸）、`get imageFit`、`get currentTexture` / `get currentFrame`（当前贴图与帧名，`texture` 与 `frame` 两个槽位靠它们互不覆盖）、`image`（底层 `Phaser.GameObjects.Image`，用于 tint 等）。
+
+> **帧名不存在时会发生什么**：Phaser 的 `Texture#get` 会打印一条警告并按该贴图的**第一帧**绘制，`currentFrame` 报告的是**实际画出来的帧**而不是你请求的那个名字（否则这个读数会撒谎）。实测：`setTexture('atlas', 'nope')` → 控制台一条 `has no frame "nope"`，画面仍是 `red`，`currentFrame === 'red'`。
 
 要点：
 

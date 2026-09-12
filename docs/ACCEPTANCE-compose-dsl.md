@@ -181,6 +181,21 @@ this.mvvm.mount(page);
 
 矩阵与修前/修后数字见 [`ACCEPTANCE-slider.md`](./ACCEPTANCE-slider.md) §9；像素门禁是 `state.rangeA`/`state.rangeB` 两个采样点（见该节 §9.3）。
 
+### 3.2.3 第 100 轮追加：`Image.frame` 槽位（同一图集、不同帧）
+
+第 98 轮给 `texture` 做了像门禁，但 `frame` 只有代码层面的对称实现——示例里没有多帧图集。本轮补上：`makeAtlasTexture()` 造一张 88×44、含 `red`/`green` 两帧的纯色图集，State slots 分区里并排两只 **同一贴图、不同帧** 的图：
+
+| #   | 断言                   | 实测（真鼠标点「换帧」）                                                                                                                          |
+| --- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S17 | 帧槽真的到达控件       | `state.frameAlt` 的 `currentFrame` `red → green → red`；像素 `#f85149 → #3fb950`                                                                  |
+| S18 | 静态帧不动（A/B 对照） | 同一行里的 `state.frame`（`frame: 'red'` 字面量）全程 `#f85149`                                                                                   |
+| S19 | 两个槽互不覆盖         | 点「换贴图」→ `texture` `compose.slot.a → compose.slot.b`（像素 `#2f6feb → #3fb950`），而两只图的 `currentFrame` 一个都没动                       |
+| S20 | 缺帧名不撒谎           | `setTexture('compose.atlas', 'nope')` → 控制台一条 `has no frame "nope"`、画面仍是 `red`、`currentFrame === 'red'`（修前会报告 `'nope'`，见 V71） |
+
+像素门禁新增两条（明暗各一套，`SCENE_SETUP` 里加 `altFrame: true`）：`state.frame` 两半都是 `#f85149`、`state.frameAlt` 两半都是 `#3fb950` —— **帧是字面量**，所以"亮色里也变了"反而是错的。
+
+> **位置也是这一轮的一课**：第一版把三张图 + 两个按钮竖着排在卡片里，结果整张卡超出舞台可见带（图落在 y=658、按钮 y=714，而分区只有 616px 高）——被裁掉的控件既采不到像素、**也点不动**（真实点击毫无反应，看起来像"槽位没生效"）。改成一行（`Row` 里放三张图与两个按钮）后 y=546，全部回到带内。这一条同时说明：验收仪器必须先确认控件在带内，否则量到的是"看不见"而不是"没实现"。
+
 ### 3.3 第 85 轮追加：`Scroll` 的 `offset` 槽位（滚动位置即状态）
 
 `#/compose` 的 `list` 分区把 `Scroll` 的滚动位置绑到一个 `ref` 上（`window.compose.listOffset()` / `setListOffset(v)` 读写它），并逐帧发布两个读数：`list.offset`（控件自己的 `offset`）与 `list.offsetState`（那个 `ref`）。**两者必须一致**，这就是"状态跟着视图走"的证据；另加一个「回到顶部」按钮，它只写 `ref`。

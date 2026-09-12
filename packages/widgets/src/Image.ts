@@ -93,14 +93,27 @@ export class Image extends Widget {
     return this;
   }
 
-  /** Swaps the texture (and optionally the frame), then re-measures. */
+  /**
+   * Swaps the texture (and optionally the frame), then re-measures.
+   *
+   * The frame that gets recorded is the one **Phaser resolved**, not the one that was asked for:
+   * `Texture#get` warns and falls back to the texture's first frame when the name is unknown, so
+   * echoing the request would make `currentFrame` claim a frame that is not on screen (measured:
+   * `setTexture('compose.atlas', 'nope')` kept painting `red` while `currentFrame` said `'nope'`).
+   * The warning still names the miss, which is the part a caller needs to act on.
+   */
   setTexture(texture: string, frame?: string): this {
     if (texture === this.textureKey && frame === this.frameName) {
       return this;
     }
     this.image.setTexture(texture, frame);
     this.textureKey = texture;
-    this.frameName = frame;
+    // No requested frame keeps `undefined` (the caller never named one); a requested frame is recorded
+    // as resolved, so a missing name reads as the frame that is actually painted.
+    this.frameName =
+      frame === undefined
+        ? undefined
+        : ((this.image.frame as { name?: string } | null)?.name ?? frame);
     this.captureNaturalSize();
     this.markDirty();
     return this;
