@@ -70,6 +70,7 @@ export {
   textField,
   uiImage,
   uiRepeat,
+  uiScroll,
   widgetFactoriesInstalled,
   WIDGET_FACTORY_KEYS,
 } from './factories';

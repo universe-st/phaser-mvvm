@@ -209,7 +209,6 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 5.3 已知的小缺口
 
-- **`uiScroll` 没有从包入口再导出**：`factories.ts` 里有这个具名函数，但 `packages/widgets/src/index.ts` 只导出了 `scrollView`。要具名调用请用 `scrollView(scene, opts, children?)`，要工厂调用用 `this.add.uiScroll(...)`（已注册，类型也有声明）。
 - **文本框的聚焦/失焦没有事件**：只有 `onFocus`/`onBlur` 构造选项（04 §4）。
 - **`WIDGET_EVENTS` 常量没有从包入口导出**：它定义在 `packages/phaser/src/Widget.ts`，但 `packages/phaser/src/index.ts` 只转出了 `Widget`/`WidgetOptions`。所以监听时请直接写事件名字面量 `'widget:activate'` / `'widget:state'`（`BUTTON_EVENTS`、`TEXT_INPUT_EVENTS`、`MODEL_CHANGE_EVENT` 都是公开的，可以正常 import）。
 - **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，需要运行期自行设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
