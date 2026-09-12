@@ -7,7 +7,7 @@
  * therefore unit-testable in Node.
  */
 
-import { snapToCodePoint } from './text-edit';
+import { codePointLengthAt, snapToCodePoint } from './text-edit';
 
 /** The single character appended to a clipped line (`…`, U+2026). */
 export const ELLIPSIS = '\u2026';
@@ -114,6 +114,55 @@ export function truncateLines(
         ? ellipsizeLine(last, measureWidth, maxWidth, ellipsis)
         : `${last}${ellipsis}`;
   return { lines: kept, truncated: true };
+}
+
+/**
+ * Breaks any line that is wider than `maxWidth` at code-point boundaries.
+ *
+ * Phaser wraps at **spaces**, which is correct for Latin text and useless for Chinese and Japanese:
+ * a sentence with no spaces comes back as one long line and simply overflows its box (measured: a
+ * 36-character Chinese sentence stayed a single 19.5px line inside a 140px box, hair over 4x too wide).
+ * This is the last-resort pass browsers call `overflow-wrap: anywhere`: a line that still does not fit
+ * is split so every line does, and a single glyph wider than the box is left alone on its own line
+ * (splitting it further is impossible, and dropping it would hide content).
+ *
+ * Code points, not code units, so an emoji or a surrogate pair is never cut in half.
+ */
+export function rewrapOverflowingLines(
+  lines: readonly string[],
+  maxWidth: number,
+  measureWidth: MeasureWidth,
+): string[] {
+  if (!isFiniteWidth(maxWidth)) {
+    return lines.slice();
+  }
+  const out: string[] = [];
+  let changed = false;
+
+  for (const line of lines) {
+    if (line.length === 0 || measureWidth(line) <= maxWidth) {
+      out.push(line);
+      continue;
+    }
+    changed = true;
+    let current = '';
+    for (let index = 0; index < line.length;) {
+      // Step *forward* by a whole code point: `snapToCodePoint` snaps backwards onto the high
+      // surrogate, so using it here would leave the index where it is and spin forever.
+      const next = index + codePointLengthAt(line, index);
+      const candidate = current + line.slice(index, next);
+      if (current.length > 0 && measureWidth(candidate) > maxWidth) {
+        out.push(current);
+        current = line.slice(index, next);
+      } else {
+        current = candidate;
+      }
+      index = next;
+    }
+    out.push(current);
+  }
+
+  return changed ? out : lines.slice();
 }
 
 /**

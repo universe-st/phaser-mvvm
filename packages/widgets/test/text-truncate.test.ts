@@ -9,6 +9,7 @@ import {
   applyLineLimit,
   ELLIPSIS,
   ellipsizeLine,
+  rewrapOverflowingLines,
   truncateLines,
   type MeasureWidth,
 } from '../src/text-truncate';
@@ -176,5 +177,50 @@ describe('ellipsizeLine · code points', () => {
 
   it('keeps the whole string when it already fits', () => {
     expect(ellipsizeLine('ab😀', (value) => value.length, 10)).toBe('ab😀');
+  });
+});
+
+describe('rewrapOverflowingLines · the CJK case Phaser cannot break', () => {
+  /** A monospace-ish measurer: every code point is 10px wide. */
+  const measure = (text: string): number => [...text].length * 10;
+
+  it('splits a line that has no spaces to break at', () => {
+    // Measured in the browser: a 36-character Chinese sentence stayed one 19.5px line in a 140px box.
+    const lines = rewrapOverflowingLines(['这一段中文没有任何空格用来断行'], 140, measure);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.every((line) => measure(line) <= 140)).toBe(true);
+    expect(lines.join('')).toBe('这一段中文没有任何空格用来断行');
+  });
+
+  it('leaves lines that already fit alone (and returns the same array contents)', () => {
+    expect(rewrapOverflowingLines(['short', 'ok'], 140, measure)).toEqual(['short', 'ok']);
+  });
+
+  it('breaks a long unbreakable Latin token too, as a last resort', () => {
+    const token = 'a'.repeat(22);
+    const lines = rewrapOverflowingLines([token], 50, measure);
+    expect(lines).toEqual(['aaaaa', 'aaaaa', 'aaaaa', 'aaaaa', 'aa']);
+    expect(lines.join('')).toBe(token);
+    expect(lines.every((line) => measure(line) <= 50)).toBe(true);
+  });
+
+  it('keeps a surrogate pair whole', () => {
+    const lines = rewrapOverflowingLines(['\u{1F600}\u{1F600}\u{1F600}'], 20, measure);
+    expect(lines).toEqual(['\u{1F600}\u{1F600}', '\u{1F600}']);
+    expect(lines.join('')).toBe('\u{1F600}\u{1F600}\u{1F600}');
+  });
+
+  it('puts a glyph wider than the box on its own line instead of looping forever', () => {
+    const lines = rewrapOverflowingLines(['\u{1F600}\u{1F600}'], 5, measure);
+    expect(lines).toEqual(['\u{1F600}', '\u{1F600}']);
+  });
+
+  it('does nothing when the width is not finite', () => {
+    const input = ['anything at all'];
+    expect(rewrapOverflowingLines(input, Number.POSITIVE_INFINITY, measure)).toEqual(input);
+  });
+
+  it('keeps empty lines', () => {
+    expect(rewrapOverflowingLines(['', 'x'], 100, measure)).toEqual(['', 'x']);
   });
 });

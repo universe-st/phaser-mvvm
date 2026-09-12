@@ -18,7 +18,7 @@ import { contentBox } from './geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import { fontSizeOf, glyphPadding } from './text-padding';
 import { textMetricsOf, type SceneTextMetrics } from './text-metrics';
-import { applyLineLimit } from './text-truncate';
+import { applyLineLimit, rewrapOverflowingLines } from './text-truncate';
 
 export type LabelAlign = 'left' | 'center' | 'right';
 
@@ -237,10 +237,17 @@ export class Label extends Widget {
           this.textObject.getWrappedText(this.rawText),
         )
       : this.textObject.getWrappedText(this.rawText);
-    const result = applyLineLimit(lines, {
+    const wrapWidth = this.wrapWidth ?? Number.POSITIVE_INFINITY;
+    // Phaser breaks at spaces only, so a line that still overflows is split here (CJK has no spaces at
+    // all); this runs before the line limit so `maxLines`/`ellipsis` see the real lines.
+    const wrapped =
+      this.wrap && Number.isFinite(wrapWidth)
+        ? rewrapOverflowingLines(lines, wrapWidth, (value) => this.measureTextWidth(value))
+        : lines;
+    const result = applyLineLimit(wrapped, {
       maxLines: this.maxLines,
       ellipsis: this.ellipsis,
-      maxWidth: this.wrapWidth ?? Number.POSITIVE_INFINITY,
+      maxWidth: wrapWidth,
       measureWidth: (value) => this.measureTextWidth(value),
     });
     const joined = result.lines.join('\n');

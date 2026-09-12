@@ -199,6 +199,7 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 | 想支持双指缩放？                                 | `ScrollView` 的 `zoom: true` / `zoom: { min, max }`（见 [05 §8.5](./05-lists-and-scroll.md)）；虚拟化列表不支持，会 `warn` 并忽略                                                  |
 | 多指会不会互相干扰？                             | 不会：`InputRouter` 的按压按**指针**记账，`ScrollView`/`Slider` 的拖动只认抓住它的那根手指。多指要在游戏配置里开 `input: { activePointers: 2 }`（默认 1 时第二根手指没有指针可用） |
 | 需要双指手势（缩放、旋转）？                     | 目前**未实现**：框架没有 pinch/rotate 语义，也没有「双指滚动」；多指输入本身是通的，手势要自行在 Phaser 层实现（实测见 `docs/ACCEPTANCE-touch.md` §3.5）                           |
+| 中文长句不换行、横着溢出容器？                   | 早期版本会（Phaser 只在空格断行）；现在框架补了逐码点兜底断行，若你自定义控件直接用了 `Phaser.GameObjects.Text`，请自行调用 `rewrapOverflowingLines()`（见 03 章 `Text` 的坑）     |
 | 字母下伸部（`g`/`y` 的尾巴）被切掉一小条？       | Phaser 文本画布高度取自字体度量并会被截断（见 03 章 `Text` 的坑）；框架已用 `glyphPadding()` 补上，自定义控件直接 `new Phaser.GameObjects.Text()` 时需要自己 `setPadding()`        |
 | 真机上列表滚动会和页面滚动打架？                 | `ScrollView` 会 `preventDefault`（backlog V3 记录了"最内层不可滚动时也拦截"的取舍）；真机验收前先确认这一条是否符合预期                                                            |
 | 软键盘弹出后布局错位？                           | `Scale.RESIZE` 下视口变化会触发重新布局，但**尚未在移动端模拟器里验收过**（见 `docs/ACCEPTANCE-touch.md` §5）                                                                      |

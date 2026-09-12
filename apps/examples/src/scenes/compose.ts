@@ -127,8 +127,14 @@ export class ComposeScene extends Phaser.Scene {
   /** Section whose geometry still has to be reported, once the next frame has arranged it. */
   private pendingReport: SectionId | null = null;
 
-  /** Label reported as `text.danger=@x,y wxh` once the Text section is arranged (ink-vs-box check). */
-  private reportTextProbe: Widget | null = null;
+  /**
+   * Labels reported as `<key>=@x,y wxh` once the Text section is arranged.
+   *
+   * The boxes are what an ink-vs-box check needs: text is drawn by Phaser into its own canvas, so the
+   * only way to see a clipped or overflowing glyph is to compare the rendered ink with the box the
+   * layout assigned (rounds 53 and 56 use this).
+   */
+  private readonly reportTextProbes = new Map<string, Widget>();
 
   constructor() {
     super('compose');
@@ -212,8 +218,10 @@ export class ComposeScene extends Phaser.Scene {
       this.pendingReport = null;
       this.publish('widgets', countWidgets(this.sectionHost));
       this.reportSection(pending);
-      if (pending === 'text' && this.reportTextProbe) {
-        reportWidget('text.danger', this.reportTextProbe);
+      if (pending === 'text') {
+        for (const [key, widget] of this.reportTextProbes) {
+          reportWidget(key, widget);
+        }
       }
     }
   }
@@ -471,12 +479,36 @@ export class ComposeScene extends Phaser.Scene {
         // (see `text-padding.ts`).
         const danger = Text('Danger', { tone: 'danger' });
         this.track('text.danger', danger);
-        this.reportTextProbe = danger;
+        this.reportTextProbes.set('text.danger', danger);
         this.track('text.success', Text('Success', { tone: 'success' }));
         this.track('text.warning', Text('Warning', { tone: 'warning' }));
         Text('居中', { align: 'center', width: 120, tone: 'muted' });
         Text('右对齐', { align: 'right', width: 120, tone: 'muted' });
       });
+      // Wrapping and truncation edge cases, reported so a check can measure the ink against the box:
+      // a long CJK sentence (worth testing because Chinese has no spaces to break at) and a long
+      // unbreakable ASCII token, each inside a narrow 140px box.
+      Row({ gap: 12, alignItems: 'start', wrap: true }, () => {
+        this.textEdge(
+          'textwrap.cjk',
+          '这一段中文没有任何空格用来断行所以它必须逐字换行否则就会横着溢出容器',
+          {
+            width: 140,
+            wrap: true,
+          },
+        );
+        this.textEdge('textwrap.word', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', {
+          width: 140,
+          wrap: true,
+        });
+        this.textEdge('textwrap.ellipsis', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', {
+          width: 140,
+          wrap: true,
+          maxLines: 1,
+          ellipsis: true,
+        });
+      });
+
       // Reactive appearance: `tone`, `variant` and `visible` are data slots too, so they follow the ref
       // instead of being fixed at build time. `visible: false` collapses the node out of the flow
       // (`inFlow === visible`), which is why the divider below moves up when the label disappears.
@@ -518,6 +550,13 @@ export class ComposeScene extends Phaser.Scene {
         Text(() => `counter = ${this.counter.value}`, { tone: 'muted' });
       });
     });
+  }
+
+  /** One text edge-case probe: tracked, and reported in `#status` for the ink-vs-box check. */
+  private textEdge(key: string, value: string, options: Parameters<typeof Text>[1]): void {
+    const label = Text(value, { tone: 'muted', ...options });
+    this.track(key, label);
+    this.reportTextProbes.set(key, label);
   }
 
   private buildButtons(): void {

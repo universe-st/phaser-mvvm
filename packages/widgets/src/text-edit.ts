@@ -93,7 +93,14 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
-function codePointLengthAt(value: string, index: number): number {
+/**
+ * Length of the code point starting at `index` (1, or 2 for a surrogate pair).
+ *
+ * Exported because "walk a string one character at a time" needs it as often as the caret helpers do -
+ * the last-resort line wrapper in `text-truncate.ts` uses it to step forward, where the caret's
+ * `snapToCodePoint` (which snaps *backwards*) would not advance at all.
+ */
+export function codePointLengthAt(value: string, index: number): number {
   const code = value.charCodeAt(index);
   return isHighSurrogate(code) && isLowSurrogate(value.charCodeAt(index + 1)) ? 2 : 1;
 }
