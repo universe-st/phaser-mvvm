@@ -75,6 +75,10 @@
 | V6  | `converter.ts:103-139`     | **已修复**：四个入口统一使用 trim 后的名字（此前 `registerConverter(' money ')` 注册的转换器查不到、也用不了）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | V7  | `template.ts`              | `}}` 出现在引号内的转换器参数里会截断占位符（报 `TemplateSyntaxError`，是「响亮的错误」而非静默错误）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
+## 3.5 文档待办（不是缺陷，但影响「照着读能写出好代码」）
+
+- ⬜ **指南 02–07 的代码片段仍是工厂写法**：约 140 处 `this.add.uiXxx(...)` / `this.add.vbox(...)`。第 12 轮已在这六章开头加了统一的「写法提示」横幅（说明推荐 DSL、给出等价的读法、并提示用 DSL 无需 `install*Factories()`），但**逐个片段改写**尚未做。这是纯文档工作，可按章分批（建议从最常被复制的 03 控件参考章与 04/05 的完整示例开始），每改一章与 `#/compose`/`#/showcase` 对照一次即可，无需运行验收。
+
 ## 4. 覆盖率缺口（不是缺陷，但值得补门禁）
 
 - ✅ **已补（第 3 轮）**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）通过 `window.lifecycle.churn(n)` 做「场景重启 n 次 + 8 项计数采样」，Playwright MCP 上 101 轮全绿（[`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md)）。覆盖了 `themeListenerCount()` 回基线、`InputRouter`/`FocusManager` 集合不残留、`ScrollView`+`Repeat` 虚拟化在重启后存活，以及重启后仍可点击/输入。
