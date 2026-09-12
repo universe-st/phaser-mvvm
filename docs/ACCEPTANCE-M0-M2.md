@@ -248,3 +248,26 @@ OK       backdrop / card / badge / footer
 3. **嵌套 ScrollView 无"最内层优先"滚轮仲裁**：两个嵌套视图会同时消费 wheel 事件（demo 中三个视图互不嵌套，未触发）。
 4. **`Widget.setLayoutParams(patch)` 是整包归一化而非部分补丁**（框架缺陷，`packages/phaser/src/Widget.ts`）：`setLayoutParams({ height })` 会把未提及的 `width/position/...` 重置为默认值 —— ScrollView 就因此把 holder 的 `position:'absolute'` 冲掉、内容整体不位移。建议改成"只覆盖传入的键"（并注意 `width/height` 需要同时更新其 `widthMin/widthMax` 等派生字段），补一组回归测试。
 5. **M6 `#/list` demo 的滚轮只换挂载窗口、不位移容器**（视觉上"行不上移"）：应改用 M7 的 `ScrollView`（容器位移交给视图），并把 `pt.rowdelete` 从"首个挂载键"改为"首个可见行"。
+
+## M7 追加验证（一轮浏览器会话，`199b9f4` 之后）
+
+**9 个 demo 全场景回归扫**（逐场景断言：能启动、`#status` 有布局行、无 `pageError`/`consoleError`、无 `ERROR:`/`REJECTION:`、该发布的状态键齐全）：
+
+```
+PASS m0 (rects=6)  PASS probe (11)  PASS stack (6)  PASS gallery (6)  PASS dashboard (6)
+PASS bindings (2)  PASS form (5)    PASS list (6)   PASS scroll (5)    ⇒ ALL 9 SCENES OK  (renderer=webgl)
+```
+
+⇒ M7 新增的导出与 `uiScroll` 注册对既有场景零影响。
+
+**Canvas 降级的已知限制实测**（用 `--disable-3d-apis --disable-gpu` 逼 `Phaser.AUTO` 落到 Canvas，5/5 PASS）：
+
+| 断言       | 实测                                                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 渲染器     | `renderer=canvas`、`size=1280x800 dpr=1`                                                                                                          |
+| 一次性警告 | 每个 ScrollView 各 warn 一次，共 3 条：`[phaser-mvvm] ScrollView needs the WebGL renderer to clip its content (Phaser 4 filters are WebGL-only).` |
+| 仍可滚动   | 滚轮 `v.offset 0 → 400`，按钮再 → 520（`maxOffset=8000` 不变）                                                                                    |
+| 不裁剪     | 视口下方 3px 带 24 点出现 **2 种颜色**（面板 `#161b22` + 行内 Delete `#f85149`）⇒ 内容确实画到视口外，与"Canvas 降级只滚不裁"的声明一致           |
+| 无错误     | `pageErrors=[]`、`#status` 无 ERROR/REJECTION                                                                                                     |
+
+两条限制（裁剪为 WebGL-only、Canvas 下不裁剪）至此都有可复现的实测依据，不再是推断。
