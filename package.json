@@ -1,0 +1,30 @@
+{
+  "name": "phaser-mvvm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "MVVM UI framework for Phaser 4 (reactive data, declarative views, automatic layout, widgets)",
+  "license": "MIT",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm -r run test",
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @phaser-mvvm/examples run dev",
+    "build:examples": "pnpm --filter @phaser-mvvm/examples run build",
+    "preview": "pnpm --filter @phaser-mvvm/examples run preview",
+    "visual-check": "node scripts/visual-check.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "prettier": "^3.9.6",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+coverage/
+docs/PLAN.md
+pnpm-lock.yaml
+.tmp/

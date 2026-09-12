@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# 同一分支的新运行会取消仍在进行的旧运行。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # 统一 Node 版本（PLAN §10.3：Node 24 / pnpm 10）。
+  NODE_VERSION: '24'
+
+jobs:
+  verify:
+    name: typecheck · test · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # docs/PLAN.md 已在 .prettierignore 中（冻结的评审文档），不会被检查。
+      - name: Check formatting
+        run: pnpm exec prettier --check .
+
+      - name: Typecheck (all packages)
+        run: pnpm -r run typecheck
+
+      # 说明：packages/widgets 的 test 脚本带 --passWithNoTests，
+      # 它在 M4 之前没有测试是预期情况，不应视为失败。
+      - name: Test (all packages)
+        run: pnpm -r run test
+
+      - name: Build (all packages)
+        run: pnpm -r run build
+
+      - name: Build examples
+        run: pnpm run build:examples

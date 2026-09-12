@@ -1,0 +1,238 @@
+# phaser-mvvm
+
+基于 **Phaser 4**（`phaser@4.2.1 "Giedi"`）的 **MVVM UI 框架**：在 Phaser 4 渲染管线上提供「响应式数据 + 声明式视图 + 自动布局 + 基础控件」的完整方案 —— 不 fork Phaser，只用公开 API 与插件/工厂注册，游戏逻辑照常使用原生 Phaser。
+
+> **当前状态：M0–M2 进行中，API 未冻结。**
+> 本仓库处于早期开发阶段：workspace 骨架、TypeScript 严格模式、Vite 示例壳、vitest 与 CI 已就位；响应式内核（M1）与布局引擎（M2）正在实现中。**下面出现的所有 API 都是目标形态（PLAN §5 草案），可能随时调整，不要在生产代码中依赖。** 未实现的部分在文中均标注了对应里程碑编号。
+
+---
+
+## 1. 目标与非目标（摘要）
+
+完整清单见 [`docs/PLAN.md` §1](./docs/PLAN.md)。
+
+**目标（Phase 1）**
+
+| #   | 目标                                                                                                      | 里程碑       |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------ |
+| G1  | 响应式数据层：`ref/reactive/computed/watch`，变更后同帧批量刷新、无重复布局                               | M1           |
+| G2  | 自动布局：纵向/横向/网格/层叠/绝对定位；固定、百分比、内容自适应、填充、伸缩、间距、内边距、对齐          | M2           |
+| G3  | MVVM 绑定：单向、双向（表单）、命令、列表 `repeat`（键控复用 + 可选虚拟化）、格式化器/校验器              | M6           |
+| G4  | 基础控件：`Panel`、`Label`、`TextField`、`TextArea`、`Button`、`Image`、`Spacer`、`Divider`、`ScrollView` | M4 / M5 / M7 |
+| G5  | 与 Phaser 4 正交：不 fork、只用公开 API；游戏逻辑照常用原生 Phaser                                        | M3           |
+| G6  | 可测试：响应式与布局引擎零渲染依赖，可在 Node 中单测（含布局黄金快照）                                    | M1 / M2      |
+
+**非目标（明确排除，避免范围失控，见 PLAN §1.2）**
+
+- 不做 HTML/CSS 引擎或浏览器兼容层（无 CSS 选择器、层叠、伪类）。
+- 不做可视化 UI 编辑器 / 设计稿导入。
+- 不做 3D、物理、粒子相关控件。
+- **不兼容 Phaser 3 API**（只吸收 rexUI 的设计经验）。
+- 不做 WCAG 全量合规认证：a11y 限定为「键盘全可达 + 手柄导航 + 隐藏 DOM 镜像（供屏幕阅读器与 `aria-live` 播报）」，**M9**。
+- Phase 1 不做 URL 路由（只做轻量 `Router`：路由名 → Page，**M8**）；模板层 `@phaser-mvvm/template` 延后到 **Phase 2**。
+
+---
+
+## 2. 架构
+
+### 2.1 分层
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ apps/examples (Vite)                                         │  示例与验收场
+├──────────────────────────────────────────────────────────────┤
+│ @phaser-mvvm/template   JSON/模板 → builder 编译（Phase 2）   │  可选层（延后）
+├──────────────────────────────────────────────────────────────┤
+│ @phaser-mvvm/widgets    Panel/Label/TextField/TextArea/      │  控件库
+│                         Button/Image/Spacer/Divider/         │
+│                         ScrollView/Repeat/Modal              │
+├──────────────────────────────────────────────────────────────┤
+│ @phaser-mvvm/phaser     Widget 基类(Container 适配)、UIRoot、 │  Phaser 适配层
+│                         测量器、输入/焦点/导航路由、          │  ← 唯一允许 import
+│                         ScenePlugin、工厂注册、主题、页面体系  │     Phaser 的包
+├──────────────────────────────────────────────────────────────┤
+│ @phaser-mvvm/layout     纯布局引擎：约束、测量、排布、        │  零 Phaser 依赖
+│                         脏标记、缓存、像素对齐                │  → 可在 Node 单测
+├──────────────────────────────────────────────────────────────┤
+│ @phaser-mvvm/core       响应式(reactive/ref/computed/watch/  │  零 Phaser 依赖
+│                         effect/scope)、集合、绑定上下文、     │
+│                         表达式编译、调度器                    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+依赖方向严格单向（禁止反向与环）：`apps → widgets → phaser → { core, layout }`；`core` 与 `layout` 互不依赖，是两个独立的零渲染基座。详见 [`docs/adr/0001-package-layout.md`](./docs/adr/0001-package-layout.md)。
+
+### 2.2 包职责
+
+| 包                      | 职责                                                                                                                                                                                            | 状态                                                                   |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `@phaser-mvvm/core`     | 响应式、调度器（`sync/pre/frame`）、集合、绑定上下文、路径表达式编译（不使用 `eval`/`new Function`）                                                                                            | 包骨架已建（M0）；实现中（**M1**，**M6** 补绑定）                      |
+| `@phaser-mvvm/layout`   | 约束、`LayoutParams`、测量、排布（box/grid/stack/absolute/fit）、脏传播与 relayout boundary、测量缓存、像素对齐、对象池                                                                         | 实现中（**M2**）                                                       |
+| `@phaser-mvvm/phaser`   | `Widget` 基类、`UIRoot`、`PhaserTextMeasurer`(+LRU)、`InputRouter`、`FocusManager`、`NavSource`、`A11yBridge`、`MVVMPlugin`、工厂注册、主题、`UIScene`/`Page`/`PageStack`/`ModalStack`/`Router` | 包骨架已建（M0）；**M3** 适配层，**M8** 场景与页面，**M9** 导航与 a11y |
+| `@phaser-mvvm/widgets`  | 控件库：`Panel`/`Label`/`Button`/`Image`/`Spacer`/`Divider`（**M4**）、`TextField`/`TextArea`（**M5**）、`Repeat`（**M6**）、`ScrollView`（**M7**）、`Modal`（**M8**）                          | 包骨架已建（M0）；实现自 **M4** 起                                     |
+| `@phaser-mvvm/template` | JSON/模板 → builder 编译                                                                                                                                                                        | **未创建，Phase 2**                                                    |
+
+### 2.3 当前进度（M0–M2 并行开发中，内容变化很快）
+
+下表是撰写本文时的粗略进度，**只描述里程碑级别的事实**；要看此刻的真实内容请直接 `ls packages/*/src`：
+
+| 位置                   | 现状                                                                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src`    | **M1 尚未落地**（响应式内核实现中）；撰写本文时 `src/` 尚未创建                                                                                             |
+| `packages/layout/src`  | **M2 进行中**：约束、`LayoutParams`、几何、引擎、box/grid/stack 排布已有源文件，测试目录尚未建立                                                            |
+| `packages/phaser/src`  | **M3 部分先行**：`Widget` / `UIRoot` / `LayoutWidget` / 插件 / 工厂注册等适配层文件已出现；`input`/`focus`/`nav`/`a11y`/主题与 **M8** 的 `scene/*` 尚未建立 |
+| `packages/widgets/src` | 仅入口占位；**M4** 起的控件尚未实现                                                                                                                         |
+| `apps/examples/src`    | Vite 示例入口与场景已存在（`main.ts` + `scenes/`，含 M0 场景与 probe 场景），对应 **M0** 验收项                                                             |
+| `docs/`                | 已有 `PLAN.md` 与 `adr/`（ADR 索引在 `docs/adr/README.md`）；`api/`、`widget-spec/` 属 **M10**，尚未创建                                                    |
+
+因此 **在各包 `src/` 补齐之前，仓库级的 `pnpm typecheck` / `pnpm test` / `pnpm build` 可能会失败**（`tsc` 报 `No inputs were found`、`vitest` 无测试文件、`tsup` 找不到入口）。需要针对单个包操作时用 `pnpm --filter <包名> run <脚本>`。
+
+---
+
+## 3. 快速开始
+
+前置：**Node 24**、**pnpm 10**（仓库 `packageManager` 固定为 `pnpm@10.34.5`）。
+
+```bash
+# 1) 安装依赖（workspace 链接）
+pnpm install
+
+# 2) 启动示例（Vite dev server，端口固定 5173）
+pnpm dev
+#   → http://localhost:5173
+#   注意：端口写死为 5173 且 strictPort: true，被占用时会直接报错而不是换端口；
+#   请先释放 5173，或先停止其它 dev server。
+
+# 3) 其它常用命令
+pnpm test          # pnpm -r run test（core/layout 为纯 Node vitest）
+pnpm typecheck     # pnpm -r run typecheck（tsc --noEmit，strict）
+pnpm build         # pnpm -r run build（tsup：ESM + CJS + d.ts）
+pnpm format        # prettier --write .
+pnpm format:check  # prettier --check .
+pnpm build:examples # 构建示例（vite build）
+pnpm preview       # 预览构建产物（端口 4173）
+```
+
+> 示例自 **M0** 起逐步补齐：入口 `apps/examples/src/main.ts` 与场景目录已存在（含 M0 验收场景与 probe 场景），但能否跑通取决于当前检出时各包 `src/` 的完成度（见 §2.3）。控件画廊页自 **M4** 起，表单示例自 **M5** 起。
+
+---
+
+## 4. 最小代码示例（目标形态，实现中）
+
+以下代码取自 [`docs/PLAN.md` §5](./docs/PLAN.md) 的 API 草案，**标注「目标形态，实现中」**：类型与签名都可能调整，涉及的能力横跨 M1–M6。
+
+```ts
+// 1) ViewModel：纯 TS 类 + 可选装饰性 API      —— M1（响应式）、M6（command）
+export class UserFormVM {
+  name = ref('');
+  age = ref(0);
+  users = reactive<User[]>([]);
+  errors = computed(() => ({
+    name: this.name.value.trim().length >= 2 ? undefined : '姓名至少 2 个字符',
+  }));
+  save = command(
+    async () => {
+      await api.save({ name: this.name.value });
+    },
+    { canExecute: () => !this.errors.value.name },
+  );
+}
+
+// 2) 视图：类型安全的 builder（推荐默认）      —— M2（布局）、M4/M5（控件）、M6（绑定/repeat）
+export function UserForm(vm: UserFormVM) {
+  return vbox({ gap: 12, padding: 16, fill: 'both' }, [
+    label({ text: '用户信息', style: 'h2' }),
+
+    textField({
+      label: '姓名',
+      model: model(vm, 'name'), // 双向绑定
+      placeholder: '请输入姓名',
+      error: bind(() => vm.errors.value.name),
+    }),
+
+    textField({ label: '年龄', model: model(vm, 'age'), inputType: 'number', width: 120 }),
+
+    repeat({
+      items: bind(() => vm.users),
+      key: (u) => u.id,
+      virtualize: true,
+      template: (u) => card(u),
+    }),
+
+    hbox({ gap: 8, justifyContent: 'end' }, [
+      button({ text: '重置', onClick: () => vm.reset() }),
+      button({ text: '保存', command: vm.save, variant: 'primary' }),
+    ]),
+  ]);
+}
+
+// 3) 挂载：场景插件                            —— M3（MVVMPlugin）、M8（UIScene）
+export class DemoScene extends Phaser.Scene {
+  create() {
+    const vm = new UserFormVM();
+    this.mvvm.mount(vm, UserForm, { root: 'center', width: 480 });
+  }
+}
+```
+
+---
+
+## 5. 开发约定
+
+1. **TypeScript strict**：继承 `tsconfig.base.json`，开启 `strict`、`noUncheckedIndexedAccess`、`noImplicitOverride`、`verbatimModuleSyntax` 等；类型检查用 `tsc -p tsconfig.json`（`noEmit`），不做跨包 composite 构建。
+2. **Prettier 统一格式**：配置见 `.prettierrc.json`（`singleQuote`、`printWidth: 100`、`trailingComma: all`、`semi`、`arrowParens: always`）。提交前跑 `pnpm format`；CI 跑 `pnpm exec prettier --check .`。`docs/PLAN.md` 已在 `.prettierignore` 中（它是冻结的评审文档，不做格式化）。
+3. **相对导入不带扩展名**：`import { ref } from './reactivity/ref'`（`moduleResolution: bundler`）。跨包引用走包名（`@phaser-mvvm/core`），由 workspace 协议解析到源码。
+4. **只有 `packages/phaser` 允许 `import` Phaser**：`core`/`layout` 必须零 Phaser 依赖（含类型）；`widgets` 通过 `@phaser-mvvm/phaser` 间接使用。构建时 `phaser` 一律 `--external`。见 [ADR-0001](./docs/adr/0001-package-layout.md)、[ADR-0003](./docs/adr/0003-layout-is-renderer-agnostic.md)、[ADR-0005](./docs/adr/0005-phaser-dependency.md)。
+5. **布局算法不依赖渲染**：文本度量通过注入的 `Measurer` 接口获得，测试用等宽假测量器，保证黄金快照确定。
+6. **响应式副作用必须归入 `EffectScope`**：控件/页面的 `destroy()` 要停 scope、注销输入、归还对象池；泄漏回归是硬门禁（场景创建→销毁 100 次后计数归零）。
+7. **UI 刷新默认帧对齐**（`flush: 'frame'`）：不要用 `sync` 绕过批量刷新。见 [ADR-0008](./docs/adr/0008-reactivity-and-scheduler.md)。
+8. **新增包、引入运行时依赖、改变包间依赖方向 —— 必须新增一篇 ADR**（新编号，不修改历史 ADR）。见 [`docs/adr/README.md`](./docs/adr/README.md)。
+9. **不使用 `eval` / `new Function`**：路径表达式编译为 getter/setter 闭包，保证 CSP 环境可用。
+10. **提交前自查**：`pnpm format:check`、受影响包的 `typecheck` / `test`；涉及控件的改动需附带示例页（M4 起截图回归）。
+11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。其中 `packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，**它当前没有测试是正常的**（自 M4 起补充）。
+
+---
+
+## 6. 目录结构
+
+下面是 PLAN §3.2 定义的**目标结构**（尚未全部落地；当前实际快照见 §2.3，标 `# 尚未创建` 的目录现在不存在）：
+
+```
+phaser-mvvm/
+├─ pnpm-workspace.yaml
+├─ tsconfig.base.json                  # strict: true, noUncheckedIndexedAccess
+├─ .prettierrc.json / .prettierignore
+├─ .github/workflows/ci.yml
+├─ packages/
+│  ├─ core/          src/{reactivity,collections,binding,expression,scheduler,util}
+│  ├─ layout/        src/{constraint,params,measure,arrange,arrangers,nodepool,snap}
+│  ├─ phaser/        src/{Widget,UIRoot,measurer,input,focus,nav,a11y,plugin,factory,theme,pool}
+│  │                 src/scene/{UIScene,Page,PageStack,ModalStack,Router}   # M8
+│  ├─ widgets/       src/{panel,label,textfield,textarea,button,image,spacer,divider,scrollview,repeat,modal}
+│  └─ template/      src/{parser,compiler,renderer}            # Phase 2（尚未创建）
+├─ apps/
+│  └─ examples/      # index.html + vite.config.ts（dev 端口 5173）
+│                    # 控件画廊（每个控件一页）+ 性能基准页，自 M4 起
+│                    # apps/form-demo 规划中（完整 MVVM 表单），尚未创建
+└─ docs/             # PLAN.md、adr/
+                     # api/（TypeDoc，M10）、widget-spec/（M10）尚未创建
+```
+
+---
+
+## 7. 文档索引
+
+| 文档                                           | 内容                                                                                                                                                    |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`docs/PLAN.md`](./docs/PLAN.md)               | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3） |
+| [`docs/adr/`](./docs/adr/README.md)            | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                    |
+| `docs/api/`（**M10**，TypeDoc 生成，尚未创建） | 生成的 API 参考                                                                                                                                         |
+| `docs/widget-spec/`（**M10**，尚未创建）       | 控件规格文档                                                                                                                                            |
+
+关键 ADR 速览：包划分 [0001](./docs/adr/0001-package-layout.md)｜两阶段布局 [0002](./docs/adr/0002-two-pass-layout.md)｜layout 零 Phaser 依赖 [0003](./docs/adr/0003-layout-is-renderer-agnostic.md)｜DOM 输入桥 [0004](./docs/adr/0004-dom-input-bridge.md)｜Phaser 依赖方式 [0005](./docs/adr/0005-phaser-dependency.md)｜Phase 1 范围 [0006](./docs/adr/0006-phase1-scope.md)｜Phaser 4 WebGL 约束 [0007](./docs/adr/0007-phaser4-webgl-constraints.md)｜响应式与调度器 [0008](./docs/adr/0008-reactivity-and-scheduler.md)。
+
+---
+
+## 8. 许可证
+
+MIT（与 Phaser 一致）。各 `packages/*` 的 `package.json` 已声明 `"license": "MIT"`；根目录的 `LICENSE` 文件尚未创建，随 **M0** 骨架补齐。
