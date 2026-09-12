@@ -350,35 +350,44 @@ export interface ModelBindingHost extends BindingScope {
 export const MODEL_CHANGE_EVENT = 'change';
 
 /**
- * Host shape of a control whose value is a **number** (a slider, a stepper, a spinner).
+ * Host shape of a control whose value is typed rather than text (a slider, a toggle).
  *
  * Same protocol as {@link ModelBindingHost}, minus the text conversion: `bindModel` stringifies, which
- * would write `"42"` back into a numeric `ref`.
+ * would write `"42"` back into a numeric `ref` and `"false"` back into a boolean one.
  */
-export interface NumberModelHost extends BindingScope {
+export interface ValueModelHost<T> extends BindingScope {
   /** Programmatic, *silent* write: it must not emit `change`. */
-  setValue(value: number): unknown;
+  setValue(value: T): unknown;
   /** Current value of the control. */
-  getValue(): number;
+  getValue(): T;
   /** Subscribes to the control's `change` event. */
-  on(event: string, callback: (value: number) => void): unknown;
+  on(event: string, callback: (value: T) => void): unknown;
   /** Unsubscribes (Phaser's `GameObject.off`). */
-  off?(event: string, callback: (value: number) => void): unknown;
+  off?(event: string, callback: (value: T) => void): unknown;
 }
 
+/** A numeric control's host ({@link ValueModelHost} specialised to `number`). */
+export type NumberModelHost = ValueModelHost<number>;
+
+/** A boolean control's host ({@link ValueModelHost} specialised to `boolean`). */
+export type BooleanModelHost = ValueModelHost<boolean>;
+
 /**
- * Two-way binding for a numeric control.
+ * Two-way binding for a non-text control, keeping the value's type in both directions.
  *
- * `bindModel`'s twin: the value keeps its type in both directions (`Object.is` is the change test, so
- * `-0`/`NaN` cannot produce an endless write-back loop).
+ * - **down**: `read()` is applied through the control's *silent* `setValue`, so a programmatic write
+ *   never looks like a user edit and the write-back loop stops there (ADR-0008 §5);
+ * - **up**: the control's `change` event (user interaction only) writes back, short-circuiting when the
+ *   value already matches `read()`;
+ * - `Object.is` is the change test, so `-0`/`NaN` cannot produce an endless ping-pong.
  */
-export function bindNumberModel(
-  host: NumberModelHost,
-  read: () => number,
-  write: (value: number) => void,
+export function bindValueModel<T>(
+  host: ValueModelHost<T>,
+  read: () => T,
+  write: (value: T) => void,
   options: BindingOptions = {},
 ): StopBinding {
-  const stopDown = createBinding<number, NumberModelHost>({
+  const stopDown = createBinding<T, ValueModelHost<T>>({
     host,
     read,
     apply: (value) => {
@@ -390,7 +399,7 @@ export function bindNumberModel(
     flush: flushOf(options),
   });
 
-  const listener = (value: number): void => {
+  const listener = (value: T): void => {
     if (Object.is(value, read())) {
       return;
     }
@@ -403,6 +412,30 @@ export function bindNumberModel(
     stopDown();
     host.off?.(MODEL_CHANGE_EVENT, listener);
   };
+}
+
+/**
+ * Two-way binding for a numeric control (`Slider`).
+ *
+ * A named shorthand for {@link bindValueModel}: the call site reads better than a type argument.
+ */
+export function bindNumberModel(
+  host: NumberModelHost,
+  read: () => number,
+  write: (value: number) => void,
+  options: BindingOptions = {},
+): StopBinding {
+  return bindValueModel<number>(host, read, write, options);
+}
+
+/** Two-way binding for a boolean control (a `toggle` button). */
+export function bindBooleanModel(
+  host: BooleanModelHost,
+  read: () => boolean,
+  write: (value: boolean) => void,
+  options: BindingOptions = {},
+): StopBinding {
+  return bindValueModel<boolean>(host, read, write, options);
 }
 
 /**

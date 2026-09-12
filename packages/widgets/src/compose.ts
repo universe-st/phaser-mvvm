@@ -36,6 +36,7 @@ import { devLog, warn } from '@phaser-mvvm/core';
 import {
   AbsoluteWidget,
   type AbsoluteWidgetOptions,
+  bindBooleanModel,
   bindModel,
   bindNumberModel,
   bindText,
@@ -55,7 +56,12 @@ import {
   type Widget,
   withUiParent,
 } from '@phaser-mvvm/phaser';
-import { Button as ButtonWidget, type ButtonOptions, type ButtonVariant } from './Button';
+import {
+  Button as ButtonWidget,
+  BUTTON_EVENTS,
+  type ButtonOptions,
+  type ButtonVariant,
+} from './Button';
 import { Divider as DividerWidget, type DividerOptions } from './Divider';
 import { Image as ImageWidget, type ImageOptions } from './Image';
 import { Label, type LabelOptions, type LabelTone } from './Label';
@@ -364,11 +370,19 @@ export function Text(value: ReactiveSource<string>, options: TextOptions = {}): 
   return label;
 }
 
-/** Options of `Button`: the widget's bag plus reactive `variant`/`disabled`/`loading`/`visible`. */
-export type ButtonDslOptions = Omit<ButtonOptions, 'variant' | 'disabled' | 'loading'> & {
+/**
+ * Options of `Button`: the widget's bag plus reactive `variant`/`disabled`/`loading`/`value`/`visible`.
+ *
+ * `value` is the toggle state as a *data slot*, so it behaves like a text field's value: a `Ref` is
+ * two-way (flipping the button writes the ref, changing the ref flips the button), a getter is one-way
+ * and routes user changes to `onValueChange`.
+ */
+export type ButtonDslOptions = Omit<ButtonOptions, 'variant' | 'disabled' | 'loading' | 'value'> & {
   variant?: ReactiveSource<ButtonVariant>;
   disabled?: ReactiveSource<boolean>;
   loading?: ReactiveSource<boolean>;
+  value?: ReactiveSource<boolean>;
+  onValueChange?: (value: boolean, button: ButtonWidget) => void;
 } & DslOptions;
 
 /** A button; its label, variant and state flags may all be reactive. */
@@ -377,12 +391,13 @@ export function Button(
   options: ButtonDslOptions = {},
 ): ButtonWidget {
   const scene = currentUiScene();
-  const { variant, disabled, loading, visible, ...rest } = options;
+  const { variant, disabled, loading, value, onValueChange, visible, ...rest } = options;
   const button = new ButtonWidget(scene, {
     ...rest,
     ...(variant === undefined ? {} : { variant: readReactive(variant) }),
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     ...(loading === undefined ? {} : { loading: readReactive(loading) === true }),
+    ...(value === undefined ? {} : { value: readReactive(value) === true }),
     text: readReactive(label),
   });
   scene.add.existing(button);
@@ -394,6 +409,17 @@ export function Button(
   bindOption(button, variant, (host, next) => host.setVariant(next));
   bindOption(button, disabled, (host, next) => host.setDisabled(next === true));
   bindOption(button, loading, (host, next) => host.setLoading(next === true));
+
+  if (value !== undefined) {
+    const store = isWritableSource(value)
+      ? (next: boolean): void => writeReactive(value, next)
+      : (next: boolean): void => onValueChange?.(next, button);
+    bindBooleanModel(button, () => readReactive(value) === true, store);
+  }
+  if (onValueChange && (value === undefined || isWritableSource(value))) {
+    // A getter source already routes user changes to `onValueChange` through the binding above.
+    button.on(BUTTON_EVENTS.CHANGE, (next: boolean) => onValueChange(next, button));
+  }
   return button;
 }
 

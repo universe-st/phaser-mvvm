@@ -188,13 +188,15 @@ const save = Button('保存', {
   onClick: (button) => console.log('clicked', button.getText()),
 });
 
-// 开关型：`value` 是普通布尔（初始值），后续状态由 `change` 事件带回
+// 开关型：`value` 是数据槽，直接绑 ref 就是双向的
 const notify = ref(false);
-const toggle = Button('通知：关', { toggle: true, value: notify.value });
-toggle.on('change', (value: boolean) => {
-  notify.value = value; // 写回你的数据源
-  toggle.setText(`通知：${value ? '开' : '关'}`);
-});
+Button(() => `通知：${notify.value ? '开' : '关'}`, { toggle: true, value: notify });
+
+notify.value = true; // 代码写 ref → 按钮跟着翻过去（外部状态驱动）
+// 用户点击 → 事件写回 ref，上面的文案同一帧更新
+// 只想接住"用户改了"（例如写进 store）：onValueChange
+const saveMuted = (on: boolean) => store.set('muted', on);
+Button('静音', { toggle: true, onValueChange: saveMuted });
 
 // 加载态 / 禁用态也可以是响应式的：值一变，外观自己跟上
 Button('保存', { variant: 'primary', loading: () => saving.value });
@@ -205,17 +207,17 @@ Button('', { icon: 'demo-tile', size: 'sm' });
 
 ### 选项
 
-| 选项       | 类型                                                 | 默认          | 说明                                                                |
-| ---------- | ---------------------------------------------------- | ------------- | ------------------------------------------------------------------- |
-| `text`     | `string`                                             | `''`          | 文案                                                                |
-| `icon`     | `string`（贴图键）\| `Phaser.GameObjects.GameObject` | —             | 图标；贴图键会自动建一个左上原点的 `Image`，传入对象则原样使用      |
-| `variant`  | `'primary' \| 'secondary' \| 'ghost' \| 'danger'`    | `'secondary'` | 视觉风格                                                            |
-| `size`     | `'sm' \| 'md' \| 'lg'`                               | `'md'`        | 决定默认高度与水平内边距                                            |
-| `disabled` | `boolean`                                            | `false`       | 初始禁用（等价于 `setEnabled(false)`）                              |
-| `toggle`   | `boolean`                                            | `false`       | 开关模式：激活时翻转 `value` 并 emit `change`，**不调用** `onClick` |
-| `value`    | `boolean`                                            | `false`       | 开关初值                                                            |
-| `loading`  | `boolean`                                            | `false`       | 加载态：忽略激活，文案后补省略号                                    |
-| `onClick`  | `(button: Button) => void`                           | —             | 非开关按钮的激活回调                                                |
+| 选项       | 类型                                                 | 默认          | 说明                                                                  |
+| ---------- | ---------------------------------------------------- | ------------- | --------------------------------------------------------------------- |
+| `text`     | `string`                                             | `''`          | 文案                                                                  |
+| `icon`     | `string`（贴图键）\| `Phaser.GameObjects.GameObject` | —             | 图标；贴图键会自动建一个左上原点的 `Image`，传入对象则原样使用        |
+| `variant`  | `'primary' \| 'secondary' \| 'ghost' \| 'danger'`    | `'secondary'` | 视觉风格                                                              |
+| `size`     | `'sm' \| 'md' \| 'lg'`                               | `'md'`        | 决定默认高度与水平内边距                                              |
+| `disabled` | `boolean`                                            | `false`       | 初始禁用（等价于 `setEnabled(false)`）                                |
+| `toggle`   | `boolean`                                            | `false`       | 开关模式：激活时翻转 `value` 并 emit `change`，**不调用** `onClick`   |
+| `value`    | `boolean` 或数据槽（`Ref`/getter）                   | `false`       | 开关状态；传 `ref` 则**双向**，传 getter 则单向（配 `onValueChange`） |
+| `loading`  | `boolean`                                            | `false`       | 加载态：忽略激活，文案后补省略号                                      |
+| `onClick`  | `(button: Button) => void`                           | —             | 非开关按钮的激活回调                                                  |
 
 `size` 与主题的关系：默认高度 `theme.controlHeight[size]`（sm=28 / md=36 / lg=44），水平内边距 `theme.spacing[size]`（sm=8 / md=12 / lg=16）。**写了 `height` 就用你的**。
 
@@ -238,7 +240,8 @@ Button('', { icon: 'demo-tile', size: 'sm' });
 
 ### 坑
 
-- **`toggle: true` 时 `onClick` 不会被调用**，请监听 `change`。
+- **`toggle: true` 时 `onClick` 不会被调用**：用 `value: ref`（写回数据源）或监听 `change`。
+- **开关的 `value` 与文本可以各自响应式**：`Button(() => \`开：${on.value}\`, { toggle: true, value: on })`里，文案与开关状态读的是同一个`ref`，不会各说各话。
 - **图标对象的原点**：传字符串最省事；传自定义对象时请确保它是左上原点（`Image`/`Sprite` 记得 `setOrigin(0,0)`），否则居中算法会偏。
 - **`loading` 的按钮仍然可聚焦、可被点击**，只是 `activate()` 返回 `false`。如果你的业务需要它在加载期间也不接收焦点，请自己 `setEnabled(false)`。
 

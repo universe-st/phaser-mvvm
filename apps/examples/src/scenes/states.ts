@@ -211,7 +211,7 @@ export class StatesScene extends Phaser.Scene {
   private buttonsRow(): void {
     this.card(
       'Button',
-      'default · toggle · disabled · loading（disabled 优先于 hover/press）',
+      'default · toggle（绑 ref，双向）· 外部置开/置关（ref → 按钮）· disabled · loading',
       () => {
         Row({ gap: 10, alignItems: 'center', wrap: true }, () => {
           this.probe(
@@ -222,12 +222,37 @@ export class StatesScene extends Phaser.Scene {
             }),
             'normal',
           );
-          const toggle = Button('开关：关', { toggle: true, value: false, name: 'button.toggle' });
-          toggle.on('change', (value: boolean) => {
-            this.toggled.value = value;
-            toggle.setText(`开关：${value ? '开' : '关'}`);
-          });
-          this.probe('button.toggle', toggle, 'normal');
+          // Two-way: the ref is the state, the label derives from it — flipping the button writes the
+          // ref, and the `外部置开` button below proves the other direction (ref → button).
+          this.probe(
+            'button.toggle',
+            Button(() => `开关：${this.toggled.value ? '开' : '关'}`, {
+              toggle: true,
+              value: this.toggled,
+              name: 'button.toggle',
+            }),
+            'normal',
+          );
+          this.probe(
+            'button.setToggle',
+            Button('外部置开', {
+              name: 'button.setToggle',
+              onClick: () => {
+                this.toggled.value = true;
+              },
+            }),
+            'normal',
+          );
+          this.probe(
+            'button.clearToggle',
+            Button('外部置关', {
+              name: 'button.clearToggle',
+              onClick: () => {
+                this.toggled.value = false;
+              },
+            }),
+            'normal',
+          );
           this.probe(
             'button.disabled',
             Button('禁用', { disabled: true, name: 'button.disabled' }),
