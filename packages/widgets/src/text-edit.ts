@@ -775,6 +775,62 @@ export function computeScrollY(
   return Math.max(0, scroll);
 }
 
+// ---------------------------------------------------------------------------- drag auto-scroll
+
+/** Full speed of a held drag's auto-scroll, in design pixels per second. */
+export const DRAG_AUTOSCROLL_MAX_SPEED = 900;
+
+/** Distance past the edge at which a held drag reaches {@link DRAG_AUTOSCROLL_MAX_SPEED}. */
+export const DRAG_AUTOSCROLL_RAMP = 48;
+
+/** Slowest a held drag scrolls, as a fraction of the full speed: leaving the box already moves it. */
+const DRAG_AUTOSCROLL_MIN_RATIO = 1 / 6;
+
+/** Longest frame the auto-scroll integrates, so a stalled tab does not jump a whole page. */
+const DRAG_AUTOSCROLL_MAX_FRAME_MS = 50;
+
+/**
+ * How far a coordinate sticks out of `[min, max]`: negative below, positive above, `0` inside.
+ *
+ * The auto-scroll needs a **signed** distance and not a boolean, because the direction of the scroll
+ * and its speed both come from it.
+ */
+export function edgeOverflow(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  if (value < min) {
+    return value - min;
+  }
+  if (value > max) {
+    return value - max;
+  }
+  return 0;
+}
+
+/**
+ * How far a held drag scrolls the content during one frame, in design pixels.
+ *
+ * This is the browser's own drag-to-edge behaviour: the further the pointer is past the edge the
+ * faster the content moves, and a pointer that has only just left the box already moves it — a step
+ * that started at zero would feel stuck exactly where the user needs it most. A zero overflow is a
+ * zero step, so a pointer inside the box never scrolls anything.
+ */
+export function dragAutoScrollStep(overflow: number, deltaMs: number): number {
+  if (overflow === 0 || !Number.isFinite(overflow)) {
+    return 0;
+  }
+  if (!Number.isFinite(deltaMs) || deltaMs <= 0) {
+    return 0;
+  }
+  const ratio = Math.min(
+    1,
+    Math.max(DRAG_AUTOSCROLL_MIN_RATIO, Math.abs(overflow) / DRAG_AUTOSCROLL_RAMP),
+  );
+  const frame = Math.min(deltaMs, DRAG_AUTOSCROLL_MAX_FRAME_MS);
+  return (Math.sign(overflow) * DRAG_AUTOSCROLL_MAX_SPEED * ratio * frame) / 1000;
+}
+
 /** Clamps a vertical offset so the last line stays reachable and the first one stays visible. */
 export function clampScrollY(scrollY: number, contentHeight: number, viewHeight: number): number {
   const max = Math.max(0, contentHeight - viewHeight);

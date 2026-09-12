@@ -9,6 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  DRAG_AUTOSCROLL_MAX_SPEED,
+  DRAG_AUTOSCROLL_RAMP,
   caretAtX,
   caretRectOf,
   clampCaret,
@@ -19,6 +21,8 @@ import {
   canEditValue,
   charIndexAtX,
   computeScrollY,
+  dragAutoScrollStep,
+  edgeOverflow,
   wordRangeAt,
   deleteRange,
   displayOffset,
@@ -492,6 +496,47 @@ describe('vertical scrolling', () => {
 
   it('never scrolls a collapsed view', () => {
     expect(computeScrollY(40, 60, 0, 30)).toBe(0);
+  });
+});
+
+describe('drag auto-scroll', () => {
+  it('reads the overflow as a signed distance out of the box', () => {
+    expect(edgeOverflow(50, 0, 100)).toBe(0);
+    expect(edgeOverflow(0, 0, 100)).toBe(0);
+    expect(edgeOverflow(100, 0, 100)).toBe(0);
+    expect(edgeOverflow(120, 0, 100)).toBe(20);
+    expect(edgeOverflow(-30, 0, 100)).toBe(-30);
+    expect(edgeOverflow(Number.NaN, 0, 100)).toBe(0);
+  });
+
+  it('steps in the direction of the overflow, faster the further out it is', () => {
+    expect(dragAutoScrollStep(20, 16)).toBeGreaterThan(0);
+    expect(dragAutoScrollStep(-20, 16)).toBeLessThan(0);
+    expect(Math.abs(dragAutoScrollStep(-20, 16))).toBe(dragAutoScrollStep(20, 16));
+    expect(dragAutoScrollStep(40, 16)).toBeGreaterThan(dragAutoScrollStep(10, 16));
+  });
+
+  it('does not scroll for a pointer inside the box, or for a frame of no length', () => {
+    expect(dragAutoScrollStep(0, 16)).toBe(0);
+    expect(dragAutoScrollStep(20, 0)).toBe(0);
+    expect(dragAutoScrollStep(20, -1)).toBe(0);
+    expect(dragAutoScrollStep(20, Number.NaN)).toBe(0);
+  });
+
+  it('already moves when the pointer has only just left the box', () => {
+    // The floor matters: a step that ramped from zero would leave the gesture stuck exactly where a
+    // user needs it — one pixel past the edge has to scroll something.
+    expect(dragAutoScrollStep(0.5, 16)).toBeGreaterThan(0);
+  });
+
+  it('caps the speed and the frame it integrates', () => {
+    const ramped = dragAutoScrollStep(DRAG_AUTOSCROLL_RAMP, 16);
+    expect(dragAutoScrollStep(DRAG_AUTOSCROLL_RAMP * 10, 16)).toBe(ramped);
+    expect(ramped).toBeCloseTo((DRAG_AUTOSCROLL_MAX_SPEED * 16) / 1000, 6);
+    // A stalled frame (backgrounded tab) must not jump a whole page.
+    expect(dragAutoScrollStep(DRAG_AUTOSCROLL_RAMP, 1000)).toBe(
+      dragAutoScrollStep(DRAG_AUTOSCROLL_RAMP, 50),
+    );
   });
 });
 

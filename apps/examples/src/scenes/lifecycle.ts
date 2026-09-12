@@ -16,6 +16,7 @@
  * | `sceneObjects`          | no orphan `GameObject`s left on the scene                           |
  * | `textures`              | no texture created per cycle                                        |
  * | `tweens` / `timers`     | no timer (caret blink) outliving its field                          |
+ * | `frameListeners`        | a per-frame hook (scroll coasting, text drag auto-scroll) must unregister |
  *
  * `window.lifecycle` drives it: `churn(n)` restarts the scene `n` times and resolves with the
  * samples, `samples()` reads the current list, `state()` reports the current `#demo-state` values.
@@ -49,6 +50,9 @@ import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 const TILE = 'lifecycle.tile';
 const ROWS = 40;
 
+/** The scene's per-frame events whose listener count is part of the leak gate (see `Sample`). */
+const FRAME_EVENTS = ['preupdate', 'update', 'postupdate'] as const;
+
 interface Sample {
   cycle: number;
   themeListeners: number;
@@ -60,6 +64,16 @@ interface Sample {
   tweens: number;
   timers: number;
   widgets: number;
+  /**
+   * Listeners on the scene's per-frame events (`preupdate`/`update`/`postupdate`).
+   *
+   * A widget that drives something frame by frame registers one of these (`ScrollView`'s coasting,
+   * `TextInputBase`'s drag auto-scroll), and a widget that forgets to unregister it leaks the whole
+   * widget: the handler runs after the scene was torn down, and the closure keeps the object alive.
+   * None of the other counters can see that — the display list, the focus manager and the input router
+   * all let go of a destroyed widget just fine (round 97 added this row together with the auto-scroll).
+   */
+  frameListeners: number;
 }
 
 /** Samples are module-level: they have to survive the scene restarts they describe. */
@@ -213,10 +227,12 @@ export class LifecycleScene extends Phaser.Scene {
     setDemoState('displayList', sample.displayList);
     setDemoState('focusables', sample.focusables);
     setDemoState('pointerTargets', sample.pointerTargets);
+    setDemoState('frameListeners', sample.frameListeners);
     appendStatus(
       `lifecycle#${sample.cycle} theme=${sample.themeListeners} list=${sample.displayList} ` +
         `focus=${sample.focusables} pointer=${sample.pointerTargets} tex=${sample.textures} ` +
-        `tweens=${sample.tweens} timers=${sample.timers} widgets=${sample.widgets}`,
+        `tweens=${sample.tweens} timers=${sample.timers} widgets=${sample.widgets} ` +
+        `frame=${sample.frameListeners}`,
     );
 
     this.resolveCreate?.();
@@ -262,6 +278,17 @@ export class LifecycleScene extends Phaser.Scene {
       // `Clock#_active` is the only public-ish view of pending timer events (Phaser 4 has no getter).
       timers: (this.time as unknown as { _active?: unknown[] })._active?.length ?? 0,
       widgets: countWidgets(this.page),
+      frameListeners: (this.events as unknown as { listenerCount?: (event: string) => number })
+        .listenerCount
+        ? FRAME_EVENTS.reduce(
+            (total, event) =>
+              total +
+              ((
+                this.events as unknown as { listenerCount: (event: string) => number }
+              ).listenerCount(event) || 0),
+            0,
+          )
+        : -1,
     };
   }
 

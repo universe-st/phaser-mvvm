@@ -36,7 +36,7 @@ CI（`.github/workflows/ci.yml`）在 push 与 PR 上运行：Prettier 检查 �
 3. **裁剪用 Mask filter**（`FilterList#addMask`），不要用 v3 的 `setMask(graphics)` 思路 —— `GeometryMask` 在 v4 仅 Canvas 可用。见 [ADR-0007](./docs/adr/0007-phaser4-webgl-constraints.md)。
 4. **响应式副作用必须归入 `EffectScope`**：`destroy()` 里 `scope.stop()` + 注销输入 + 归还对象池。泄漏回归（场景创建→销毁 100 次后计数归零）是硬门禁。
 5. **UI 刷新默认帧对齐**（`flush: 'frame'`），不要用 `sync` 绕过批量刷新。见 [ADR-0008](./docs/adr/0008-reactivity-and-scheduler.md)。
-6. **`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`**：这个 flag 只是「暂时没有测试也不至于失败」，四个包现在都有实打实的用例（合计 1298：core 281 / layout 314 / phaser 330 / widgets 373），**不要**为了「有测试」而写空断言。
+6. **`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`**：这个 flag 只是「暂时没有测试也不至于失败」，四个包现在都有实打实的用例（合计 1303：core 281 / layout 314 / phaser 330 / widgets 378），**不要**为了「有测试」而写空断言。
 
 ## 5. 何时需要写 ADR
 

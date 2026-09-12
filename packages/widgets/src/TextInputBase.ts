@@ -55,6 +55,8 @@ import {
   displayOffset,
   displaySlice,
   displayValue,
+  dragAutoScrollStep,
+  edgeOverflow,
   insertText,
   layoutTextLines,
   lineEndAt,
@@ -236,6 +238,18 @@ export abstract class TextInputBase extends Widget {
   private keyGuardInstalled = false;
   private lastConsumedEvent: KeyboardEvent | null = null;
   private skinCache: { theme: Theme; skin: ProceduralSkin } | null = null;
+  /**
+   * The pointer of the drag this field owns, or `null` when it owns none.
+   *
+   * Kept as the pointer itself rather than its id because the per-frame auto-scroll has to read the
+   * position of *this* drag every frame, and a pointer id would have to be looked up again.
+   */
+  private dragPointer: Phaser.Input.Pointer | null = null;
+  /**
+   * True while the drag is held past the edge of the content box, so the drag — not the caret — owns
+   * the scroll offset (see {@link TextInputBase.updateScroll}).
+   */
+  private autoScrolling = false;
 
   /**
    * Measured text width in design pixels, straight from a line object's canvas.
@@ -317,6 +331,7 @@ export abstract class TextInputBase extends Widget {
     // the hidden element sits above the canvas and the browser does the selecting itself.
     if (!this.usingDomBridge) {
       claimPointerDrag(this.scene, pointer.id, this);
+      this.dragPointer = pointer;
     }
     const count = this.countClick(pointer);
     if (count >= 2 && this.selectUnitAt(local.x, local.y, count)) {
@@ -413,7 +428,10 @@ export abstract class TextInputBase extends Widget {
    * Only runs while this field owns the pointer's drag: the anchor stays where the press put the caret
    * and every move extends towards the pointer, which is what a mouse user expects of text. A multiline
    * drag across lines carries the row selection through `displayLines`, and dragging past either end
-   * keeps extending to that line's edge because `placeCaretAt` clamps the caret into the text.
+   * keeps extending to that line's edge because the caret is clamped into the text.
+   *
+   * A move alone cannot express "held past the edge", because a browser stops sending moves once the
+   * pointer stops: that half is the per-frame `handleDragFrame`.
    */
   private readonly handleScenePointerMove = (pointer: Phaser.Input.Pointer): void => {
     if (this.usingDomBridge || !this.enabled || this.readOnly || !pointer.isDown) {
@@ -422,14 +440,111 @@ export abstract class TextInputBase extends Widget {
     if (!this.ownsDrag(pointer.id)) {
       return;
     }
-    const local = this.localPoint(pointer.worldX, pointer.worldY);
-    this.placeCaretAt(local.x, local.y, true);
+    this.extendSelectionTo(pointer);
   };
+
+  /**
+   * The per-frame half of a Canvas-path drag: **auto-scroll while the pointer is held past an edge**.
+   *
+   * This is the behaviour every native text field has and the Canvas path did not: hold the pointer
+   * below a `rows: 3` box and the text keeps scrolling, one step per frame, while the selection grows
+   * with it — so a long value can be selected gradually instead of in one jump to the end. The two
+   * halves that make it work are
+   *
+   * - the caret is taken from the pointer **clamped into the box** (see `extendSelectionTo`), which is
+   *   what the browser does too: the pointer says *which edge*, the scroll says *which character*;
+   * - `updateScroll` stands aside while this runs, otherwise revealing the caret would snap the content
+   *   straight to the far end of the value and the "per frame" part would be a single jump.
+   *
+   * Registered on `POST_UPDATE`, like `ScrollView`'s coasting, and a no-op while no drag is owned.
+   */
+  private readonly handleDragFrame = (): void => {
+    const pointer = this.dragPointer;
+    if (pointer === null) {
+      return;
+    }
+    if (
+      this.isDestroyed ||
+      this.usingDomBridge ||
+      !this.enabled ||
+      this.readOnly ||
+      !pointer.isDown ||
+      !this.ownsDrag(pointer.id)
+    ) {
+      this.endDrag();
+      return;
+    }
+    const box = this.contentRect();
+    const local = this.localPoint(pointer.worldX, pointer.worldY);
+    // A wrapped multiline field has no horizontal overflow to scroll into (`wrap` is its line policy),
+    // and a single-line field has none vertically.
+    const overflowX = this.multiline ? 0 : edgeOverflow(local.x, box.x, box.x + box.width);
+    const overflowY = this.multiline ? edgeOverflow(local.y, box.y, box.y + box.height) : 0;
+    if (overflowX === 0 && overflowY === 0) {
+      this.autoScrolling = false;
+      return;
+    }
+    const delta = this.scene?.game?.loop?.delta ?? 0;
+    const stepX = dragAutoScrollStep(overflowX, delta);
+    const stepY = dragAutoScrollStep(overflowY, delta);
+    if (stepX === 0 && stepY === 0) {
+      return;
+    }
+    this.autoScrolling = true;
+    if (stepX !== 0) {
+      this.scrollX = Math.min(this.scrollX + stepX, this.maxScrollX());
+    }
+    if (stepY !== 0) {
+      const contentHeight = Math.max(1, this.displayLines.length) * this.lineHeight;
+      // `clampScrollY` stops at the last line and at the first one: holding past the bottom when the
+      // value is already at its end must not keep scrolling into empty space.
+      this.scrollY = clampScrollY(this.scrollY + stepY, contentHeight, box.height);
+    }
+    this.extendSelectionTo(pointer);
+  };
+
+  /**
+   * Extends the selection towards a drag pointer, clamped into the content box.
+   *
+   * A pointer **inside** the box places the caret under the cursor (minus the caret's own width, which
+   * is where a click at the very edge belongs). A pointer past an edge is clamped to that edge so the
+   * caret lands on the edge character instead of jumping to the end of the value — the auto-scroll then
+   * decides which character that edge holds on the next frame.
+   */
+  private extendSelectionTo(pointer: Phaser.Input.Pointer): void {
+    const box = this.contentRect();
+    const local = this.localPoint(pointer.worldX, pointer.worldY);
+    const x = Math.min(Math.max(local.x, box.x), box.x + box.width - this.caretWidth);
+    const y = this.multiline ? Math.min(Math.max(local.y, box.y), box.y + box.height - 1) : local.y;
+    this.placeCaretAt(x, y, true);
+  }
+
+  /** Furthest `scrollX` that still shows the end of a single-line value. */
+  private maxScrollX(): number {
+    const box = this.contentRect();
+    const display =
+      this.value.length === 0 ? this.placeholder : displayValue(this.value, this.inputType);
+    return Math.max(0, this.measureWidth(display) + this.caretWidth - box.width);
+  }
 
   /** Releases the drag claim, so the next press starts clean (V24's shape of defect). */
   private readonly handleScenePointerUp = (pointer: Phaser.Input.Pointer): void => {
+    if (this.dragPointer !== null && this.dragPointer.id === pointer.id) {
+      // The last word on where the caret goes belongs to the release: the content has scrolled since
+      // the pointer left the box, so the caret is re-placed (with the reveal back on) at the edge
+      // character the user is actually looking at.
+      this.autoScrolling = false;
+      this.extendSelectionTo(pointer);
+      this.dragPointer = null;
+    }
     releasePointerDrag(this.scene, pointer.id, this);
   };
+
+  /** Forgets the drag: no more per-frame scrolling, and the caret keeps the scroll it reached. */
+  private endDrag(): void {
+    this.dragPointer = null;
+    this.autoScrolling = false;
+  }
 
   private ownsDrag(pointerId: number): boolean {
     return pointerDragOwner(this.scene, pointerId) === this;
@@ -437,6 +552,7 @@ export abstract class TextInputBase extends Widget {
 
   /** Drops every claim of this field — on blur and on destroy, where the pointer id is not known. */
   private releaseAllDrags(): void {
+    this.endDrag();
     for (const claim of pointerClaims(this.scene)) {
       if (claim.owner === (this.name || this.constructor.name)) {
         releasePointerDrag(this.scene, claim.pointerId);
@@ -552,6 +668,9 @@ export abstract class TextInputBase extends Widget {
     scene.input?.on('pointermove', this.handleScenePointerMove);
     scene.input?.on('pointerup', this.handleScenePointerUp);
     scene.input?.on('pointerupoutside', this.handleScenePointerUp);
+    // The per-frame half of drag selection: a held pointer past the edge scrolls the content even
+    // though no pointer events arrive while it is held still (`handleDragFrame`).
+    scene.events?.on(Phaser.Scenes.Events.POST_UPDATE, this.handleDragFrame);
     scene.scale?.on('resize', this.handleResize);
 
     if (widget.disabled === true) {
@@ -669,6 +788,22 @@ export abstract class TextInputBase extends Widget {
   /** Selection anchor offset (the end a shift-arrow drags). */
   get selectionAnchor(): number {
     return this.anchor;
+  }
+
+  /**
+   * Horizontal scroll of the text inside the box, in design pixels — the platform's `scrollLeft`.
+   *
+   * Public because it is *observable behaviour* and not an implementation detail: a single-line field
+   * scrolls when the caret leaves the box (typing past the right edge) and while a drag is held past
+   * it, and a host that mirrors the field's geometry needs to read that number.
+   */
+  get scrollLeft(): number {
+    return this.scrollX;
+  }
+
+  /** Vertical scroll of the text inside the box, in design pixels — the platform's `scrollTop`. */
+  get scrollTop(): number {
+    return this.scrollY;
   }
 
   /** True while the field holds the framework focus. */
@@ -851,6 +986,7 @@ export abstract class TextInputBase extends Widget {
     this.scene?.input?.off('pointermove', this.handleScenePointerMove);
     this.scene?.input?.off('pointerup', this.handleScenePointerUp);
     this.scene?.input?.off('pointerupoutside', this.handleScenePointerUp);
+    this.scene?.events?.off(Phaser.Scenes.Events.POST_UPDATE, this.handleDragFrame);
     this.releaseAllDrags();
     this.scene?.scale?.off('resize', this.handleResize);
     this.off('pointerdown', this.handlePointerDown);
@@ -1479,6 +1615,14 @@ export abstract class TextInputBase extends Widget {
   private updateScroll(box: Rect): void {
     const contentHeight = Math.max(1, this.displayLines.length) * this.lineHeight;
     this.scrollY = clampScrollY(this.scrollY, contentHeight, box.height);
+
+    // While a drag is held past an edge, the *drag* owns the offset: the caret this repaint was
+    // triggered by sits on the edge character by construction (`extendSelectionTo`), so revealing it
+    // would only snap the content to the far end of the value — which is exactly the "one jump to the
+    // end instead of a scroll" behaviour the per-frame step exists to replace.
+    if (this.autoScrolling) {
+      return;
+    }
 
     if (this.multiline) {
       const caretDisplay = displayOffset(this.value, this.caret, this.inputType);

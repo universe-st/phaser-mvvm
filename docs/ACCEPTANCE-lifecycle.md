@@ -10,15 +10,16 @@
 
 场景 `apps/examples/src/scenes/lifecycle.ts` 建一页包含**全部控件与容器**的界面（Label / Button ×5 / Image / Spacer / Divider / Panel / Grid / Stack / Column / Row / TextField / TextArea / 虚拟化 List 套 `Scroll`），然后用 `scene.restart()` 反复重跑 `create()`，每轮采样 8 项泄漏指标：
 
-| 指标                           | 来源                               | 含义                                 |
-| ------------------------------ | ---------------------------------- | ------------------------------------ |
-| `themeListeners`               | `themeListenerCount()`             | 主题订阅必须随控件销毁归还           |
-| `displayList` / `sceneObjects` | `scene.children`                   | 场景显示列表不得累积对象             |
-| `focusables`                   | `mvvm.focus.focusables.length`     | 焦点管理器不得留住已销毁控件         |
-| `pointerTargets`               | `mvvm.input.widgets.length`        | 输入路由不得留住已销毁控件           |
-| `textures`                     | `textures.getTextureKeys().length` | 不得每轮新建纹理（文本各自持有一张） |
-| `tweens` / `timers`            | `tweens` / `Clock#_active`         | 光标闪烁等定时器不得逃逸             |
-| `widgets`                      | 页面子树节点数                     | 每轮必须建出同样规模的树             |
+| 指标                           | 来源                               | 含义                                               |
+| ------------------------------ | ---------------------------------- | -------------------------------------------------- |
+| `themeListeners`               | `themeListenerCount()`             | 主题订阅必须随控件销毁归还                         |
+| `displayList` / `sceneObjects` | `scene.children`                   | 场景显示列表不得累积对象                           |
+| `focusables`                   | `mvvm.focus.focusables.length`     | 焦点管理器不得留住已销毁控件                       |
+| `pointerTargets`               | `mvvm.input.widgets.length`        | 输入路由不得留住已销毁控件                         |
+| `textures`                     | `textures.getTextureKeys().length` | 不得每轮新建纹理（文本各自持有一张）               |
+| `tweens` / `timers`            | `tweens` / `Clock#_active`         | 光标闪烁等定时器不得逃逸                           |
+| `widgets`                      | 页面子树节点数                     | 每轮必须建出同样规模的树                           |
+| `frameListeners`（第 97 轮加） | `scene.events.listenerCount(...)`  | 逐帧钩子（滚动滑行、文本拖到边缘自动滚动）必须注销 |
 
 页面暴露 `window.lifecycle`：`churn(n)`（异步重启 n 次，每轮等首帧后采样）、`samples()`、`pages()`（每个页面是否已销毁）、`themeListeners()`、`state()`；`#status` 每轮追加一行 `lifecycle#N theme=… list=… focus=… pointer=… tex=… tweens=… timers=… widgets=…`，`#demo-state` 里另有 `pt.click` / `pt.name` 供点击与输入。
 
@@ -148,6 +149,22 @@
 2. `textures` 计数在 Node 侧无法断言（需要渲染器），只有浏览器门禁覆盖。
 3. `tweens`/`timers` 恒为 0，是因为本轮页面里没有聚焦的输入框（光标闪烁定时器只在聚焦时存在）；「聚焦后重启是否留下定时器」尚未实测。
 4. 本轮未复跑 `node scripts/visual-check.mjs`（其硬编码场景 `m0`/`probe`/`stack` 与本轮改动无关；几何断言由 Playwright MCP 的 `#status` 覆盖）。
+
+---
+
+## 5.5 追加：第 97 轮的第九项计数 `frameListeners`（并做了阳性对照）
+
+给 `TextInputBase` 加"拖到框外逐帧自动滚动"时用的是 `scene.events.on(POST_UPDATE, …)`——**逐帧监听是新的泄漏面**：忘一次 `off()`，场景重启后那个闭包还在跑，并把整个控件拖着不放。而原有的八项计数**全都看不见它**（显示列表、焦点集合、输入路由都会正常放开被销毁的控件；实测把 `off()` 注释掉，其余八项依旧恒定）。
+
+所以本轮给 `#/lifecycle` 补了第九项：`frameListeners` = `preupdate`/`update`/`postupdate` 三个事件在场景 `EventEmitter` 上的监听者总数（`scene.events.listenerCount(event)`），逐帧写进 `#demo-state` 与 `#status` 的 `frame=`。
+
+| 检查                                                                      | 结果                                                                                                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 正常运行 `churn(20)`                                                      | `frameListeners` 恒为 **11**，其余八项与 `distinctRows = 1` 一致 ✓                                                                                      |
+| **阳性对照**：注释掉 `TextInputBase.destroy()` 里的 `off(POST_UPDATE, …)` | `11 → 13 → 15 → 17 → 19 → 21 → 23`（每轮 **+2**，两个 Canvas 字段各漏一个），而 `themeListeners`/`widgets`/`focusables`/`pointerTargets` 全部照旧恒定 ✓ |
+| 恢复 `off()`                                                              | 回到恒 11 ✓                                                                                                                                             |
+
+也就是说这一项**能失败**、失败时指名的正是新加的那条逐帧路径。
 
 ---
 

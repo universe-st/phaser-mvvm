@@ -3,7 +3,7 @@ import { computed, ref } from '@phaser-mvvm/core';
 import { bindText, bindValue, type Widget } from '@phaser-mvvm/phaser';
 import { TEXT_INPUT_EVENTS, type TextField } from '@phaser-mvvm/widgets';
 import { reportControl, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget } from '../status';
+import { appendStatus, displayScale, pageOrigin, reportCanvas, reportWidget } from '../status';
 
 /** Which trigger produced a submission — the probe records it so a check can attribute the event. */
 type SubmitSource = 'name' | 'email' | 'notes' | 'canvas' | 'canvasArea' | 'button';
@@ -233,6 +233,9 @@ export class FormScene extends Phaser.Scene {
       setDemoState(`${key}.caret`, state.caret);
       setDemoState(`${key}.selection`, state.selection);
       setDemoState(`${key}.bridged`, state.bridged);
+      // `x,y` — the text scrolled *inside* the box. It is the number the drag-to-edge auto-scroll
+      // moves (V62): holding the pointer past an edge keeps changing it, frame after frame.
+      setDemoState(`${key}.scroll`, `${state.scrollLeft},${state.scrollTop}`);
     }
   }
 
@@ -242,6 +245,8 @@ export class FormScene extends Phaser.Scene {
     caret: number;
     selection: number;
     bridged: boolean;
+    scrollLeft: number;
+    scrollTop: number;
   } {
     const field = this.fields[key] as unknown as
       | {
@@ -249,6 +254,8 @@ export class FormScene extends Phaser.Scene {
           caretIndex?: number;
           selectionAnchor?: number;
           bridged?: boolean;
+          scrollLeft?: number;
+          scrollTop?: number;
         }
       | undefined;
     const caret = field?.caretIndex ?? -1;
@@ -258,6 +265,8 @@ export class FormScene extends Phaser.Scene {
       caret,
       selection: Math.abs(caret - anchor),
       bridged: field?.bridged === true,
+      scrollLeft: field?.scrollLeft ?? 0,
+      scrollTop: field?.scrollTop ?? 0,
     };
   }
 
@@ -307,15 +316,48 @@ export class FormScene extends Phaser.Scene {
       submitted: () => this.submitted.value,
       submits: () => this.submitCount,
       /**
-       * The pure-Canvas fields' editing state: value, caret, selection length and whether a bridge
-       * exists at all. Caret and selection are what that path has to get right by itself — there is no
-       * `<input>` whose `selectionStart` could be the source of truth (round 88).
+       * The pure-Canvas fields' editing state: value, caret, selection length, whether a bridge exists
+       * at all, and how far the text is scrolled inside the box. Caret and selection are what that path
+       * has to get right by itself — there is no `<input>` whose `selectionStart` could be the source of
+       * truth (round 88); the scroll is what the drag-to-edge auto-scroll moves (V62).
        */
       canvas: () => ({
         canvas: this.canvasState('canvas'),
         canvasArea: this.canvasState('canvasArea'),
         canvasRo: this.canvasState('canvasRo'),
       }),
+      /**
+       * Seeds one of the pure-Canvas fields with a value.
+       *
+       * Typing a value long enough to scroll by hand is possible but not *repeatable*: the acceptance
+       * needs the same 9 lines and the same box geometry on every run, and `setValue` is the field's
+       * own public write path (`Widget.setValue`) rather than a test-only back door.
+       */
+      setCanvas: (key: 'canvas' | 'canvasArea' | 'canvasRo', value: string) => {
+        (this.fields[key] as { setValue?: (value: string) => void } | undefined)?.setValue?.(value);
+      },
+      /**
+       * Live page rect of a field, in CSS pixels: `{ x, y, width, height }`.
+       *
+       * A drag has to start *inside the box* and end *outside it*, so the acceptance needs both numbers
+       * from the same frame. Reading them live is the rule this page already learned the hard way: the
+       * panel grew 466 → 514 px when the Canvas fields were added and every one-shot probe became a
+       * pointer aimed at nothing (PITFALLS §8.47).
+       */
+      rect: (key: string): { x: number; y: number; width: number; height: number } | null => {
+        const widget = (this.fields as Record<string, Widget | undefined>)[key];
+        if (!widget || widget.isDestroyed) {
+          return null;
+        }
+        const origin = pageOrigin(this.game, widget);
+        const scale = displayScale(this.game);
+        return {
+          x: origin.x,
+          y: origin.y,
+          width: widget.appliedRect.width * scale.x,
+          height: widget.appliedRect.height * scale.y,
+        };
+      },
     };
   }
 }

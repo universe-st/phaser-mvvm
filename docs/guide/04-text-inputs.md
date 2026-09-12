@@ -114,20 +114,21 @@ TextField({
 
 ### 方法
 
-| 方法                                                                                     | 说明                                                                                                  |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `getValue()`                                                                             | 当前值                                                                                                |
-| `setValue(value)`                                                                        | 程序化写入：值/显示/DOM 镜像/**模型绑定**全部跟上，但**不调 `onChange` 选项**（"用户编辑"才算数）     |
-| `insertText(text)` / `deleteText(dir)` / `setCaretIndex(i)`                              | 按"一次编辑"写入（与真实按键同一条 `applyEdit` 路径，`maxLength`/数字过滤照常生效）——屏幕键盘用这三个 |
-| `clear()`                                                                                | 清空（保留焦点、选项与校验状态）                                                                      |
-| `getSelection()` / `setSelection(a, b)`                                                  | 选区 `[start, end)`（码元偏移，与 `HTMLInputElement.selectionStart` 同口径）                          |
-| `caretIndex` / `selectionAnchor`                                                         | 光标位置 / 选区锚点                                                                                   |
-| `isFocused()`                                                                            | 是否持有框架焦点                                                                                      |
-| `getError()` / `setError(v)`                                                             | 读/写错误状态；`setError('文案')` 显示消息，`setError(null)` 清除                                     |
-| `validateNow()`                                                                          | 立刻跑一次 `validate`                                                                                 |
-| `focus()` / `blur()`                                                                     | 聚焦/失焦（会联动 DOM 桥与校验）                                                                      |
-| `composing` / `bridged` / `bridgeElement`                                                | 输入法组合中 / 是否走 DOM 桥 / 隐藏元素                                                               |
-| `inputType` / `align` / `maxLength` / `readOnly` / `clearable` / `placeholder` / `label` | 只读配置项                                                                                            |
+| 方法                                                                                     | 说明                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `getValue()`                                                                             | 当前值                                                                                                        |
+| `setValue(value)`                                                                        | 程序化写入：值/显示/DOM 镜像/**模型绑定**全部跟上，但**不调 `onChange` 选项**（"用户编辑"才算数）             |
+| `insertText(text)` / `deleteText(dir)` / `setCaretIndex(i)`                              | 按"一次编辑"写入（与真实按键同一条 `applyEdit` 路径，`maxLength`/数字过滤照常生效）——屏幕键盘用这三个         |
+| `clear()`                                                                                | 清空（保留焦点、选项与校验状态）                                                                              |
+| `getSelection()` / `setSelection(a, b)`                                                  | 选区 `[start, end)`（码元偏移，与 `HTMLInputElement.selectionStart` 同口径）                                  |
+| `caretIndex` / `selectionAnchor`                                                         | 光标位置 / 选区锚点                                                                                           |
+| `scrollLeft` / `scrollTop`                                                               | 文本在框内滚了多远（设计像素，与 `HTMLTextAreaElement` 同名）：打字越过边缘、或**把指针拖到框外按住**时都会变 |
+| `isFocused()`                                                                            | 是否持有框架焦点                                                                                              |
+| `getError()` / `setError(v)`                                                             | 读/写错误状态；`setError('文案')` 显示消息，`setError(null)` 清除                                             |
+| `validateNow()`                                                                          | 立刻跑一次 `validate`                                                                                         |
+| `focus()` / `blur()`                                                                     | 聚焦/失焦（会联动 DOM 桥与校验）                                                                              |
+| `composing` / `bridged` / `bridgeElement`                                                | 输入法组合中 / 是否走 DOM 桥 / 隐藏元素                                                                       |
+| `inputType` / `align` / `maxLength` / `readOnly` / `clearable` / `placeholder` / `label` | 只读配置项                                                                                                    |
 
 ### 事件
 
@@ -200,6 +201,28 @@ TextArea({
 - 高度 = `rows × 行高 + 内边距`；**同时**把 `maxHeight` 设成同一个值，所以按 `rows` 定尺的输入框不会悄悄长高。想让它继续长高，请显式写 `maxHeight`。
 - 内容超出时内部纵向滚动，光标所在行始终可见；选区跨行会逐行高亮。
 - `↑`/`↓` 在行间移动光标并**保持起始列**（列提示），跟编辑器习惯一致。
+
+### 鼠标与触摸：拖动选择、拖到框外继续滚
+
+纯 Canvas 路径（`dom: false`）的指针手势与浏览器原生输入框一致：
+
+| 手势                          | 行为                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------- |
+| 单击                          | 光标落在点处；按下即**认领**这次拖动，外层 `ScrollView` 因此不会同时滚页面（§8.53）   |
+| 拖动                          | 以按下处为锚点扩展选区；跨行拖动按视觉行推进                                          |
+| 双击 / 三击                   | 选中光标下的**词** / 整个**逻辑行**（多行字段按被点到的那一行解析字符）               |
+| **拖到框外并按住**            | 内容**按帧继续滚动**（离框越远越快，≈150–900 px/s），选区随之增长；指针回到框内立刻停 |
+| 在框外松手                    | 滚动停住，选区停在松手处（不会"回弹"或跳到末尾）                                      |
+| `readOnly: true` / `disabled` | 不认领拖动：拖过去只会滚外层容器，选区和框内滚动都不动                                |
+
+`scrollLeft`/`scrollTop` 就是这条滚动的读数（`HTMLTextAreaElement` 同名属性），可以直接断言：
+
+```ts
+// 按住不放：内容每帧继续走，数值单调变化
+console.log(field.scrollTop, field.caretIndex, field.getSelection());
+```
+
+> DOM 桥路径（默认 `dom: true`）由浏览器自己处理这一切，框架不插手。
 
 ---
 

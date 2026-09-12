@@ -196,6 +196,8 @@ export { BOX_CONTAINER_KEYS, boxOptionsOf, optionBag, splitWidgetOptions } from 
 // Text editing primitives: pure functions, shared by the widgets, the bridge and the tests.
 export {
   CARET_BLINK_MS,
+  DRAG_AUTOSCROLL_MAX_SPEED,
+  DRAG_AUTOSCROLL_RAMP,
   LINE_SPACING,
   MIN_CONTENT_WIDTH,
   PASSWORD_MASK,
@@ -209,6 +211,8 @@ export {
   computeScrollY,
   deleteRange,
   displayOffset,
+  dragAutoScrollStep,
+  edgeOverflow,
   displaySlice,
   displayValue,
   filterNumeric,
