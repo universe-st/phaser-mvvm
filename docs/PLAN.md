@@ -286,7 +286,7 @@ this.add.textField({ x: 0, y: 0, model: 'form.name', maxLength: 20 });
 
 单人全职估算；标 ★ 的里程碑可与前一项局部并行。
 
-**执行状态（2026-09）**：**M0 / M1 / M2 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3 起为未开始状态。
+**执行状态（2026-09）**：**M0 / M1 / M2 / M3 / M4 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3（适配层：文本测量器、主题、状态机、输入/焦点/导航、绑定切片）与 M4（基础控件库 `@phaser-mvvm/widgets`：Label/Panel/Button/Image/Spacer/Divider）已完成，并在 `#/gallery`、`#/dashboard`、`#/bindings` 三个 demo 上用 Playwright 实测交互通过。M5 起为未开始状态。
 
 | 里程碑 | 内容 | 交付物 | 验收标准 | 估算 |
 |--------|------|--------|----------|------|

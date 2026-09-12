@@ -1,0 +1,107 @@
+/**
+ * `Image` — a texture drawn inside a layout rect.
+ *
+ * The widget owns a `Phaser.GameObjects.Image` and never lets the layout engine scale it: the frame's
+ * natural size is remembered, `fit` maps the assigned rect onto a scale plus a centring offset
+ * (`fit.ts`), and the result is written back with `setScale`/`setPosition`. `contain` is the default,
+ * because a UI image that silently stretches is the more common bug.
+ *
+ * Its intrinsic size is the texture's, so `image({ texture: 'logo' })` measured inside a panel needs
+ * no explicit `width`/`height`.
+ */
+
+import Phaser from 'phaser';
+import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
+import { Widget } from '@phaser-mvvm/phaser';
+import { computeFit, type ImageFit } from './fit';
+import { contentBox } from './geometry';
+import { optionBag, splitWidgetOptions } from './options';
+
+export type { ImageFit } from './fit';
+
+export interface ImageOptions extends LayoutParams {
+  /** Texture key, as registered with `scene.textures`. */
+  texture: string;
+  /** Optional frame name inside the texture. */
+  frame?: string;
+  /** How the texture is mapped onto the assigned rect. Defaults to `'contain'`. */
+  fit?: ImageFit;
+  name?: string;
+}
+
+type ImageWidgetOptions = Omit<ImageOptions, keyof LayoutParams | 'name'>;
+
+const IMAGE_KEYS = ['texture', 'frame', 'fit'] as const;
+
+export class Image extends Widget {
+  /** The underlying Phaser image; exposed for tinting and custom effects. */
+  readonly image: Phaser.GameObjects.Image;
+
+  private fit: ImageFit;
+  private naturalWidth = 0;
+  private naturalHeight = 0;
+
+  constructor(scene: Phaser.Scene, options: ImageOptions) {
+    const { layout, widget } = splitWidgetOptions<ImageWidgetOptions>(
+      optionBag(options),
+      IMAGE_KEYS,
+    );
+    super(scene, { layout, name: options.name });
+
+    this.fit = widget.fit ?? 'contain';
+    this.image = new Phaser.GameObjects.Image(scene, 0, 0, widget.texture, widget.frame);
+    this.image.setOrigin(0, 0);
+    this.add(this.image);
+    this.captureNaturalSize();
+  }
+
+  /** How the texture is mapped onto the rect. */
+  get imageFit(): ImageFit {
+    return this.fit;
+  }
+
+  setFit(fit: ImageFit): this {
+    if (this.fit === fit) {
+      return this;
+    }
+    this.fit = fit;
+    this.onRectChanged(this.rect);
+    return this;
+  }
+
+  /** Swaps the texture (and optionally the frame), then re-measures. */
+  setTexture(texture: string, frame?: string): this {
+    this.image.setTexture(texture, frame);
+    this.captureNaturalSize();
+    this.markDirty();
+    return this;
+  }
+
+  /** Natural (unscaled) size of the current frame. */
+  get naturalSize(): Size {
+    return { width: this.naturalWidth, height: this.naturalHeight };
+  }
+
+  override measureContent(_constraint: BoxConstraints): Size {
+    return { width: this.naturalWidth, height: this.naturalHeight };
+  }
+
+  protected override onRectChanged(rect: Rect): void {
+    const box = contentBox(rect.width, rect.height, this.layoutParams.padding);
+    if (box.width <= 0 || box.height <= 0) {
+      // A rect without area is not a valid box to fit into; hide instead of drawing an overflow.
+      this.image.setVisible(false);
+      return;
+    }
+
+    this.image.setVisible(true);
+    const fit = computeFit(this.naturalWidth, this.naturalHeight, box.width, box.height, this.fit);
+    this.image.setScale(fit.scaleX, fit.scaleY);
+    this.image.setPosition(box.x + fit.offsetX, box.y + fit.offsetY);
+  }
+
+  private captureNaturalSize(): void {
+    this.naturalWidth = this.image.width;
+    this.naturalHeight = this.image.height;
+  }
+}

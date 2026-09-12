@@ -1,4 +1,4 @@
-# M0–M2 验收记录
+# M0–M4 验收记录
 
 > 对应 `docs/PLAN.md` 的 M0（骨架与基线）、M1（响应式内核）、M2（布局引擎）。
 > 验收环境：macOS / Node `v24.18.1` / pnpm `10.34.5` / 无头 Chrome `153.0.8010.36`（CDP 驱动，视口固定 1280×720）。
@@ -102,3 +102,45 @@ OK       backdrop / card / badge / footer
 2. `InputRouter`（pointer/keyboard 语义事件、UI 拦截层防穿透）、`FocusManager`（Tab/方向键/焦点环）；
 3. 主题令牌（`dark`/`light` 内置）+ `Widget` 状态机（`normal/hover/pressed/disabled/focused/error`）；
 4. 适配层单测补齐：以 `#/probe` 场景为基础扩展为「布局语义对照页」，把本次的像素校验扩展为多视口回归。
+
+---
+
+# M3 / M4 验收记录（2026-09）
+
+## 1. 交付
+
+| 里程碑    | 内容                                                                                                                                                                                                                                                                                      | 结果                                               |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| M3 适配层 | 文本测量器 `PhaserTextMeasurer`（LRU 缓存）、主题令牌 `theme.ts`（dark/light）、皮肤 `skin.ts`、控件状态机 `widget-state.ts`、输入路由 `input.ts`、焦点管理 `focus.ts`、导航源 `nav.ts`、绑定切片 `binding.ts`、插件接线（`this.mvvm.input/focus/theme`、帧对齐 flush、相机背景跟随主题） | 98 个单测（主题 17 + 焦点 32 + 导航 28 + 输入 21） |
+| M4 控件库 | `@phaser-mvvm/widgets`：`Label`/`Panel`/`Button`/`Image`/`Spacer`/`Divider` + 工厂 `this.add.uiLabel                                                                                                                                                                                      | uiPanel                                            | uiButton | uiImage | uiSpacer | uiDivider` | 83 个单测 |
+
+仓库门禁：`pnpm -r typecheck` 5 个项目 0 错误；`pnpm -r test` **607 passed**（layout 251 + core 175 + phaser 98 + widgets 83）；`pnpm -r build` 与 `pnpm run build:examples` 通过；`prettier --check .` 通过；`node scripts/visual-check.mjs` 16 个像素采样点全部一致。
+
+## 2. demo（`apps/examples`）与 Playwright 实测
+
+新增三个可交互场景：
+
+| 场景          | 内容                                                                                             | Playwright MCP 实测结果                                                                                                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#/gallery`   | 全部 M4 控件 × 变体/尺寸/禁用/加载/toggle、标签截断、分隔线、间距、`Image` 的 contain/cover/fill | hover → `visualState=hover`；pointerdown → `pressed`；点击 toggle → `toggle=true`（再点 → `false`）；hover 在点击后保持；Tab 5 次到达 toggle，Enter/Space 各翻转一次                                           |
+| `#/dashboard` | header + 4 张指标卡（grid）+ footer 操作栏、主题切换、数据刷新                                   | 点击主题 → `theme=light` 且画布清屏色 `#0d1117 → #f6f8fa`，再点回 `#0d1117`（主题全量重绘）；点击刷新两次 → `refreshClicks=2`、指标值变化                                                                      |
+| `#/bindings`  | `ref`/`computed` ViewModel + `bindText`/`bindVisible`/`bindEnabled`/`bindError`/`bindCommand`    | 两次 Add → `count=2 price=39.00`（computed 生效）；Toggle details → `details=true`（bindVisible）；Replace view 后再 Add → `count=4 price=78.00`（**旧订阅已随控件销毁，无重复触发**）；命令绑定运行时禁用自身 |
+
+验证方式：Playwright MCP 驱动无头 Chromium（真实 WebGL），通过页面 `#demo-state` 读取控件页面坐标并 `page.mouse.click()`/`keyboard.press()` 操作画布内控件，再读回状态；同时用 `canvas.drawImage → getImageData` 采样画布像素验证主题重绘。截图：`gallery.png`、`bindings.png`。
+
+## 3. 本轮发现并修复的真实缺陷
+
+1. **命中区未补偿 Phaser 的 Container origin**：`Container#displayOriginX = width/2`，而 `InputManager.pointWithinHitArea` 会把该值加到局部坐标上，导致命中区实际是 `[-w/2,w/2]×[-h/2,h/2]`——每个可交互控件**只有左上半区可点**，控件越大越"看起来正常"。修复：命中区建在 `(w/2, h/2, w, h)` 并与 rect 同步（`Widget.enablePointerInput`/`syncHitArea`）。两个子代理各自独立实测到同一问题。
+2. **`topOnly` 下容器子节点的排序不确定**：Phaser 只把事件派发给"最上层"对象，而容器子节点不在 display list 上、与容器本身的先后无法判定，面板的命中区会吞掉子按钮的点击。修复：`InputRouter` 关闭 `topOnly`，改为**按控件树由深到浅自行解析命中目标**（最后一个子节点画在最上层），每个控件的处理器只在"我就是解析结果"时生效。
+3. **点击后 hover 被清掉**：`handleUp` 里的 `resetInteraction` 会清 hover，而 Phaser 不会为"没离开过"的指针重发 `pointerover`。修复：点击后在指针仍位于该控件内时恢复 hover。
+4. **结构变更后输入目标不重建**：插件原先以"布局是否脏"判断是否重建输入绑定，但 `UIRoot.addWidget()` 会立即布局并清掉脏标记，导致控件从未被收集（实测 `input.widgets = 0`，点击完全无效）。修复：`Widget` 向上通知结构变更、`UIRoot.structureVersion` 计数、插件按版本号重建（`InputRouter.refresh()` 而不是 `attach()`，以免丢掉模态的 `setCapture`）。
+5. **主题只换控件不换背景**：画布清屏色固定在创建时。修复：`MVVMPlugin` 默认把 `theme.colors.background` 写入主相机并订阅主题变化（`themeBackground: false` 可关闭，供透明叠加在游戏场景之上的 UI 场景使用）。
+6. `blockPointer` 之前只暴露了 flag：现在 `collectInteractive` 会收集这类面板，使其真正吞掉落在其上的指针。
+
+## 4. 已知边界（M3/M4 范围内）
+
+- **游戏世界穿透**：UI 之上/之下若还有原生 Phaser 交互对象，指针事件仍会到达它们（我们的解析只作用于控件树）。模态遮罩可用 `InputRouter.setCapture()`；完整的"UI 场景独占输入"留给 M8 的 `UIScene`/`ModalStack`。
+- **焦点环**由控件用 `Graphics` 描边绘制（`focused` 不进入皮肤状态，避免双重描边）。
+- **toggle 按钮**激活时翻转 `value` 并 `emit('change')`，不调用 `onClick`（决策抽成纯函数 `resolveButtonActivation`）。
+- **中文无空格文本**不会折行（沿用 Phaser 的按空格换行算法）；省略号度量未计 `letterSpacing`。
+- 未实现：NineSlice/渐变皮肤、长按/连击手势、`ScrollView`/`Repeat`/`Modal`/`TextField`（M5–M7）、a11y 镜像与手柄实测（M9；手柄代码路径已接好但缺硬件实测）。

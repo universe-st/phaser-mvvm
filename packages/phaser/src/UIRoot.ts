@@ -31,6 +31,7 @@ export class UIRoot extends Widget {
   readonly layoutEngine: LayoutEngine;
 
   private laidOut = false;
+  private structureCounter = 0;
 
   constructor(scene: Phaser.Scene, options: UIRootOptions = {}) {
     super(scene, { layout: { width: 0, height: 0, ...options.layout }, name: options.name });
@@ -38,6 +39,10 @@ export class UIRoot extends Widget {
     this.container = options.container ?? {
       type: 'stack',
       options: { align: options.align ?? 'center' },
+    };
+
+    this.structureListener = () => {
+      this.structureCounter++;
     };
 
     this.layoutEngine = new LayoutEngine({
@@ -51,6 +56,14 @@ export class UIRoot extends Widget {
     scene.scale.on('resize', this.handleResize, this);
 
     this.resize();
+  }
+
+  /**
+   * Bumped whenever the widget tree gains or loses a widget; the scene plugin compares it to know
+   * when input targets have to be re-collected.
+   */
+  get structureVersion(): number {
+    return this.structureCounter;
   }
 
   override addWidget<T extends Widget>(child: T): T {

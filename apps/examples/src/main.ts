@@ -1,17 +1,30 @@
 import Phaser from 'phaser';
 import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
+import { installWidgetFactories } from '@phaser-mvvm/widgets';
+import { BindingsScene } from './scenes/bindings';
+import { DashboardScene } from './scenes/dashboard';
+import { GalleryScene } from './scenes/gallery';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
 import { StackScene } from './scenes/stack';
 import { appendStatus, installErrorReporting, setStatus } from './status';
 
-// Registers `this.add.vbox/hbox/uiGrid/uiStack/uiRect/uiLabel`.
+// Registers `this.add.vbox/hbox/uiGrid/uiStack/uiAbsolute/uiRect` …
 installFactories();
+// … and the widget library's `this.add.uiLabel/uiPanel/uiButton/uiImage/uiSpacer/uiDivider`.
+installWidgetFactories();
 
 installErrorReporting();
 setStatus('boot');
 
-const SCENES = { m0: M0Scene, probe: ProbeScene, stack: StackScene } as const;
+const SCENES = {
+  m0: M0Scene,
+  probe: ProbeScene,
+  stack: StackScene,
+  gallery: GalleryScene,
+  dashboard: DashboardScene,
+  bindings: BindingsScene,
+} as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');
 const initial = requested in SCENES ? (requested as keyof typeof SCENES) : 'm0';

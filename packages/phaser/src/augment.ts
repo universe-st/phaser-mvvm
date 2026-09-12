@@ -18,7 +18,7 @@ import type {
   StackWidgetOptions,
 } from './LayoutWidget';
 import type { Widget } from './Widget';
-import type { LabelWidget, LabelWidgetOptions, RectWidget, RectWidgetOptions } from './widgets';
+import type { RectWidget, RectWidgetOptions } from './widgets';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -37,8 +37,6 @@ declare global {
         uiAbsolute(options?: AbsoluteWidgetOptions, children?: Widget[]): AbsoluteWidget;
         /** Creates a solid rectangle widget and adds it to the Scene. */
         uiRect(options?: RectWidgetOptions): RectWidget;
-        /** Creates a text label widget and adds it to the Scene. */
-        uiLabel(options?: LabelWidgetOptions): LabelWidget;
       }
     }
 

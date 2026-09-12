@@ -20,12 +20,7 @@ import {
   StackWidget,
 } from './LayoutWidget';
 import type { Widget } from './Widget';
-import {
-  LabelWidget,
-  type LabelWidgetOptions,
-  RectWidget,
-  type RectWidgetOptions,
-} from './widgets';
+import { RectWidget, type RectWidgetOptions } from './widgets';
 
 interface FactoryInternals {
   scene: Phaser.Scene;
@@ -112,24 +107,13 @@ export function installFactories(): void {
     );
   });
 
-  registry.register('uiLabel', function (this: unknown, options) {
-    const factory = internalsOf(this);
-    return factory.displayList.add(
-      new LabelWidget(factory.scene, (options as LabelWidgetOptions) ?? {}),
-    );
-  });
+  // `uiLabel` is owned by `@phaser-mvvm/widgets`: its `Label` supersedes the probe widget that ships
+  // with this package, and `installWidgetFactories()` registers it. Registering it here as well would
+  // make the factory key order-dependent.
 }
 
 /** Factory keys registered by this package (useful in tests and docs). */
-export const FACTORY_KEYS = [
-  'vbox',
-  'hbox',
-  'uiGrid',
-  'uiStack',
-  'uiAbsolute',
-  'uiRect',
-  'uiLabel',
-] as const;
+export const FACTORY_KEYS = ['vbox', 'hbox', 'uiGrid', 'uiStack', 'uiAbsolute', 'uiRect'] as const;
 
 /** True when `installFactories()` has run in this process. */
 export function factoriesInstalled(): boolean {

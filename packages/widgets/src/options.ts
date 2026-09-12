@@ -1,0 +1,68 @@
+/**
+ * Option handling shared by the widget library.
+ *
+ * Every widget mixes node-level `LayoutParams` (`width`, `padding`, `grow`, …) with its own options
+ * in one flat object, the same convention the declarative layout containers use. `splitOptions` from
+ * the adapter — which is public API — does the split; this module adds the two small helpers the
+ * widgets need on top of it, so the widgets themselves stay free of key bookkeeping.
+ */
+
+import type { BoxLayoutOptions, LayoutParams } from '@phaser-mvvm/layout';
+import { splitOptions } from '@phaser-mvvm/phaser';
+
+/** Box-container option keys, matching `BoxLayoutOptions` in `@phaser-mvvm/layout`. */
+export const BOX_CONTAINER_KEYS = [
+  'direction',
+  'gap',
+  'rowGap',
+  'columnGap',
+  'justifyContent',
+  'alignItems',
+  'wrap',
+  'alignContent',
+  'reverse',
+] as const;
+
+export interface WidgetOptionSplit<W> {
+  /** Node-level params handed to `Widget`. */
+  layout: LayoutParams;
+  /** Widget-level options, read straight off the typed option bag. */
+  widget: W;
+}
+
+/**
+ * Views a rich options interface as the plain bag `splitOptions` walks.
+ *
+ * The double assertion is the price of reading a typed option object key by key: an interface has no
+ * implicit index signature, while a mapped type such as `Omit<X, K>` does.
+ */
+export function optionBag(options: object): Record<string, unknown> {
+  return options as unknown as Record<string, unknown>;
+}
+
+/**
+ * Splits a mixed option bag into `LayoutParams` and the widget's own options.
+ *
+ * Keys listed in `widgetKeys` are moved out of the layout params; everything else flows through to
+ * `normalizeParams`, which ignores names it does not know. `name` is dropped by `splitOptions` and
+ * must be read from the original object.
+ */
+export function splitWidgetOptions<W extends Record<string, unknown>>(
+  options: Record<string, unknown>,
+  widgetKeys: readonly string[],
+): WidgetOptionSplit<W> {
+  const { layout, container } = splitOptions<W>(options, widgetKeys);
+  return { layout, widget: container };
+}
+
+/** Collects the box-container keys of a mixed option bag, leaving widget-only keys behind. */
+export function boxOptionsOf(source: Record<string, unknown>): BoxLayoutOptions {
+  const options: Record<string, unknown> = {};
+  for (const key of BOX_CONTAINER_KEYS) {
+    const value = source[key];
+    if (value !== undefined) {
+      options[key] = value;
+    }
+  }
+  return options as BoxLayoutOptions;
+}

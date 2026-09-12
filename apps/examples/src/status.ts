@@ -60,7 +60,7 @@ export function reportWidget(label: string, widget: Reportable): void {
 }
 
 /** Sums the local positions of a widget and its container ancestors (UI has no rotation/scale). */
-function stagePosition(widget: Reportable): { x: number; y: number } {
+export function stagePosition(widget: Reportable): { x: number; y: number } {
   let x = 0;
   let y = 0;
   let current: StageTransform | null = widget;

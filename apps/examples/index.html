@@ -22,6 +22,23 @@
       #game canvas {
         display: block;
       }
+      #demo-state {
+        position: fixed;
+        right: 10px;
+        bottom: 10px;
+        z-index: 10;
+        margin: 0;
+        font:
+          12px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #6e7681;
+        white-space: pre-wrap;
+        max-width: 40vw;
+        text-align: right;
+        pointer-events: none;
+      }
       #status {
         position: fixed;
         left: 10px;
@@ -42,6 +59,7 @@
   <body>
     <div id="game"></div>
     <pre id="status"></pre>
+    <pre id="demo-state"></pre>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
