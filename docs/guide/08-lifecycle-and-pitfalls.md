@@ -212,7 +212,17 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 - **文本框的聚焦/失焦没有事件**：只有 `onFocus`/`onBlur` 构造选项（04 §4）。
 - **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，需要运行期自行设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
 - **`UIRoot` 不设置 `scrollFactor`**：源码里没有任何 `setScrollFactor(0)`，主相机一旦滚动整棵 UI 会跟着动。要固定在屏幕上请自己调 `this.mvvm.root.setScrollFactor(0)`。
-- **`hideMode` 尚未生效**：`LayoutParams.hideMode` 会被解析保存，但引擎与 `Widget` 都没有读取它；真正决定「是否退出流」的是 `inFlow`（`Widget.inFlow === visible`），所以 `hideMode: 'keep'` 目前没有效果（[02 §3](./02-layout.md)）。
+- **`hideMode` 尚未生效（`'keep'` 目前等同 `'collapse'`）**：`LayoutParams.hideMode` 会被解析保存，但引擎与 `Widget` 都没有读取它；真正决定「是否退出流」的是 `inFlow`（`Widget.inFlow === visible`）。**想在隐藏时保留占位**，今天可行的做法是外面套一个固定尺寸的容器，只切换里面那个节点的 `visible`：
+
+  ```ts
+  // Column 的高度由 slot 自己决定，与孩子是否可见无关
+  Column({ width: 'fill', height: 48, alignItems: 'stretch' }, () => {
+    Text('可能要隐藏的内容', { visible: () => on.value });
+  });
+  ```
+
+  等真正实现 `hideMode: 'keep'` 时，注意它只应影响**布局流**：不可见的节点不应该变成可聚焦/可点击的（焦点与指针收集看的是 `visible`，不是 `inFlow`）。
+
 - **`@phaser-mvvm/phaser` 里还留着 M0 的探针控件** `RectWidget`/`LabelWidget` 与 `uiRect`/`uiLabel` 工厂：可用；DSL 侧已把 `RectWidget` 包成 `Rect()`（[09 §4](./09-compose-dsl.md)），正式项目请用 `@phaser-mvvm/widgets` 的控件与 DSL。
 
 ---
