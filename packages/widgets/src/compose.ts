@@ -37,6 +37,7 @@ import {
   AbsoluteWidget,
   type AbsoluteWidgetOptions,
   bindBooleanModel,
+  BOX_KEYS,
   bindModel,
   bindNumberModel,
   bindText,
@@ -48,12 +49,16 @@ import {
   buildUiSubtree,
   currentUiScene,
   emitWidget,
-  GridWidget,
+  GRID_KEYS,
   type GridLayoutOptions,
+  GridWidget,
   type GridWidgetOptions,
+  type LayoutParams,
   RectWidget,
   type RectWidgetOptions,
+  runtimeOptionTarget,
   StackWidget,
+  STACK_KEYS,
   type StackWidgetOptions,
   type Widget,
   withUiParent,
@@ -73,6 +78,7 @@ import { Panel as PanelWidget, type PanelOptions, type PanelVariant } from './Pa
 import { Repeat, type RepeatOptions } from './Repeat';
 import { ScrollView, type ScrollViewOptions } from './ScrollView';
 import { withListFlow, type ListFlowShorthands } from './list-flow';
+import { optionBag } from './options';
 import { Slider as SliderWidget, SLIDER_EVENTS, type SliderOptions } from './Slider';
 import { Spacer as SpacerWidget, type SpacerOptions } from './Spacer';
 import {
@@ -140,70 +146,77 @@ export function render(plugin: MVVMPlugin, content: () => void): Widget {
 // --------------------------------------------------------------------- containers
 
 /** Options of `Column`/`Row`: the box widget's own bag plus the DSL slots. */
-export type ColumnOptions = BoxWidgetOptions & DslOptions;
-export type RowOptions = BoxWidgetOptions & DslOptions;
+export type ColumnOptions = Slotted<BoxWidgetOptions, SlotKeys<BoxWidgetOptions, BoxSlotKeys>> &
+  DslOptions;
+export type RowOptions = Slotted<BoxWidgetOptions, SlotKeys<BoxWidgetOptions, BoxSlotKeys>> &
+  DslOptions;
 
 /** A vertical box: `Column({ gap: 8 }, () => { … })` or `Column(() => { … })`. */
 export function Column(options?: ColumnOptions | (() => void), content?: () => void): BoxWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { rest } = splitDsl<BoxWidgetOptions>(args.options, 'box');
   const scene = currentUiScene();
   const widget = new BoxWidget(scene, { ...rest, direction: 'vertical' });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   return withUiParent(widget, args.content);
 }
 
 /** A horizontal box. */
 export function Row(options?: RowOptions | (() => void), content?: () => void): BoxWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { rest } = splitDsl<BoxWidgetOptions>(args.options, 'box');
   const scene = currentUiScene();
   const widget = new BoxWidget(scene, { ...rest, direction: 'horizontal' });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   return withUiParent(widget, args.content);
 }
 
 /** A grid of equally sized tracks. */
 export function Grid(
-  options?: (GridWidgetOptions & DslOptions) | (() => void),
+  options?:
+    | (Slotted<GridWidgetOptions, SlotKeys<GridWidgetOptions, GridSlotKeys>> & DslOptions)
+    | (() => void),
   content?: () => void,
 ): GridWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { rest } = splitDsl<GridWidgetOptions>(args.options, 'grid');
   const scene = currentUiScene();
   const widget = new GridWidget(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   return withUiParent(widget, args.content);
 }
 
 /** A stack: children overlap and are aligned inside the same box. */
 export function Stack(
-  options?: (StackWidgetOptions & DslOptions) | (() => void),
+  options?:
+    | (Slotted<StackWidgetOptions, SlotKeys<StackWidgetOptions, StackSlotKeys>> & DslOptions)
+    | (() => void),
   content?: () => void,
 ): StackWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { rest } = splitDsl<StackWidgetOptions>(args.options, 'stack');
   const scene = currentUiScene();
   const widget = new StackWidget(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   return withUiParent(widget, args.content);
 }
 
 /** An absolutely positioned container: children carry `position: 'absolute'` plus their offsets. */
 export function Absolute(
-  options?: (AbsoluteWidgetOptions & DslOptions) | (() => void),
+  options?:
+    (Slotted<AbsoluteWidgetOptions, SlotKeys<AbsoluteWidgetOptions>> & DslOptions) | (() => void),
   content?: () => void,
 ): AbsoluteWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { rest } = splitDsl<AbsoluteWidgetOptions>(args.options, 'absolute');
   const scene = currentUiScene();
   const widget = new AbsoluteWidget(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   return withUiParent(widget, args.content);
 }
 
@@ -220,7 +233,7 @@ export function Absolute(
  */
 export function Panel(options?: PanelDslOptions | (() => void), content?: () => void): PanelWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest: bag } = splitDsl(args.options);
+  const { rest: bag } = splitDsl<PanelOptions>(args.options, 'box');
   const { variant, ...rest } = bag;
   const scene = currentUiScene();
   const widget = new PanelWidget(scene, {
@@ -228,7 +241,7 @@ export function Panel(options?: PanelDslOptions | (() => void), content?: () => 
     ...(variant === undefined ? {} : { variant: readReactive(variant) }),
   });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   bindOption(widget, variant, (host, next) => host.setVariant(next));
   return withUiParent(widget, args.content);
 }
@@ -240,12 +253,14 @@ export function Panel(options?: PanelDslOptions | (() => void), content?: () => 
  * this is the primitive for a plain swatch, a colour chip, or a spacer that needs a fill. It takes the
  * widget's own options plus the usual DSL slots, exactly like every other leaf.
  */
-export function Rect(options: RectWidgetOptions & DslOptions = {}): RectWidget {
-  const { visible, rest } = splitDsl(options);
+export function Rect(
+  options: Slotted<RectWidgetOptions, SlotKeys<RectWidgetOptions>> & DslOptions = {},
+): RectWidget {
+  const { rest } = splitDsl<RectWidgetOptions>(options);
   const scene = currentUiScene();
   const widget = new RectWidget(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   return emitWidget(widget);
 }
 
@@ -263,7 +278,10 @@ export function Rect(options: RectWidgetOptions & DslOptions = {}): RectWidget {
  * and writing the ref scrolls the view ("回到顶部" is `offset.value = 0`). A getter is one-way: the
  * state drives the view, and the view never writes anywhere.
  */
-export type ScrollDslOptions = Omit<ScrollViewOptions, 'content' | 'offset'> & {
+export type ScrollDslOptions = Slotted<
+  Omit<ScrollViewOptions, 'content' | 'offset'>,
+  SlotKeys<ScrollViewOptions>
+> & {
   /** Scroll position along the primary axis, in design pixels. */
   offset?: ReactiveSource<number>;
 } & DslOptions;
@@ -273,12 +291,16 @@ export function Scroll(
   content?: () => void,
 ): ScrollView {
   const args = normalizeContent(options, content);
-  const { visible, rest: bag } = splitDsl(args.options);
-  const { offset, ...rest } = bag;
+  // `offset` is a DSL slot on the *widget* (`setScrollOffset`), not a `ScrollViewOptions` field, so it is
+  // taken out before the bag is resolved into widget options.
+  const { offset, ...widgetOptions } = args.options as ScrollDslOptions & {
+    offset?: ReactiveSource<number>;
+  };
+  const { rest } = splitDsl<Omit<ScrollViewOptions, 'content'>>(widgetOptions, 'scroll');
   const scene = currentUiScene();
   const widget = new ScrollView(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, args.options);
   emitWidget(widget);
   if (args.content) {
     widget.setContent(buildUiSubtree(scene, args.content, 'Scroll()'));
@@ -336,11 +358,11 @@ export function Branch<K extends string | number>(
   branches: Readonly<Record<string, BranchBuilder | undefined>>,
   options: BoxWidgetOptions & DslOptions = {},
 ): BranchWidget {
-  const { visible, rest } = splitDsl(options);
+  const { rest } = splitDsl<BoxWidgetOptions>(options, 'box');
   const scene = currentUiScene();
   const widget = new BranchWidget(scene, { ...rest, branches });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   emitWidget(widget);
 
   // A `ref`/getter is bound frame-aligned like every other data slot, so the switch happens on the
@@ -372,32 +394,128 @@ export interface DslOptions {
   visible?: ReactiveSource<boolean>;
 }
 
-/** Splits the DSL-level slots out of a widget's own option bag. */
-function splitDsl<O extends DslOptions>(
-  options: O,
+/** Container option key unions, derived from the one table `setContainerOptions()` validates against. */
+type BoxSlotKeys = (typeof BOX_KEYS)[number];
+type GridSlotKeys = (typeof GRID_KEYS)[number];
+type StackSlotKeys = (typeof STACK_KEYS)[number];
+
+/** The keys of `T` that are runtime slots: its layout params, plus `C` (a container's own options). */
+type SlotKeys<T, C = never> = Extract<keyof T, keyof LayoutParams> | Extract<keyof T, C>;
+
+/**
+ * The keys of `T` that may also be given as a `Ref`/getter — the **layout slots**.
+ *
+ * `K` is exactly what the widget can apply at runtime: its `LayoutParams` (`width`, `padding`, `grow`, …)
+ * and, for a container, its container options (`gap`, `alignItems`, `columns`, …). Every other option
+ * keeps its literal type, because a key without a runtime setter cannot be a slot — promising otherwise in
+ * the types and ignoring the value at runtime is the trap `reportUnknownOptions()` exists to close.
+ *
+ * ```ts
+ * Column({ gap: () => (state.dense.value ? 4 : 12) }, () => { … });   // re-lays out when the ref flips
+ * Text('hi', { width: () => (state.wide.value ? 300 : 120) });        // … and so does a leaf's own box
+ * ```
+ *
+ * The flip re-runs the layout pass on the subtree; nothing is rebuilt, so focus, scroll offsets and child
+ * state survive — which is the whole point of a slot.
+ */
+export type Slotted<T, K extends keyof T = never> = {
+  [P in keyof T]: P extends K ? T[P] | ReactiveSource<NonNullable<T[P]>> : T[P];
+};
+
+/**
+ * Splits the DSL-level slots out of a widget's own option bag, **resolving the layout slots** on the way.
+ *
+ * A widget is constructed with values, not with sources: `new BoxWidget(scene, { gap: Ref })` would store
+ * the `Ref` as a gap. So a slot key given as a `Ref`/getter is read once here (`readReactive`), and
+ * `applyDslOptions()` binds it afterwards so later flips go through `setLayoutParams()` /
+ * `setContainerOptions()`.
+ *
+ * `containerType` is the container the wrapper is about to build (`'box'`, `'grid'`, …) — it decides which
+ * of the bag's keys are container options; leaf widgets pass nothing and only their layout params resolve.
+ */
+function splitDsl<W extends object>(
+  options: object,
+  containerType?: string | null,
 ): {
   visible: ReactiveSource<boolean> | undefined;
-  rest: Omit<O, 'visible'>;
+  rest: Omit<W, 'visible'>;
 } {
-  const { visible, ...rest } = options;
-  return { visible, rest };
+  const { visible, ...rest } = optionBag(options) as {
+    visible?: ReactiveSource<boolean>;
+  } & Record<string, unknown>;
+  // The cast is the point of this function: `W` is the **widget's** option bag (values), while the bag
+  // handed in is the DSL's (values *or* sources). Resolution is what makes the two the same shape.
+  return { visible, rest: resolveSlots<Omit<W, 'visible'>>(rest, containerType) };
+}
+
+/**
+ * Replaces every layout slot that was given as a `Ref`/getter with its current value.
+ *
+ * @see splitDsl — this is the construction-time half of the same rule.
+ */
+function resolveSlots<W extends object>(
+  bag: Record<string, unknown>,
+  containerType?: string | null,
+): W {
+  let resolved: Record<string, unknown> | null = null;
+  for (const [key, value] of Object.entries(bag)) {
+    if (!isReactiveSource(value) || runtimeOptionTarget(containerType ?? null, key) === null) {
+      continue;
+    }
+    resolved ??= { ...bag };
+    resolved[key] = readReactive(value as ReactiveSource<unknown>);
+  }
+  return (resolved ?? bag) as W;
 }
 
 /** Applies the DSL-level options (currently just `visible`) to a freshly built widget. */
-function applyDslOptions(widget: Widget, options: { visible?: ReactiveSource<boolean> }): void {
-  const visible = options.visible;
-  if (visible === undefined) {
-    return;
+function applyDslOptions(widget: Widget, options: object): void {
+  const bag = optionBag(options);
+  const visible = bag.visible as ReactiveSource<boolean> | undefined;
+  if (visible !== undefined) {
+    widget.setVisible(readReactive(visible));
+    if (isReactiveSource(visible)) {
+      bindValue(
+        widget,
+        () => readReactive(visible) === true,
+        (value, host) => {
+          host.setVisible(value);
+        },
+      );
+    }
   }
-  widget.setVisible(readReactive(visible));
-  if (isReactiveSource(visible)) {
-    bindValue(
-      widget,
-      () => readReactive(visible) === true,
-      (value, host) => {
-        host.setVisible(value);
-      },
-    );
+  bindLayoutSlots(widget, bag);
+}
+
+/**
+ * Binds every layout slot of a freshly built widget — the one place that turns `{ gap: () => … }` or
+ * `{ width: ref }` into a runtime patch.
+ *
+ * It runs for **every** DSL wrapper (`applyDslOptions` is the funnel they all call) because these keys are
+ * the ones no widget setter owns: `width`/`padding`/`grow`/… go through `setLayoutParams()`, container
+ * options (`gap`, `alignItems`, `columns`, …) through `setContainerOptions()`. The engine reads both on the
+ * next layout pass, so flipping a ref re-lays out the subtree instead of rebuilding it.
+ *
+ * Which keys qualify comes from `runtimeOptionTarget()` — the same table `setContainerOptions()` validates
+ * against — and never from the value's shape: `onClick`, `validate` and `items` are callbacks, and a
+ * callback is textually indistinguishable from a getter.
+ */
+function bindLayoutSlots(widget: Widget, options: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(options)) {
+    if (key === 'visible' || !isReactiveSource(value)) {
+      continue;
+    }
+    const target = runtimeOptionTarget(widget.container?.type ?? null, key);
+    if (target === null) {
+      continue;
+    }
+    bindValue(widget, sourceGetter(value), (next, host) => {
+      if (target === 'container') {
+        host.setContainerOptions({ [key]: next });
+      } else {
+        host.setLayoutParams({ [key]: next } as LayoutParams);
+      }
+    });
   }
 }
 
@@ -424,7 +542,10 @@ function bindOption<T, W extends Widget>(
  * `variant` is a theme token, and a token is state as often as it is a constant: a card turns `danger`
  * while its form is invalid and `primary` once it is saved.
  */
-export type PanelDslOptions = Omit<PanelOptions, 'variant'> & {
+export type PanelDslOptions = Slotted<
+  Omit<PanelOptions, 'variant'>,
+  SlotKeys<PanelOptions, BoxSlotKeys>
+> & {
   /** Background flavour; a `Ref`/getter repaints the panel (and its default border) when it changes. */
   variant?: ReactiveSource<PanelVariant>;
 } & DslOptions;
@@ -434,13 +555,19 @@ export type PanelDslOptions = Omit<PanelOptions, 'variant'> & {
  *
  * `kind` accepts a literal or a reactive source: a `ref`/getter rebuilds the keys when it changes.
  */
-export type VirtualKeyboardDslOptions = Omit<VirtualKeyboardOptions, 'kind'> & {
+export type VirtualKeyboardDslOptions = Slotted<
+  Omit<VirtualKeyboardOptions, 'kind'>,
+  SlotKeys<VirtualKeyboardOptions, BoxSlotKeys>
+> & {
   /** Which key set to show; a `Ref`/getter switches it (the widget rebuilds its keys). */
   kind?: ReactiveSource<VirtualKeyboardKind>;
 } & DslOptions;
 
 /** Options of `Text`: the label's own bag, plus the DSL's reactive slots. */
-export type TextOptions = Omit<LabelOptions, 'tone' | 'maxLines' | 'ellipsis'> & {
+export type TextOptions = Slotted<
+  Omit<LabelOptions, 'tone' | 'maxLines' | 'ellipsis'>,
+  SlotKeys<LabelOptions>
+> & {
   /** Semantic colour; a `Ref`/getter repaints the label when it flips. */
   tone?: ReactiveSource<LabelTone>;
   /**
@@ -469,9 +596,9 @@ export type TextOptions = Omit<LabelOptions, 'tone' | 'maxLines' | 'ellipsis'> &
  */
 export function Text(value: ReactiveSource<string>, options: TextOptions = {}): Label {
   const scene = currentUiScene();
-  const { tone, maxLines, ellipsis, visible, ...rest } = options;
+  const { tone, maxLines, ellipsis, ...rest } = options;
   const label = new Label(scene, {
-    ...rest,
+    ...resolveSlots<LabelOptions>(optionBag(rest)),
     ...(tone === undefined ? {} : { tone: readReactive(tone) }),
     ...(maxLines === undefined ? {} : { maxLines: readReactive(maxLines) }),
     ...(ellipsis === undefined ? {} : { ellipsis: readReactive(ellipsis) === true }),
@@ -479,7 +606,7 @@ export function Text(value: ReactiveSource<string>, options: TextOptions = {}): 
   });
   scene.add.existing(label);
   emitWidget(label);
-  applyDslOptions(label, { visible });
+  applyDslOptions(label, options);
   if (isReactiveSource(value)) {
     bindText(label, sourceGetter(value));
   }
@@ -496,7 +623,10 @@ export function Text(value: ReactiveSource<string>, options: TextOptions = {}): 
  * two-way (flipping the button writes the ref, changing the ref flips the button), a getter is one-way
  * and routes user changes to `onValueChange`.
  */
-export type ButtonDslOptions = Omit<ButtonOptions, 'variant' | 'disabled' | 'loading' | 'value'> & {
+export type ButtonDslOptions = Slotted<
+  Omit<ButtonOptions, 'variant' | 'disabled' | 'loading' | 'value'>,
+  SlotKeys<ButtonOptions>
+> & {
   variant?: ReactiveSource<ButtonVariant>;
   disabled?: ReactiveSource<boolean>;
   loading?: ReactiveSource<boolean>;
@@ -510,9 +640,9 @@ export function Button(
   options: ButtonDslOptions = {},
 ): ButtonWidget {
   const scene = currentUiScene();
-  const { variant, disabled, loading, value, onValueChange, visible, ...rest } = options;
+  const { variant, disabled, loading, value, onValueChange, ...rest } = options;
   const button = new ButtonWidget(scene, {
-    ...rest,
+    ...resolveSlots<ButtonOptions>(optionBag(rest)),
     ...(variant === undefined ? {} : { variant: readReactive(variant) }),
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     ...(loading === undefined ? {} : { loading: readReactive(loading) === true }),
@@ -521,7 +651,7 @@ export function Button(
   });
   scene.add.existing(button);
   emitWidget(button);
-  applyDslOptions(button, { visible });
+  applyDslOptions(button, options);
   if (isReactiveSource(label)) {
     bindText(button, sourceGetter(label));
   }
@@ -544,7 +674,10 @@ export function Button(
 
 /** A texture image. */
 /** Options of `Image`: the widget's bag with a reactive texture. */
-export type ImageDslOptions = Omit<ImageOptions, 'texture' | 'frame'> & {
+export type ImageDslOptions = Slotted<
+  Omit<ImageOptions, 'texture' | 'frame'>,
+  SlotKeys<ImageOptions>
+> & {
   /**
    * Texture key, as registered with `scene.textures`; a `Ref`/getter swaps it at runtime.
    *
@@ -559,15 +692,15 @@ export type ImageDslOptions = Omit<ImageOptions, 'texture' | 'frame'> & {
 
 /** A texture drawn inside a layout rect. */
 export function Image(options: ImageDslOptions): ImageWidget {
-  const { texture, frame, visible, ...rest } = options;
+  const { texture, frame, ...rest } = options;
   const scene = currentUiScene();
   const widget = new ImageWidget(scene, {
-    ...rest,
+    ...resolveSlots<ImageOptions>(optionBag(rest)),
     texture: readReactive(texture ?? ''),
     ...(frame === undefined ? {} : { frame: readReactive(frame) }),
   });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   bindOption(widget, texture, (host, next) => host.setTexture(next));
   // `setTexture(texture, frame)`: a reactive frame keeps the current texture and swaps only the frame,
   // which is why the two slots cannot share one `bindOption` callback without losing the other half.
@@ -578,12 +711,14 @@ export function Image(options: ImageDslOptions): ImageWidget {
 }
 
 /** Empty space. `Spacer({ flex: true })` is this framework's `Modifier.weight(1f)`. */
-export function Spacer(options: SpacerOptions & DslOptions = {}): SpacerWidget {
-  const { visible, rest } = splitDsl(options);
+export function Spacer(
+  options: Slotted<SpacerOptions, SlotKeys<SpacerOptions>> & DslOptions = {},
+): SpacerWidget {
+  const { rest } = splitDsl<SpacerOptions>(options);
   const scene = currentUiScene();
   const widget = new SpacerWidget(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   return emitWidget(widget);
 }
 
@@ -613,23 +748,25 @@ export function VirtualKeyboard(options: VirtualKeyboardDslOptions): VirtualKeyb
   const { visible, kind, ...rest } = options;
   const scene = currentUiScene();
   const widget = new VirtualKeyboardWidget(scene, {
-    ...rest,
+    ...resolveSlots<VirtualKeyboardOptions>(optionBag(rest)),
     ...(kind === undefined ? {} : { kind: readReactive(kind) }),
   });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   bindOption(widget, kind, (host, next) => {
     host.setKind(next);
   });
   return withUiParent(widget);
 }
 
-export function Divider(options: DividerOptions & DslOptions = {}): DividerWidget {
-  const { visible, rest } = splitDsl(options);
+export function Divider(
+  options: Slotted<DividerOptions, SlotKeys<DividerOptions>> & DslOptions = {},
+): DividerWidget {
+  const { rest } = splitDsl<DividerOptions>(options);
   const scene = currentUiScene();
   const widget = new DividerWidget(scene, rest);
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   return emitWidget(widget);
 }
 
@@ -641,7 +778,12 @@ export function Divider(options: DividerOptions & DslOptions = {}): DividerWidge
  * state in a store rather than a `ref` can still write it back.
  */
 export interface TextFieldDslOptions
-  extends Omit<TextFieldOptions, 'value' | 'onChange' | 'disabled' | 'readOnly'>, DslOptions {
+  extends
+    Slotted<
+      Omit<TextFieldOptions, 'value' | 'onChange' | 'disabled' | 'readOnly'>,
+      SlotKeys<TextFieldOptions>
+    >,
+    DslOptions {
   value?: ReactiveSource<string>;
   /** Reactive enabled state: `disabled: () => saving.value` (a `false` re-enables the field). */
   disabled?: ReactiveSource<boolean>;
@@ -660,7 +802,12 @@ export interface TextFieldDslOptions
 
 /** {@link TextFieldDslOptions} for the multi-line field. */
 export interface TextAreaDslOptions
-  extends Omit<TextAreaOptions, 'value' | 'onChange' | 'disabled' | 'readOnly'>, DslOptions {
+  extends
+    Slotted<
+      Omit<TextAreaOptions, 'value' | 'onChange' | 'disabled' | 'readOnly'>,
+      SlotKeys<TextAreaOptions>
+    >,
+    DslOptions {
   value?: ReactiveSource<string>;
   /** Reactive enabled state; see {@link TextFieldDslOptions.disabled}. */
   disabled?: ReactiveSource<boolean>;
@@ -674,15 +821,15 @@ export interface TextAreaDslOptions
 /** A single-line text input. */
 export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, disabled, readOnly, error, visible, ...rest } = options;
+  const { value, onValueChange, disabled, readOnly, error, ...rest } = options;
   const field = new TextFieldWidget(scene, {
-    ...rest,
+    ...resolveSlots<TextFieldOptions>(optionBag(rest)),
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     ...(readOnly === undefined ? {} : { readOnly: readReactive(readOnly) === true }),
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
-  applyDslOptions(field, { visible });
+  applyDslOptions(field, options);
   emitWidget(field);
   applyStateSlots(field, disabled, error);
   bindOption(field, readOnly, (host, next) => host.setReadOnly(next === true));
@@ -693,15 +840,15 @@ export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
 /** A multi-line text input. */
 export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, disabled, readOnly, error, visible, ...rest } = options;
+  const { value, onValueChange, disabled, readOnly, error, ...rest } = options;
   const field = new TextAreaWidget(scene, {
-    ...rest,
+    ...resolveSlots<TextAreaOptions>(optionBag(rest)),
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     ...(readOnly === undefined ? {} : { readOnly: readReactive(readOnly) === true }),
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
-  applyDslOptions(field, { visible });
+  applyDslOptions(field, options);
   emitWidget(field);
   applyStateSlots(field, disabled, error);
   bindOption(field, readOnly, (host, next) => host.setReadOnly(next === true));
@@ -716,7 +863,12 @@ export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
  * `onValueChange` fires on every user change, so a caller that keeps state in a store can write it back.
  */
 export interface SliderDslOptions
-  extends Omit<SliderOptions, 'value' | 'onChange' | 'disabled' | 'min' | 'max'>, DslOptions {
+  extends
+    Slotted<
+      Omit<SliderOptions, 'value' | 'onChange' | 'disabled' | 'min' | 'max'>,
+      SlotKeys<SliderOptions>
+    >,
+    DslOptions {
   value?: ReactiveSource<number>;
   /**
    * Lower bound; a `Ref`/getter moves the range at runtime (e.g. a unit switch).
@@ -751,16 +903,16 @@ export interface SliderDslOptions
  */
 export function Slider(options: SliderDslOptions = {}): SliderWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, disabled, min, max, visible, ...rest } = options;
+  const { value, onValueChange, disabled, min, max, ...rest } = options;
   const slider = new SliderWidget(scene, {
-    ...rest,
+    ...resolveSlots<SliderOptions>(optionBag(rest)),
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     ...(min === undefined ? {} : { min: readReactive(min) }),
     ...(max === undefined ? {} : { max: readReactive(max) }),
     ...(value === undefined ? {} : { value: readReactive(value) }),
   });
   scene.add.existing(slider);
-  applyDslOptions(slider, { visible });
+  applyDslOptions(slider, options);
   emitWidget(slider);
   if (disabled !== undefined) {
     bindOption(slider, disabled, (host, next) => host.setEnabled(next !== true));
@@ -787,7 +939,10 @@ export function Slider(options: SliderDslOptions = {}): SliderWidget {
 // --------------------------------------------------------------------- lists
 
 /** Options of `List`: everything `Repeat` takes except the template, which is the content lambda. */
-export type ListOptions<Item> = Omit<RepeatOptions<Item>, 'template' | 'empty' | 'container'> &
+export type ListOptions<Item> = Slotted<
+  Omit<RepeatOptions<Item>, 'template' | 'empty' | 'container'>,
+  SlotKeys<RepeatOptions<Item>>
+> &
   DslOptions &
   ListFlowShorthands & {
     /** Content lambda for the empty state; omitted shows nothing. */
@@ -818,7 +973,7 @@ export function List<Item>(
   const scene = currentUiScene();
   const { empty, visible, gap, rowGap, columnGap, container, ...rest } = options;
   const widget = new Repeat<Item>(scene, {
-    ...rest,
+    ...resolveSlots<Omit<RepeatOptions<Item>, 'template' | 'empty' | 'container'>>(optionBag(rest)),
     container: withListFlow(container, { gap, rowGap, columnGap }),
     template: (row, index, ctx) => buildUiSubtree(scene, () => item(row, index, ctx), 'List()'),
     empty:
@@ -827,7 +982,7 @@ export function List<Item>(
         : () => buildUiSubtree(scene, empty, 'List({ empty })'),
   });
   scene.add.existing(widget);
-  applyDslOptions(widget, { visible });
+  applyDslOptions(widget, options);
   return emitWidget(widget);
 }
 

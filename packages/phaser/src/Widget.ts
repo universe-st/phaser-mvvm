@@ -28,8 +28,9 @@ import {
 import { effectScope, type EffectScope } from '@phaser-mvvm/core';
 import { getTheme, onThemeChange, type Theme } from './theme';
 import type { NavAction } from './nav';
-import { devLog, isDevMode } from '@phaser-mvvm/core';
+import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { inFlowOf } from '@phaser-mvvm/layout';
+import { CONTAINER_OPTION_KEYS } from './container-options';
 import { announceableState, resolveWidgetState, type WidgetState } from './widget-state';
 import type { A11yDescriptor } from './a11y';
 
@@ -622,6 +623,58 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
    */
   setLayoutParams(patch: LayoutParams): this {
     Object.assign(this.layoutParams, mergeParams(this.layoutParams, patch));
+    this.markDirty();
+    return this;
+  }
+
+  /**
+   * Applies a partial **container** options patch (`gap`, `alignItems`, `columns`, …) and marks the widget
+   * dirty.
+   *
+   * The sibling of {@link Widget.setLayoutParams}, for the other half of an option bag: layout params
+   * describe the widget's own box, container options describe how it lays its **children** out. Both halves
+   * are read fresh by the engine on every measure/arrange pass, so a patch plus `markDirty()` is all a
+   * runtime change needs — that is what makes `Column({ gap: () => state.value })` possible.
+   *
+   * A key this widget's container does not have is ignored with a development warning, mirroring the
+   * construction-time audit (`reportUnknownOptions`): a patch that silently does nothing is the trap both
+   * exist to close. A leaf widget (no container at all) reports that too, rather than pretending.
+   */
+  setContainerOptions(patch: Record<string, unknown>): this {
+    const container = this.container;
+    if (!container) {
+      if (isDevMode() && Object.keys(patch).length > 0) {
+        warn(
+          `setContainerOptions on "${this.name}": this widget is not a container, so the patch ` +
+            `(${Object.keys(patch).join(', ')}) is ignored.`,
+        );
+      }
+      return this;
+    }
+    const known = CONTAINER_OPTION_KEYS[container.type] ?? [];
+    // `absolute` (and the bare `scroll` container) have no options object at all.
+    const options = (container as { options?: Record<string, unknown> }).options;
+    if (!options) {
+      return this;
+    }
+    const unknown: string[] = [];
+    for (const key of Object.keys(patch)) {
+      if (patch[key] === undefined) {
+        continue;
+      }
+      if (known.includes(key)) {
+        options[key] = patch[key];
+      } else {
+        unknown.push(key);
+      }
+    }
+    if (unknown.length > 0 && isDevMode()) {
+      warn(
+        `unknown container option${unknown.length > 1 ? 's' : ''} "${unknown.join('", "')}" on ` +
+          `"${this.name}" (a ${container.type} container) — ignored. ` +
+          `Known keys: ${known.join(', ')}.`,
+      );
+    }
     this.markDirty();
     return this;
   }

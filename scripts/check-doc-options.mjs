@@ -125,6 +125,9 @@ const BAGS = [
   {
     names: ['Column', 'Row', 'Box', 'Grid', 'Stack', 'Absolute'],
     sources: [
+      // The container key tables themselves live in `container-options.ts` (round 105 moved them out of
+      // `LayoutWidget.ts` so that `Widget#setContainerOptions()` can share them without a cycle).
+      'packages/phaser/src/container-options.ts',
       'packages/phaser/src/LayoutWidget.ts',
       'packages/widgets/src/options.ts',
       'packages/widgets/src/compose.ts',

@@ -566,6 +566,11 @@ const PIXEL_EXPECTATIONS = {
     'options.bothx': { rgb: 0x4a515a, fx: 0.987, fy: 0.5 },
     'options.bothControl': { rgb: 0x161b22, fx: 0.5, fy: 0.976 },
     'options.bothControlx': { rgb: 0x4a515a, fx: 0.987, fy: 0.5 },
+    // The reactive layout slot's `width`: `SCENE_SETUP` sets the roomy side (240). The sample is 90% across
+    // the box's *host* — whose 260px width never changes — so the point is inside the box only because the
+    // slot really widened it; with the default 120 the same point shows the card's surface instead. That is
+    // what makes this a gate for the binding rather than for "the box is somewhere here".
+    'options.slotHost': { rgb: 0x2f6feb, fx: 0.9, fy: 0.08 },
   },
   showcase: {
     'sizing.shrink.on': { rgb: 0x161b22, fx: 0.99, fy: 0.5 },
@@ -636,6 +641,10 @@ const LIGHT_EXPECTATIONS = {
     'options.bothx': { rgb: 0xb5b9be, fx: 0.987, fy: 0.5 },
     'options.bothControl': { rgb: 0xffffff, fx: 0.5, fy: 0.976 },
     'options.bothControlx': { rgb: 0xb5b9be, fx: 0.987, fy: 0.5 },
+    // A **token**, not a literal: the box uses the `primary` variant, which the light theme re-colours
+    // (`#2f6feb` → `#0969da`). Both halves are asserted, so "the theme changed" cannot pass for "the slot
+    // did nothing".
+    'options.slotHost': { rgb: 0x0969da, fx: 0.9, fy: 0.08 },
   },
   showcase: {
     'sizing.shrink.on': { rgb: 0xffffff, fx: 0.99, fy: 0.5 },

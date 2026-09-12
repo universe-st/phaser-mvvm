@@ -456,3 +456,21 @@ Canvas 路径没有 DOM 的 `event.detail`，"这是第几次点击"只能由控
 4. **带类型标注的数组**。`export const LAYOUT_PARAM_KEYS: readonly (keyof LayoutParams)[] = [...]` 里 `=` 前面有标注，早期的 `const X_KEYS = [` 正则整个漏掉——于是所有"布局参数"行（`width`/`padding`…）都没被核对过。
 
 **结论**：这一轮**没有**发现代码缺陷（`Repeat` 的 `gap` 曾经看起来是缺陷，核实后是 DSL `List` 的 `ListFlowShorthands` 在撑着它，指南的写法是对的）。门禁的价值在于把"文档承诺 vs 代码接受"变成一条命令，而不是等到某个读者照着写却什么都不发生。
+
+## 8.66 一组选项没有响应式通道，就等于"这个维度不能是状态"（第 105 轮）
+
+第 84/98/99 轮把 `value`/`disabled`/`error`/`variant`/`readOnly`/`maxLines`/`texture`/`min`/`max` 一个个做成了数据槽，于是在这个框架里"状态驱动 UI"看起来是普遍的。但**布局参数与容器选项**一直是例外：`width`/`padding`/`grow` 与 `gap`/`justifyContent`/`columns` 只能在建树时写死，或者绕到命令式的 `setLayoutParams()`（指南 02 §13 就是这么教的）。
+
+后果不是"少写一行"，而是**这个维度上不能有状态**：`Column({ gap: 8 })` 想随状态变，唯一可行的手法是**重建整棵子树**——连带丢掉焦点、滚动偏移、输入框里的文字（`Branch`/`Page` 那两条路都是这个代价，它们有明确的语义理由；间距不该有）。这正是"看起来像 Compose、写起来不是 Compose"的那类缝。
+
+修法分三层，缺一不可：
+
+1. **运行期入口**：`Widget#setContainerOptions(patch)`，与既有的 `setLayoutParams(patch)` 对称。两个袋子分工是固定的——布局参数 = 控件自己的盒子，容器选项 = 它怎么摆子节点；引擎每趟 measure/arrange 都重新读它们，所以"改 + `markDirty()`"就够了。
+2. **键表只有一份**：`runtimeOptionTarget(containerType, key)` 回答"这个键能不能在运行期改、改哪一半"。它必须放在**同时被 `Widget.ts` 与 `LayoutWidget.ts` 引用**的模块里（两者互相 import 会在模块求值时炸：`BoxWidget extends Widget`），于是有了 `container-options.ts`。DSL 绑槽位与 `setContainerOptions()` 校验用同一张表，才不会有"绑了但写进了没人读的袋子"。
+3. **建树时解析、之后才绑定**：`new BoxWidget(scene, { gap: Ref })` 会把 `Ref` 当成 gap 存下来。所以 `splitDsl()` 在把 bag 交给构造器前先用 `readReactive()` 解析槽位值，`applyDslOptions()` 再为之后的变化建绑定（`splitDsl`/`resolveSlots` 是唯一漏斗，19 个 DSL 包装器都走它）。
+
+**判据是"按名字，不按形状"**：`onClick`/`validate`/`items` 本来就是函数，与 getter 在文本上无法区分。所以哪些键是槽位由**键表**决定（`LayoutParams` 的全部键 + 该容器自己的选项键），绝不看值是不是函数；这也是 `runtimeOptionTarget()` 有单测的原因（`packages/phaser/test/container-options.test.ts`）。
+
+**门禁与实测**：`#/options` 新增 `layout slots` 卡（`gap`/`padding` 在容器上、`width` 在叶子上），`window.optionsDemo.slots()` 同时读三样东西——`ref` 的值、**引擎真正持有的**容器选项/`layoutParams`、以及**排布出来的** `rowY`；再加 `sameRows`（行控件是否还是建树时那批实例）。实测翻 ref：`containerGap` 4 → 16、`boxWidth` 120 → 240、`rowY` `[6,34,62]` → `[18,58,98]`（正好是 padding + 行高 + gap），而 `sameRows` 始终 `true` —— **几何变了、子树没重建**；真鼠标点卡片自己的三个按钮得到同样的结果。像素门禁取"宿主列（宽 260 固定）的 90% 处"：roomy 时落在 240 宽的盒子里（`primary` 令牌 `#2f6feb` / 亮色 `#0969da`），默认 120 时同一点落在卡片底色上——所以它测的是**槽位真的生效**，而不是"盒子大致在那儿"。阳性对照（让 `layout` 那一类槽位永不绑定）如期 `2 check(s) failed`。
+
+**一条容易被误判成缺陷的边界**：`stretch` 会让子节点拿到整条交叉轴长度，**即使它写了自己的 `width`**（`box.ts` 的实现说明与指南 02 §6 都写明了这是有意的、与 CSS 不同）。所以"宽度槽位不生效"的第一嫌疑是宿主容器在 `stretch` —— 把宿主改成 `alignItems: 'start'`，槽位立刻可见（本轮就是这么踩了一次）。

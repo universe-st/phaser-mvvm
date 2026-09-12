@@ -109,6 +109,17 @@ export class OptionsScene extends Phaser.Scene {
   /** The page's stage; the gesture cards live below the fold, so a check has to scroll to them. */
   private stage: ScrollView | null = null;
 
+  // --- reactive layout slots --------------------------------------------------------------------
+  /** The layout slots the card drives: `gap`/`padding` on a container, `width` on a leaf widget. */
+  private readonly slotGap = ref(4);
+  private readonly slotPadding = ref(6);
+  private readonly slotWidth = ref(120);
+  /**
+   * The row widgets as they were **built**, so a check can prove that a slot flip re-laid out the
+   * subtree instead of rebuilding it: same instances, different geometry.
+   */
+  private readonly slotRows: Widget[] = [];
+
   private readonly tracked = new Map<string, Widget>();
   /** Widgets the cards want tracked; drained right after the section is built (`track()` needs them). */
   private readonly pendingTracked: Array<readonly [string, Widget]> = [];
@@ -146,6 +157,7 @@ export class OptionsScene extends Phaser.Scene {
                 this.submitCard();
                 this.inertiaCard();
                 this.directionCard();
+                this.layoutSlotsCard();
                 this.selectionCard();
                 this.gridCard();
                 // Registered after the cards are built: `track()` needs the widget the lambda returned.
@@ -175,6 +187,8 @@ export class OptionsScene extends Phaser.Scene {
       'options.wheelPlain',
       'options.wheelFast',
       'options.wrapRow',
+      'options.slots',
+      'options.slotBox',
     ]) {
       const widget = this.tracked.get(key);
       if (widget) {
@@ -660,6 +674,107 @@ export class OptionsScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Reactive layout slots: `gap`/`padding` on a container and `width` on a leaf widget, all given as
+   * getters over refs.
+   *
+   * This is the option group that had no reactive path at all before: `value`/`disabled`/`variant`/`tone`
+   * were data slots, while spacing and size could only be fixed at construction or patched by hand through
+   * `setLayoutParams()` — so "make the gap state" meant rebuilding the subtree (losing focus, scroll
+   * offset and child state). The card is the A/B for that: the buttons flip the refs and the readouts show
+   * both halves of the claim — the geometry moves, and the row widgets are the *same instances*.
+   */
+  private layoutSlotsCard(): void {
+    this.card(
+      'layout slots',
+      'gap / padding / width 都是槽位：翻 ref 就重排（同一批控件实例，不重建子树）',
+      () => {
+        Row({ gap: 16, alignItems: 'start' }, () => {
+          const container = Panel(
+            {
+              gap: () => this.slotGap.value,
+              padding: () => this.slotPadding.value,
+              width: 220,
+              variant: 'surfaceAlt',
+              radius: 8,
+              name: 'options.slots',
+              alignItems: 'stretch',
+            },
+            () => {
+              for (let index = 0; index < 3; index++) {
+                const row = Text(`slot row ${index + 1}`, {
+                  height: 24,
+                  name: `options.slotRow${index + 1}`,
+                });
+                this.slotRows.push(row);
+              }
+            },
+          );
+          this.track('options.slots', container);
+          // `alignItems: 'start'`: a stretched box takes the whole line and would hide `width`.
+          const host = Column({ gap: 6, width: 260, alignItems: 'start' }, () => {
+            const box = Panel({
+              variant: 'primary',
+              radius: 6,
+              width: () => this.slotWidth.value,
+              height: 32,
+              name: 'options.slotBox',
+            });
+            this.track('options.slotBox', box);
+            Text(
+              () =>
+                `gap ${this.slotGap.value} · padding ${this.slotPadding.value} · width ${this.slotWidth.value}`,
+              {
+                tone: 'muted',
+              },
+            );
+            Row({ gap: 8 }, () => {
+              this.track(
+                'options.slotDense',
+                Button('dense 4/6', {
+                  size: 'sm',
+                  variant: 'secondary',
+                  name: 'options.slotDense',
+                  onClick: () => {
+                    this.slotGap.value = 4;
+                    this.slotPadding.value = 6;
+                  },
+                }),
+              );
+              this.track(
+                'options.slotRoomy',
+                Button('roomy 16/18', {
+                  size: 'sm',
+                  variant: 'primary',
+                  name: 'options.slotRoomy',
+                  onClick: () => {
+                    this.slotGap.value = 16;
+                    this.slotPadding.value = 18;
+                  },
+                }),
+              );
+              this.track(
+                'options.slotWide',
+                Button('width 120/240', {
+                  size: 'sm',
+                  variant: 'secondary',
+                  name: 'options.slotWide',
+                  onClick: () => {
+                    this.slotWidth.value = this.slotWidth.value === 120 ? 240 : 120;
+                  },
+                }),
+              );
+            });
+          });
+          // The pixel gate samples a fraction of *this* box, whose width never changes: 90% of it is
+          // inside the roomy `width` (240) and outside the default one (120), so the sample measures the
+          // slot rather than "somewhere inside whatever rect the widget happens to report".
+          this.track('options.slotHost', host);
+        });
+      },
+    );
+  }
+
   /** A titled card, the shape every section of this page uses. */
   private card(title: string, caption: string, content: () => void): void {
     Panel(
@@ -669,6 +784,28 @@ export class OptionsScene extends Phaser.Scene {
         Text(caption, { tone: 'muted', maxLines: 2 });
         content();
       },
+    );
+  }
+
+  /** The rows' arranged y offsets *inside* their container — the geometry a gap flip moves. */
+  private slotRowOffset(): number[] {
+    return this.slotRows
+      .filter((row) => !row.isDestroyed)
+      .map((row) => Math.round(row.appliedRect.y));
+  }
+
+  /** Whether the rows on screen are still the instances the card built (i.e. nothing was rebuilt). */
+  private slotRowsIntact(): boolean {
+    const container = this.tracked.get('options.slots');
+    if (!container) {
+      return false;
+    }
+    const live = container
+      .getWidgetChildren()
+      .filter((child) => child.name.startsWith('options.slotRow'));
+    return (
+      live.length === this.slotRows.length &&
+      live.every((child, index) => child === this.slotRows[index])
     );
   }
 
@@ -693,6 +830,11 @@ export class OptionsScene extends Phaser.Scene {
   }
 
   override update(): void {
+    this.publish('slot.gap', this.slotGap.value);
+    this.publish('slot.padding', this.slotPadding.value);
+    this.publish('slot.width', this.slotWidth.value);
+    this.publish('slot.rowY', this.slotRowOffset().join(','));
+    this.publish('slot.sameRows', this.slotRowsIntact());
     this.publish('upd.calls', this.updateCalls);
     this.publish('upd.builds', this.updatedBuilds);
     this.publish('plain.builds', this.plainBuilds);
@@ -791,6 +933,51 @@ export class OptionsScene extends Phaser.Scene {
         focus: this.mvvm.focus.focusedWidget?.name || 'none',
       }),
       /**
+       * The reactive-layout-slot card: what the engine really holds, and whether the rows survived.
+       *
+       * `containerGap` is read off the live container options and `boxWidth` off the arranged rect — the
+       * two bags a slot writes into — while `rowY` is the geometry a gap flip moves. A binding that fired
+       * but wrote into a field nobody reads would show the option changed and `rowY` frozen; a rebuild
+       * would show `rowY` moved and `sameRows` false.
+       */
+      slots: (): Record<string, unknown> => {
+        const container = this.tracked.get('options.slots');
+        const box = this.tracked.get('options.slotBox');
+        const options = (
+          container as { container?: { options?: Record<string, unknown> } } | undefined
+        )?.container?.options;
+        return {
+          gap: this.slotGap.value,
+          padding: this.slotPadding.value,
+          width: this.slotWidth.value,
+          containerGap: options?.gap ?? null,
+          boxWidth: box ? Math.round(box.appliedRect.width) : null,
+          rowY: this.slotRowOffset(),
+          sameRows: this.slotRowsIntact(),
+        };
+      },
+      /** Scrolls the stage so the slot card is on screen — the buttons are below the fold. */
+      revealSlots: (): void => {
+        const container = this.tracked.get('options.slots');
+        if (!container || !this.stage) {
+          return;
+        }
+        const point = pagePoint(this.game, container);
+        this.stage.setScrollOffset(Math.max(0, this.stage.offset + point.y - 140));
+      },
+      /** Drives the three slots from a check without clicking (the buttons are the human path). */
+      setSlots: (patch: { gap?: number; padding?: number; width?: number }): void => {
+        if (patch.gap !== undefined) {
+          this.slotGap.value = patch.gap;
+        }
+        if (patch.padding !== undefined) {
+          this.slotPadding.value = patch.padding;
+        }
+        if (patch.width !== undefined) {
+          this.slotWidth.value = patch.width;
+        }
+      },
+      /**
        * Brings the two-axis card into view and publishes both ports' rects into `#status`.
        *
        * Returns a promise so `scripts/visual-check.mjs` can await it (`awaitPromise`): a `reportWidget()`
@@ -798,6 +985,11 @@ export class OptionsScene extends Phaser.Scene {
        */
       prepare: async (): Promise<boolean> => {
         this.stage?.setScrollOffset(900);
+        // The pixel gate for the layout slots: fix the roomy side (gap 16 / padding 18 / width 240) so the
+        // sample point below is *inside* the box while the default width (120) would leave it outside.
+        this.slotGap.value = 16;
+        this.slotPadding.value = 18;
+        this.slotWidth.value = 240;
         for (let frame = 0; frame < 2; frame += 1) {
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         }
@@ -813,6 +1005,11 @@ export class OptionsScene extends Phaser.Scene {
             reportWidget(alias, widget as never);
           }
         }
+        const slotHost = this.tracked.get('options.slotHost');
+        if (slotHost) {
+          reportWidget('options.slotHost', slotHost as never);
+        }
+        // No second scroll: every reported rect has to belong to the same viewport the screenshot sees.
         return true;
       },
       /** Scrolls the page's stage, so the gesture cards below the fold come into view. */

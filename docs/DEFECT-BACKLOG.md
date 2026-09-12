@@ -279,6 +279,22 @@ M7 起滚轮就会**向上链式传递**（内层到头 → 剩下的增量交�
 
 **下一轮登记的增强（不是缺陷）**：无障碍镜像目前是**平铺的兄弟节点列表**，所以对话框自身拿不到容器角色（`role="dialog"` 会是一个"没有子节点的对话框"，`aria-modal` 的包含关系也无从表达）。要做对得把镜像改成与控件树同构的 DOM 树；`#/a11y` 的 `region: 按钮区域` 与它那 6 个按钮同样是平铺的，会一起受益。→ **第 103 轮已交付**，见 §3.42。
 
+## 3.44 第 105 轮（布局参数与容器选项成为响应式槽位）
+
+兑现 §3.43 登记的增强：**间距、尺寸、对齐这一组选项终于也能由状态驱动**。此前 `value`/`disabled`/`variant`/`tone`/`readOnly`/`maxLines`/`texture`/`min`/`max` 都是槽位，偏偏 `width`/`padding`/`grow`/`gap`/`justifyContent`/`columns` 只能在建树时写死或走命令式 `setLayoutParams()`——于是"把间距做成状态"的唯一手法是重建子树，连带丢掉焦点、滚动位置与输入内容。说明见 [`PITFALLS.md`](./PITFALLS.md) §8.66。
+
+**本轮没有新增缺陷编号**：过程中出现过一次"宽度槽位不生效"的假象，核实后是宿主容器 `alignItems: 'stretch'` 压过了子节点显式 `width`（有意的、与 CSS 不同的行为，`box.ts` 与指南 02 §6 都写明），不是缺陷；记录在 [`ACCEPTANCE-options.md`](./ACCEPTANCE-options.md) §10.1，免得下一个人重走。
+
+交付的三层（缺一不可）：
+
+| 层              | 落点                                                                                                                                                                                                                                                       | 为什么必须这样                                                                                                                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 运行期入口      | `Widget#setContainerOptions(patch)`（与既有 `setLayoutParams` 对称；未知键在开发模式指名告警）                                                                                                                                                             | 引擎每趟 measure/arrange 都重新读两个袋子，所以"改 + `markDirty()`"就够了                                                                                                                                                      |
+| 单一键表        | `phaser/src/container-options.ts` 的 `BOX/GRID/STACK_KEYS`、`CONTAINER_OPTION_KEYS`、`runtimeOptionTarget()`                                                                                                                                               | `Widget.ts` 与 `LayoutWidget.ts` 都要用这张表，而它们互相 import 会在模块求值时炸（`BoxWidget extends Widget`），所以表必须住在第三个模块里；DSL 绑槽位与 `setContainerOptions` 校验共用它，才不会出现"绑了却写进没人读的袋子" |
+| 建树解析 + 绑定 | `compose.ts` 的 `splitDsl()`/`resolveSlots()`（构造前按当前值解析）与 `applyDslOptions()`/`bindLayoutSlots()`（之后绑 `setLayoutParams`/`setContainerOptions`），19 个 DSL 包装器全走这条漏斗；选项类型用 `Slotted<T, K>` 映射，只放宽**有运行期入口**的键 | `new BoxWidget(scene, { gap: Ref })` 会把 `Ref` 当 gap 存下来；而按值形状判断"是不是 getter"会把 `onClick`/`items` 一起误判——所以判据是**键表**，不是值                                                                        |
+
+**验收**：`#/options` 新增 `layout slots` 卡 + 三个探针（`slots()`/`setSlots()`/`revealSlots()`），真鼠标点卡片自带按钮与 `setSlots()` 两条路径都量了；`#demo-state` 逐帧发布 `slot.*`。矩阵与实测数字见 [`ACCEPTANCE-options.md`](./ACCEPTANCE-options.md) §10。**门禁**：`packages/phaser/test/container-options.test.ts` 5 条单测钉住分类表（布局键/容器键/叶子控件/回调选项/表与分类器一致）；`visual-check` 的 `options.slotHost` 像素采样（宿主列 90% 处，roomy 时在盒子内、默认时在盒子外）+ 阳性对照（`layout` 类槽位不绑定 → `2 check(s) failed`）。
+
 ## 3.43 第 104 轮（指南的选项键 vs 代码接受的键：新增门禁，并核实了两处"疑似缺陷"）
 
 第 83 轮的选项审计只覆盖**代码**这一侧（拼错/多余的键会被指名）。这一轮把**指南承诺 vs 代码接受**也做成门禁 `scripts/check-doc-options.mjs`（接进 `pnpm docs:check`）：解析指南里所有键表，按标题栈归属到它文档化的选项包，再用该包真正接受的键核对。当前 **195 个文档键全部通过**，说明见 [`PITFALLS.md`](./PITFALLS.md) §8.65。
@@ -287,7 +303,7 @@ M7 起滚轮就会**向上链式传递**（内层到头 → 剩下的增量交�
 
 其中一条值得单独记，因为它是"差点被误修"的那类：**`List({ gap })` 看起来是文档谎言**（`RepeatOptions` 里没有 `gap`，`REPEAT_KEYS` 里也没有，`resolveRepeatContainer()` 只读 `container`），但 DSL 的 `List` 通过 `list-flow.ts` 的 `ListFlowShorthands`/`withListFlow()` 把它并进 `container` 了，`#/options` 的 `Repeat.update` 卡一直在用 `gap: 4`，指南 05 §6.1 的示例也是对的。**判据是"文档化的那一层"**：指南写的是 DSL，就该拿 DSL 的类型去核对。
 
-**下一轮登记的增强（不是缺陷）**：**布局参数与容器选项还没有响应式通道**——`width`/`padding`/`gap`/`justifyContent` 这些今天只能在构造时固定，或者走命令式的 `setLayoutParams()`（`docs/guide/02-layout.md` §13 就是这么教的）；`value`/`disabled`/`variant`/`tone`/`maxLines`/`min/max` 都是数据槽，偏偏"间距/尺寸/对齐"这一组不是，于是"把 gap 做成状态"在 API 上不可表达，只能整棵子树重建（连带丢掉焦点、滚动位置与子树状态）。第 104 轮起了一半就按"收尾"要求回退了（不带着半成品提交）：需要的是 `Widget#setContainerOptions(patch)`（与 `setLayoutParams` 对称、含未知键的指名警告）、DSL 侧把布局参数与容器选项也接受 `Ref`/getter（`Slotted` 映射类型 + 在唯一的 `applyDslOptions()` 漏斗里绑定），以及一条"给非槽位选项传了 getter"的开发期警告——否则类型放开了、运行期静默不生效，就又是这一族陷阱。
+**第 105 轮已交付**（见 §3.44）：布局参数与容器选项现在是 DSL 的响应式槽位。原文如下 —— **布局参数与容器选项还没有响应式通道**——`width`/`padding`/`gap`/`justifyContent` 这些今天只能在构造时固定，或者走命令式的 `setLayoutParams()`（`docs/guide/02-layout.md` §13 就是这么教的）；`value`/`disabled`/`variant`/`tone`/`maxLines`/`min/max` 都是数据槽，偏偏"间距/尺寸/对齐"这一组不是，于是"把 gap 做成状态"在 API 上不可表达，只能整棵子树重建（连带丢掉焦点、滚动位置与子树状态）。第 104 轮起了一半就按"收尾"要求回退了（不带着半成品提交）：需要的是 `Widget#setContainerOptions(patch)`（与 `setLayoutParams` 对称、含未知键的指名警告）、DSL 侧把布局参数与容器选项也接受 `Ref`/getter（`Slotted` 映射类型 + 在唯一的 `applyDslOptions()` 漏斗里绑定），以及一条"给非槽位选项传了 getter"的开发期警告——否则类型放开了、运行期静默不生效，就又是这一族陷阱。
 
 ## 3.42 第 103 轮（镜像改成与控件树同构的树：对话框、分组与 `aria-owns`）
 

@@ -393,6 +393,29 @@ widget.layoutParams.width = 240; // ❌ 引擎不知道要重算，界面不会�
 
 `setLayoutParams` 是**部分合并**（`mergeParams`）：只覆盖你写到的键，没写的保持原值。所以 `setLayoutParams({ height: 100 })` 不会悄悄把 `position: 'absolute'` 或 `width: 'fill'` 重置掉。
 
+容器还有对称的第二个入口 —— **`setContainerOptions(patch)`**：布局参数描述控件**自己的盒子**（`width`/`padding`/`grow`…），容器选项描述它**怎么摆子节点**（`gap`/`alignItems`/`columns`…）。两个都是部分合并、都会 `markDirty()`，键不认识时会在开发模式下指名告警（与建树时的选项审计同一条规则）。
+
+### 声明式写法：间距与尺寸也是槽位（第 105 轮）
+
+上面两条是命令式入口。**在 DSL 里你几乎不需要它们**——`LayoutParams` 与容器的选项接受 `Ref`/getter，和 `value`/`disabled`/`variant` 一样是数据槽：
+
+```ts
+const dense = ref(false);
+
+Column({ gap: () => (dense.value ? 4 : 16), padding: () => (dense.value ? 6 : 18) }, () => {
+  Text('第一行');
+  Text('第二行');
+});
+
+Text('标题', { width: () => (dense.value ? 120 : 240) }); // 叶子控件自己的盒子同样是槽位
+```
+
+翻 `dense` 会让**引擎重跑这一小片的布局**，而不是重建子树——焦点、滚动偏移、子节点自己的状态（输入框里的文字、滚动位置）都留着，这正是槽位的意义。判据与实现：
+
+- 能当槽位的键**恰好是** `LayoutParams` 的全部键 + 该控件容器的选项键；其它选项（`onClick`、`items`、`validate`…）保持字面量类型，因为它们没有运行期入口——类型上不承诺、运行期不静默（`check-doc-options` 与选项审计守着这条）。
+- 建树时按**当前值**解析（`readReactive`），之后每次变化才走绑定——所以"第一次就是槽位形态、之后一直跟着走"。
+- 手写顺序仍然是「改值 → `markDirty()`」；槽位只是把这一步替你做了（内部调用 `setLayoutParams`/`setContainerOptions`）。
+
 ### 缓存与 relayout boundary
 
 - 测量结果缓存在节点上，键是「约束 + 该节点的 `revision`」。`revision` 由 `markDirty()` 递增。

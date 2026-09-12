@@ -256,6 +256,8 @@ Button(() => (on.value ? '关闭' : '开启'), {
 });
 ```
 
+**布局槽位**（第 105 轮补齐）：`LayoutParams` 与容器选项也接受 `Ref`/getter —— `Column({ gap: () => … })`、`Text('x', { width: ref })`、`Grid({ columns: () => … })`。翻值只重跑布局，不重建子树（详见 [02 §13](./02-layout.md)）。此前这一组是唯一没有响应式通道的选项，只能建树时固定或命令式 `setLayoutParams()`，于是"把间距做成状态"意味着重建整棵子树。
+
 `visible` 是 DSL 的统一条件槽位（所有 composable 都支持）：
 
 ```ts

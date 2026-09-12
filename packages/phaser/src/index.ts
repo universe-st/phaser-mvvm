@@ -129,6 +129,14 @@ export {
   type TransitionSpec,
   type TransitionTarget,
 } from './transition';
+export {
+  BOX_KEYS,
+  CONTAINER_OPTION_KEYS,
+  GRID_KEYS,
+  STACK_KEYS,
+  runtimeOptionTarget,
+  type RuntimeOptionTarget,
+} from './container-options';
 export { planBack, type BackState } from './back-plan';
 export { factoriesInstalled, FACTORY_KEYS, installFactories } from './factory';
 export {

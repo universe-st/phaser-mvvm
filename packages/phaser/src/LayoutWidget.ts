@@ -16,6 +16,7 @@ import type {
   LayoutParams,
   StackLayoutOptions,
 } from '@phaser-mvvm/layout';
+import { BOX_KEYS, GRID_KEYS, STACK_KEYS } from './container-options';
 import { reportUnknownOptions } from './option-keys';
 import { Widget } from './Widget';
 
@@ -64,32 +65,6 @@ export interface StackWidgetOptions extends LayoutParams, ContainerWidgetOptions
 }
 
 export type AbsoluteWidgetOptions = LayoutParams & ContainerWidgetOptions;
-
-const BOX_KEYS = [
-  'direction',
-  'gap',
-  'rowGap',
-  'columnGap',
-  'justifyContent',
-  'alignItems',
-  'wrap',
-  'alignContent',
-  'reverse',
-] as const;
-
-const GRID_KEYS = [
-  'columns',
-  'rows',
-  'minColumnWidth',
-  'minRowHeight',
-  'columnGap',
-  'rowGap',
-  'justifyItems',
-  'alignItems',
-  'autoFlow',
-] as const;
-
-const STACK_KEYS = ['align'] as const;
 
 /** Splits a mixed option bag into `LayoutParams` and container options. */
 export function splitOptions<C extends Record<string, unknown>>(

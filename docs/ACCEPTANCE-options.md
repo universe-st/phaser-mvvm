@@ -282,3 +282,30 @@ releasePointerDrag(scene, pointerId, owner); // pointerup / 失焦 / 销毁时�
 ### 9.6 仍然没做的
 
 - **拖动自动滚动**：第 97 轮已实现（V62），但**矩阵不在本页**——本页的字段只有 35 个字符、框宽 420，没有可滚的余量。数字在 `#/form` 的 `canvasArea`（9 行）与 `canvas`（40 个宽字符）上量，见 [`ACCEPTANCE-form.md`](./ACCEPTANCE-form.md) §5.7；本页只保留它作为归属 A/B 的职责（字段认领拖动 → 页面不动，见上表最后两行）。
+
+---
+
+## 10. 响应式布局槽位（第 105 轮）——本页的第七张卡
+
+第 105 轮把**布局参数与容器选项**接进 DSL 的槽位机制（此前它们是唯一没有响应式通道的一组选项，见 [`PITFALLS.md`](./PITFALLS.md) §8.66）。本页新增 `layout slots` 卡做 A/B：左侧容器用 `gap: () => ref` / `padding: () => ref`，右侧叶子控件用 `width: () => ref`，三个按钮改 ref。
+
+读数（`window.optionsDemo.slots()`，`#demo-state` 逐帧发布 `slot.gap`/`slot.padding`/`slot.width`/`slot.rowY`/`slot.sameRows`）：
+
+| 操作                                              | `containerGap` | `boxWidth` | `rowY`（行在容器内的 y） | `sameRows` |
+| ------------------------------------------------- | -------------- | ---------- | ------------------------ | ---------- |
+| 初始（dense）                                     | 4              | 120        | `[6,34,62]`              | `true`     |
+| `setSlots({ gap: 16, padding: 18, width: 240 })`  | **16**         | **240**    | **`[18,58,98]`**         | `true`     |
+| 再 `setSlots({ gap: 4, padding: 6, width: 120 })` | 4              | 120        | `[6,34,62]`              | `true`     |
+| 真鼠标点卡片自带按钮「roomy 16/18」               | 16             | 120        | `[18,58,98]`             | `true`     |
+| 再点「width 120/240」                             | 16             | 240        | `[18,58,98]`             | `true`     |
+| 再点「dense 4/6」                                 | 4              | 240        | `[6,34,62]`              | `true`     |
+
+`rowY` 的位移正好等于 `padding` 与 `gap` 之和（`18`、`18+24+16=58`、`58+24+16=98`）—— 也就是**引擎真的重排了**，不是重画；而 `sameRows` 在每一步都是 `true`：屏幕上那三行仍然是**建树时那三个控件实例**（`slotRowsIntact()` 把它们与容器当前的 widget 子树逐个比对）。这两件事必须同时成立才算对：几何变了但重建了子树，等于回到旧做法；实例没变但几何没动，等于绑定根本没生效。
+
+**读数为什么分三层**：`containerGap` 读的是**引擎真正持有的容器选项**、`boxWidth` 读的是**排布出来的矩形**、`rowY` 读的是**排布结果**。只读 ref 的值会漏掉"绑定没接上"，只读矩形会漏掉"写进了没人读的袋子"。三层一起读，才区分得出"值没变 / 值变了但没写进去 / 写进去了但没生效 / 生效了但重建了"。
+
+**像素门禁**（`scripts/visual-check.mjs`）：`SCENE_SETUP.options` 先 `await prepare()`（其中把槽位固定在 roomy 侧），`prepare()` 再把**宿主列**（`options.slotHost`，宽 260 固定）的矩形写进 `#status`；采样点是宿主列的 90% 处 —— roomy（240 宽）时落在盒子内，读到 `primary` 令牌 `#2f6feb`（暗色）/ `#0969da`（亮色），默认（120 宽）时同一点落在卡片底色上。**阳性对照**：让 `runtimeOptionTarget()` 判为 `layout` 的槽位永不绑定 → `MISMATCH options.slotHost: expected #2f6feb got #161b22` 与亮色那条同时红（`2 check(s) failed`），还原后全绿。
+
+### 10.1 一条差点被误判成缺陷的边界
+
+第一次跑这张卡时 `boxWidth` 死活不动（始终 260）。原因不是槽位没生效 —— `layoutParams.width` 确实从 120 变成了 240 —— 而是**宿主容器在 `stretch`**：`box` 的 `alignItems: 'stretch'` 会让子节点拿到整条交叉轴长度，**即使它自己写了 `width`**。这是有意的、与 CSS 不同的行为（`packages/layout/src/box.ts` 的实现说明与指南 02 §6 都写明了），不是缺陷；把宿主改成 `alignItems: 'start'` 后槽位立刻可见。**判据**：宽度/高度槽位"看起来无效"时，先确认宿主没有在 stretch 它。
