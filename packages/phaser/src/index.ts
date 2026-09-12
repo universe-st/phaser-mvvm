@@ -98,10 +98,12 @@ export {
   diffInteractionState,
   isClickGesture,
   pointerInWidgetSpace,
+  resolveTargetInTree,
   isWithinTree,
   type ContainerLike,
   type InputRouterOptions,
   type PointLike,
+  type TargetNode,
 } from './input';
 export {
   NAV_DIRECTIONS,

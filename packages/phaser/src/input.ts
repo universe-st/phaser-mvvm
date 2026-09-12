@@ -58,6 +58,74 @@ export interface InputRouterOptions {
 }
 
 /**
+ * The widget a point lands on: **the deepest hit wins**, later siblings beat earlier ones (last child
+ * is drawn on top), a hidden subtree is skipped entirely, and a non-target node still lets its
+ * children be found.
+ *
+ * This is `InputRouter.resolveTarget`'s decision, extracted so it can be tested in Node: three of the
+ * project's input defects (V1 spaces, V8 per-widget spaces, V9 event ownership) lived in exactly this
+ * walk, and it had no unit test at all. The two Phaser-specific halves are parameters:
+ *
+ * - `pointFor(node)` - the pointer in **that node's** coordinate space. It is per node and not per
+ *   tree on purpose: Phaser's own hit test uses the *hit object's* scroll factor, and the router has to
+ *   agree with it (ADR-0009).
+ * - `isTarget(node)` - whether the node itself can receive input (registered and enabled).
+ *
+ * Containers are tested *after* their children, which is the "deepest first" order. A node whose
+ * `visible` is `false` is not visited at all - neither it nor its subtree can be hit, matching the
+ * layout rule that a hidden widget leaves the flow.
+ */
+export function resolveTargetInTree<N extends TargetNode>(
+  root: N,
+  pointFor: (node: N) => PointLike,
+  isTarget: (node: N) => boolean,
+): N | null {
+  const visit = (node: N, offsetX: number, offsetY: number): N | null => {
+    const children = node.getWidgetChildren();
+    for (let i = children.length - 1; i >= 0; i--) {
+      const child = children[i];
+      if (!child || child.visible === false) {
+        continue;
+      }
+      const found = visit(child as N, offsetX + child.x, offsetY + child.y);
+      if (found) {
+        return found;
+      }
+    }
+
+    if (!isTarget(node)) {
+      return null;
+    }
+
+    // `offset` already includes this node's own position, so the point is expressed relative to the
+    // node's origin: the box to test is (0,0)-(width,height), *not* its parent-local rect.
+    const rect = node.appliedRect;
+    const point = pointFor(node);
+    const localX = point.x - offsetX;
+    const localY = point.y - offsetY;
+    const inside = localX >= 0 && localX <= rect.width && localY >= 0 && localY <= rect.height;
+    return inside ? node : null;
+  };
+
+  // `offset` is "the pointer-space position of the node's origin, its own position included", so the
+  // root contributes `+root.x/+root.y`. Negating it displaced every hit test by 2*root.(x,y) -
+  // invisible only because the layout engine always arranges the UI root at (0,0).
+  return visit(root, root.x, root.y);
+}
+
+/** The structural shape {@link resolveTargetInTree} walks. */
+export interface TargetNode {
+  /** Local position inside its parent (a `Widget` is a Phaser container, so this is its origin). */
+  x: number;
+  y: number;
+  /** `false` removes the node *and* its subtree from hit testing. */
+  visible?: boolean;
+  /** Rect assigned by the layout engine, in the parent's local coordinates. */
+  appliedRect: { width: number; height: number };
+  getWidgetChildren(): readonly TargetNode[];
+}
+
+/**
  * The pointer expressed in the coordinate space one widget is laid out in.
  *
  * This mirrors `Phaser.Input.InputManager#hitTest` line for line, so the router's own walk and Phaser's
@@ -591,37 +659,14 @@ export class InputRouter {
       return null;
     }
 
-    const visit = (widget: Widget, offsetX: number, offsetY: number): Widget | null => {
-      const children = widget.getWidgetChildren();
-      for (let i = children.length - 1; i >= 0; i--) {
-        const child = children[i];
-        if (!child || child.visible === false) {
-          continue;
-        }
-        const found = visit(child, offsetX + child.x, offsetY + child.y);
-        if (found) {
-          return found;
-        }
-      }
+    // The walk itself is pure and unit-tested (`resolveTargetInTree`); the two Phaser-flavoured bits
+    // are injected: which point a *given* widget is tested against, and which widgets are targets.
+    const target = resolveTargetInTree<Widget>(
+      root,
+      (widget) => this.pointerInUiSpace(pointer, widget),
+      (widget) => this.isRegistered(widget) && widget.enabled !== false,
+    );
 
-      if (!this.isRegistered(widget) || widget.enabled === false) {
-        return null;
-      }
-
-      // `offset` already includes this widget's own position, so the point is expressed relative to
-      // the widget's origin: the box to test is (0,0)-(width,height), *not* its parent-local rect.
-      const rect = widget.appliedRect;
-      const { x, y } = this.pointerInUiSpace(pointer, widget);
-      const localX = x - offsetX;
-      const localY = y - offsetY;
-      const inside = localX >= 0 && localX <= rect.width && localY >= 0 && localY <= rect.height;
-      return inside ? widget : null;
-    };
-
-    // `offset` is "the pointer-space position of the widget's origin, its own position included", so
-    // the root contributes `+root.x/+root.y`. Negating it displaced every hit test by 2×root.(x,y) —
-    // invisible only because the layout engine always arranges the UI root at (0,0).
-    const target = visit(root, root.x, root.y);
     if (target && this.captureWidget && !isWithinTree(target, this.captureWidget)) {
       return null;
     }

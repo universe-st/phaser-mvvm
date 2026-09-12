@@ -93,5 +93,6 @@
 ## 4. 覆盖率缺口（不是缺陷，但值得补门禁）
 
 - ✅ **已补（第 3 轮）**：`#/lifecycle`（`apps/examples/src/scenes/lifecycle.ts`）通过 `window.lifecycle.churn(n)` 做「场景重启 n 次 + 8 项计数采样」，Playwright MCP 上 101 轮全绿（[`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md)）。覆盖了 `themeListenerCount()` 回基线、`InputRouter`/`FocusManager` 集合不残留、`ScrollView`+`Repeat` 虚拟化在重启后存活，以及重启后仍可点击/输入。
-- ⬜ **仍缺**：① Node 侧假渲染器夹具（让 `packages/phaser`/`widgets` 的生命周期逻辑能进 CI，不依赖浏览器）；② 聚焦输入框后重启是否留下光标闪烁定时器；③ `scene.stop()/start()`、多场景并存、`SceneManager.remove()` 路径。
+- ✅ **已补（第 51 轮）**：**指针落点走树（`resolveTarget`）现在有 Node 单测**——这是本项目历史上缺陷最密集的一段（V1 坐标空间、V8 按控件取空间、V9 事件归属），但它当时埋在 `InputRouter` 里，只能靠浏览器验收。本轮把走树抽成纯函数 `resolveTargetInTree(root, pointFor, isTarget)`（两个 Phaser 相关部分作为参数注入：每个候选自己的指针空间、以及"可命中"判定），路由改为委托它，新增 `packages/phaser/test/target-walk.test.ts` 10 个用例：最深优先、后绘制的兄弟优先、隐藏子树整棵跳过、非目标容器仍继续找子节点、矩形含边界、容器链偏移累加、**每个候选各自的空间（V8 回归）**、空矩形不吞事件。
+- ⬜ **仍缺**：① Node 侧假渲染器夹具（让 `MVVMPlugin`/`UIRoot` 的生命周期逻辑能进 CI，不依赖浏览器）；② 聚焦输入框后重启是否留下光标闪烁定时器；③ `scene.stop()/start()`、多场景并存、`SceneManager.remove()` 路径。
 - ✅ **已实现（第 6 轮）**：PLAN §8 的「同帧同文本同样式只度量一次」由 `packages/widgets/src/text-metrics.ts` 的按场景缓存满足（`Label` 的换行结果 + 省略号候选串宽度、`TextInputBase` 的逐串宽度）。实测：重复扫描每轮 0 miss（稳态 100%），与关闭缓存的前后逐像素比对 0 差异。**遗留**：`PhaserTextMeasurer`（`packages/phaser`，LRU + probe + `stats`）仍未接入控件——控件改为缓存自身画布的度量结果（语义完全一致，避免与用户自定义 `style` 产生偏差），因此它与 `text-metrics.ts` 功能重叠，后续可考虑合并或标注为「无需控件的独立度量工具」。
