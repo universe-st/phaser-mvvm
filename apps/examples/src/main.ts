@@ -61,6 +61,11 @@ const game = new Phaser.Game({
     // drawing buffer around (see scripts/visual-check.mjs).
     preserveDrawingBuffer: new URLSearchParams(window.location.search).has('capture'),
   },
+  // Two touch pointers (plus the mouse) so the demos exercise multi-touch: each pointer keeps its own
+  // drag/press (see `docs/ACCEPTANCE-touch.md`). Phaser allocates `activePointers` touch pointers.
+  input: {
+    activePointers: 2,
+  },
   // Required by the M5 DOM input bridge / a11y mirror (ADR-0004); harmless before that lands.
   dom: {
     createContainer: true,

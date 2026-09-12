@@ -65,6 +65,40 @@ if (widget.enabled && this.resolveTarget(pointer) === widget) {
 
 ---
 
+## 3.5 多指（第 46 轮）
+
+单指能跑通并不等于多指正确：`ScrollView` 与 `Slider` 都靠**场景级**指针流维持拖动（`ScrollView` 拖内容/滚动条，`Slider` 允许把手滑出控件），而事件处理函数此前不看 `pointer.id`——第二根手指一动，第一根手指抓住的控件就跟着动。示例页也因为 `activePointers` 默认为 1 而从未暴露这一点。
+
+**配置**：`apps/examples/src/main.ts` 现在传 `input: { activePointers: 2 }`（Phaser 分配 2 个触摸指针，加上鼠标共 3 个；`window.hud.pointers().pointerCount` 实测 **3**）。
+
+**驱动方式**：CDP 的 `Input.dispatchTouchEvent` 一次可带多个触点，每个触点有自己的 `id`（`touchStart`/`touchMove` 要带上**当前所有**活跃触点，`touchEnd` 只带抬起的那个）：
+
+```js
+await touch('touchStart', [
+  { x: 320, y: 320, id: 1, radiusX: 5, radiusY: 5, force: 1 },
+  { x: 700, y: 300, id: 2, radiusX: 5, radiusY: 5, force: 1 },
+]);
+await touch('touchMove', [
+  { x: 320, y: 284, id: 1, radiusX: 5, radiusY: 5, force: 1 }, // 第一根手指不动
+  { x: 700, y: 280, id: 2, radiusX: 5, radiusY: 5, force: 1 }, // 第二根手指移动
+]);
+await touch('touchEnd', [{ x: 320, y: 284, id: 1, radiusX: 5, radiusY: 5, force: 1 }]); // 只抬起 1
+```
+
+**实测矩阵**：
+
+| #   | 断言                                   | 实测                                                            |
+| --- | -------------------------------------- | --------------------------------------------------------------- |
+| 1   | 两根手指同时按下两个不同按钮           | 两个按钮**同时** `pressed`                                      |
+| 2   | 抬起其中一根手指只激活它自己的按钮     | `clicks +1`，另一个按钮**仍是** `pressed`（等待自己的手指抬起） |
+| 3   | 另一根手指抬起时才激活它自己的按钮     | 开关翻到 `true`                                                 |
+| 4   | 一根手指拖滑杆，另一指在别处按下并移动 | 滑杆值 **28 → 28**（不受第二指影响）                            |
+| 5   | 一根手指拖列表，另一指移动 100px       | `v.offset` **36 → 36**（不受第二指影响）                        |
+
+第 1–3 条来自 `InputRouter`：`pressedAt` 以**指针**为键（`handlePointerUp` 只处理自己那根指针的按下），因此多指按压天然互不干扰。第 4–5 条是第 46 轮修掉的 V12。
+
+**仍未实现**：双指缩放/旋转手势（pinch/rotate）没有任何语义；`ScrollView` 也不做「双指滚动」。需要时请自行在 Phaser 层实现，或在 `Widget.onKeyDown` 式的钩子上另开一层手势 API。
+
 ## 4. 方法论：Playwright MCP 的页面默认被节流到 1 fps（必须先 `bringToFront()`）
 
 本轮最重要的环境发现，直接推翻了此前的一个"缺陷"（V10，已撤销）：
@@ -85,6 +119,6 @@ if (widget.enabled && this.resolveTarget(pointer) === widget) {
 
 ## 5. 未做 / 待办
 
-- **多指手势**（双指缩放、双指滚动）：Phaser 需要 `input.activePointers > 1`（默认 1），框架层也还没有手势语义（pinch/rotate），本轮未触碰。
+- ~~**多指手势**~~：**多指输入**已在第 46 轮验收（见 §3.5：`activePointers: 2` + 每个指针拥有自己的拖动/按压）；**pinch/rotate 手势本身仍未实现**。
 - **真实移动端浏览器**（iOS Safari 的兼容鼠标事件行为、`touch-action` 与页面滚动）：只在桌面 Chromium 的触摸模拟下验收过；`ScrollView` 的 `preventDefault` 行为（backlog V3）在真机上更敏感。
 - **软键盘弹出导致的视口变化**：`Scale.RESIZE` 下的布局重排未在移动端模拟中验证。

@@ -82,6 +82,8 @@ export class Slider extends Widget {
   private readonly trackGraphics: Phaser.GameObjects.Graphics;
   private current: number;
   private dragging = false;
+  /** The pointer that owns the drag: a second finger must not steer this slider (touch ids are 1..n). */
+  private dragPointerId: number | null = null;
   private styleKey = '';
 
   constructor(scene: Phaser.Scene, options: SliderOptions = {}) {
@@ -183,7 +185,11 @@ export class Slider extends Widget {
     if (!this.enabled) {
       return;
     }
+    if (this.dragging) {
+      return;
+    }
     this.dragging = true;
+    this.dragPointerId = pointer.id;
     this.applyLocalX(this.localXOf(pointer));
     // The scene stream keeps the drag alive once the pointer leaves the widget's rect, and it is the
     // same stream a touch produces, so one implementation covers mouse and finger.
@@ -194,13 +200,17 @@ export class Slider extends Widget {
   }
 
   private readonly onScenePointerMove = (pointer: Phaser.Input.Pointer): void => {
-    if (!this.dragging || this.isDestroyed) {
+    if (!this.dragging || this.isDestroyed || pointer.id !== this.dragPointerId) {
       return;
     }
     this.applyLocalX(this.localXOf(pointer));
   };
 
-  private readonly onScenePointerUp = (): void => {
+  private readonly onScenePointerUp = (pointer?: Phaser.Input.Pointer): void => {
+    // Only the finger that grabbed the slider may let go of it.
+    if (pointer && this.dragPointerId !== pointer.id) {
+      return;
+    }
     this.endDrag();
   };
 
@@ -209,6 +219,7 @@ export class Slider extends Widget {
       return;
     }
     this.dragging = false;
+    this.dragPointerId = null;
     const input = this.scene?.input;
     input?.off('pointermove', this.onScenePointerMove);
     input?.off('pointerup', this.onScenePointerUp);

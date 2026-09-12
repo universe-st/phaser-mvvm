@@ -102,7 +102,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 - **性能/体积预算怎么跑**：`pnpm --filter @phaser-mvvm/layout run test`（含 `test/perf.test.ts`：1000 节点耗时、无变化帧、缓存命中率、单节点编辑增量性、对象池稳定性）与 `pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定 core+layout < 25 KB、phaser+widgets < 45 KB，同时打印未压缩 gzip）。改动布局引擎、控件度量或新增控件后请跑这两个。
 - **本机没有 `timeout` 命令**（macOS）；长命令用后台任务而不是 `timeout` 包裹。
 - **Playwright MCP 的页面默认 rAF 被节流到 1 fps（必须在断言前 `page.bringToFront()`）**：Chromium 会把你没有激活的窗口判为遮挡并节流 `requestAnimationFrame`，而 `document.visibilityState` **仍然报 `'visible'`**，所以从页面上看不出来。实测：同一页面空闲测 12 帧得到 `[808,1017,1000,1017,1000,…]`，`page.bringToFront()` 之后立刻变成 `[12,17,17,17,17,16,…]`。**任何帧率/耗时/时序断言（含"某状态多久后才消失"）都必须先 `bringToFront()`**，否则结论会和节流周期（1 s）混在一起——第 39 轮就是这样误报了一个"滚动卡住 1.6 s"的缺陷（V10，已撤销）。`#demo-state` 由场景 `update()` 写入，被节流时也会看起来"落后约 1 秒"；对时序敏感时请读场景 API（如 `window.scrollDemo.offsets()`）。
-- **触摸验收怎么做**：`Emulation.setTouchEmulationEnabled` + `Input.dispatchTouchEvent`（CDP），见 `docs/ACCEPTANCE-touch.md`；`window.hud.pointers()` 会同时给出鼠标指针与触摸指针（`wasTouch`/坐标/最后一次 DOM 事件）便于定位。
+- **触摸验收怎么做**：`Emulation.setTouchEmulationEnabled` + `Input.dispatchTouchEvent`（CDP），见 `docs/ACCEPTANCE-touch.md`；`window.hud.pointers()` 会同时给出鼠标指针与触摸指针（`wasTouch`/坐标/最后一次 DOM 事件）便于定位。**多指**：示例游戏配有 `input: { activePointers: 2 }`（共 3 个指针），一次 `dispatchTouchEvent` 可带多个触点，每个触点自带 `id`，`touchMove` 要带上当前**所有**活跃触点、`touchEnd` 只带抬起的那个；拖动类控件（`ScrollView`/`Slider`）只认抓住它的那个 `pointer.id`。
 - **文档数字会滞后**：`README.md`、`CONTRIBUTING.md`、`docs/ACCEPTANCE-*.md` 里的里程碑状态与测试数量彼此不一致（例如三份文档分别写着 M0–M2 / M0–M7 与不同的用例数）。**以代码、`pnpm -r run test` 的实跑结果和 CI 为准**；顺手更新过时描述是受欢迎的改动。
 - **不要引入浏览器测试框架**（仓库无 Playwright 依赖，验收走 `scripts/visual-check.mjs` 的 CDP）；任何新运行时依赖都需要 ADR。
 

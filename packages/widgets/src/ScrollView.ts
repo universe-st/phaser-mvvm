@@ -252,6 +252,10 @@ export class ScrollView extends Widget {
   private barDrag: 'thumb' | 'track' | null = null;
   private barGrab = 0;
   private dragStart: { x: number; y: number } | null = null;
+  /** Pointer that owns the content drag (touch pointers are 1..n, the mouse is 0). */
+  private dragPointerId: number | null = null;
+  /** Pointer that owns the scrollbar drag. */
+  private barPointerId: number | null = null;
   private dragLast = { x: 0, y: 0, time: 0 };
   private dragVelocity = { x: 0, y: 0 };
   private dragging = false;
@@ -891,6 +895,11 @@ export class ScrollView extends Widget {
     if (!this.dragEnabled || this.isDestroyed || this.enabled === false) {
       return;
     }
+    // A drag belongs to the pointer that started it: with a second finger on screen, its movements
+    // arrive on the same scene stream and used to drag this view as well.
+    if (this.dragPointerId !== null || this.barPointerId !== null) {
+      return;
+    }
     if (!this.containsPoint(pointer.worldX, pointer.worldY)) {
       return;
     }
@@ -901,8 +910,10 @@ export class ScrollView extends Widget {
     if (bar !== null) {
       this.barDrag = bar.mode;
       this.barGrab = bar.grab;
+      this.barPointerId = pointer.id;
       this.dragBarTo(bar, { x: pointer.worldX, y: pointer.worldY });
       this.dragStart = null;
+      this.dragPointerId = null;
       return;
     }
 
@@ -913,6 +924,7 @@ export class ScrollView extends Widget {
       return;
     }
 
+    this.dragPointerId = pointer.id;
     this.dragStart = { x: pointer.worldX, y: pointer.worldY };
     this.dragLast = { x: pointer.worldX, y: pointer.worldY, time: this.scene?.time?.now ?? 0 };
     this.dragVelocity = { x: 0, y: 0 };
@@ -920,6 +932,9 @@ export class ScrollView extends Widget {
 
   private readonly onPointerMove = (pointer: Phaser.Input.Pointer): void => {
     if (this.barDrag !== null) {
+      if (this.barPointerId !== pointer.id) {
+        return;
+      }
       if (!pointer.isDown) {
         this.endBarDrag();
         return;
@@ -937,7 +952,7 @@ export class ScrollView extends Widget {
     }
 
     const start = this.dragStart;
-    if (start === null || this.isDestroyed) {
+    if (start === null || this.isDestroyed || this.dragPointerId !== pointer.id) {
       return;
     }
     if (!pointer.isDown) {
@@ -966,7 +981,17 @@ export class ScrollView extends Widget {
     this.scrollBy(-stepX, -stepY);
   };
 
-  private readonly onPointerUp = (): void => {
+  private readonly onPointerUp = (pointer?: Phaser.Input.Pointer): void => {
+    // Another finger lifting must not end this drag (Phaser hands the `pointerup` of every pointer to
+    // the same scene listener).
+    if (
+      pointer &&
+      this.dragPointerId !== null &&
+      pointer.id !== this.dragPointerId &&
+      this.barPointerId !== pointer.id
+    ) {
+      return;
+    }
     if (this.barDrag !== null) {
       this.endBarDrag();
       return;
@@ -978,6 +1003,7 @@ export class ScrollView extends Widget {
 
   private endBarDrag(): void {
     this.barDrag = null;
+    this.barPointerId = null;
     this.barGrab = 0;
   }
 
