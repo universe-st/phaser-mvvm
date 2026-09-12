@@ -69,7 +69,7 @@ import type { BranchBuilder, BranchKey } from './branch-plan';
 import { Divider as DividerWidget, type DividerOptions } from './Divider';
 import { Image as ImageWidget, type ImageOptions } from './Image';
 import { Label, type LabelOptions, type LabelTone } from './Label';
-import { Panel as PanelWidget, type PanelOptions } from './Panel';
+import { Panel as PanelWidget, type PanelOptions, type PanelVariant } from './Panel';
 import { Repeat, type RepeatOptions } from './Repeat';
 import { ScrollView, type ScrollViewOptions } from './ScrollView';
 import { withListFlow, type ListFlowShorthands } from './list-flow';
@@ -82,7 +82,7 @@ import {
 } from './VirtualKeyboard';
 import { TextArea as TextAreaWidget, type TextAreaOptions } from './TextArea';
 import { TextField as TextFieldWidget, type TextFieldOptions } from './TextField';
-import { TEXT_INPUT_EVENTS } from './TextInputBase';
+import { TEXT_INPUT_EVENTS, type TextInputBase } from './TextInputBase';
 import {
   isReactiveSource,
   isWritableSource,
@@ -213,16 +213,18 @@ export function Absolute(
  * `Column`/`Row` are transparent layout boxes; `Panel` is the one that paints a background, so it is
  * what a card, a dialog or a page root is made of.
  */
-export function Panel(
-  options?: (PanelOptions & DslOptions) | (() => void),
-  content?: () => void,
-): PanelWidget {
+export function Panel(options?: PanelDslOptions | (() => void), content?: () => void): PanelWidget {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { visible, rest: bag } = splitDsl(args.options);
+  const { variant, ...rest } = bag;
   const scene = currentUiScene();
-  const widget = new PanelWidget(scene, rest);
+  const widget = new PanelWidget(scene, {
+    ...rest,
+    ...(variant === undefined ? {} : { variant: readReactive(variant) }),
+  });
   scene.add.existing(widget);
   applyDslOptions(widget, { visible });
+  bindOption(widget, variant, (host, next) => host.setVariant(next));
   return withUiParent(widget, args.content);
 }
 
@@ -377,6 +379,17 @@ function bindOption<T, W extends Widget>(
   }
   bindValue(widget, sourceGetter(value), (next, host) => apply(host as W, next));
 }
+
+/**
+ * `Panel` options with the DSL's reactive slots.
+ *
+ * `variant` is a theme token, and a token is state as often as it is a constant: a card turns `danger`
+ * while its form is invalid and `primary` once it is saved.
+ */
+export type PanelDslOptions = Omit<PanelOptions, 'variant'> & {
+  /** Background flavour; a `Ref`/getter repaints the panel (and its default border) when it changes. */
+  variant?: ReactiveSource<PanelVariant>;
+} & DslOptions;
 
 /**
  * `VirtualKeyboard` options with the DSL's reactive slots.
@@ -547,29 +560,39 @@ export function Divider(options: DividerOptions & DslOptions = {}): DividerWidge
  * state in a store rather than a `ref` can still write it back.
  */
 export interface TextFieldDslOptions
-  extends Omit<TextFieldOptions, 'value' | 'onChange'>, DslOptions {
+  extends Omit<TextFieldOptions, 'value' | 'onChange' | 'disabled'>, DslOptions {
   value?: ReactiveSource<string>;
+  /** Reactive enabled state: `disabled: () => saving.value` (a `false` re-enables the field). */
+  disabled?: ReactiveSource<boolean>;
+  /** Reactive validation state: an error message (shown under the field), or `null`/`false` to clear. */
+  error?: ReactiveSource<string | boolean | null>;
   onValueChange?: (value: string, field: TextFieldWidget) => void;
 }
 
 /** {@link TextFieldDslOptions} for the multi-line field. */
 export interface TextAreaDslOptions
-  extends Omit<TextAreaOptions, 'value' | 'onChange'>, DslOptions {
+  extends Omit<TextAreaOptions, 'value' | 'onChange' | 'disabled'>, DslOptions {
   value?: ReactiveSource<string>;
+  /** Reactive enabled state; see {@link TextFieldDslOptions.disabled}. */
+  disabled?: ReactiveSource<boolean>;
+  /** Reactive validation state; see {@link TextFieldDslOptions.error}. */
+  error?: ReactiveSource<string | boolean | null>;
   onValueChange?: (value: string, field: TextAreaWidget) => void;
 }
 
 /** A single-line text input. */
 export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, visible, ...rest } = options;
+  const { value, onValueChange, disabled, error, visible, ...rest } = options;
   const field = new TextFieldWidget(scene, {
     ...rest,
+    ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
   applyDslOptions(field, { visible });
   emitWidget(field);
+  applyStateSlots(field, disabled, error);
   wireFieldModel(field, value, onValueChange);
   return field;
 }
@@ -577,14 +600,16 @@ export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
 /** A multi-line text input. */
 export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, visible, ...rest } = options;
+  const { value, onValueChange, disabled, error, visible, ...rest } = options;
   const field = new TextAreaWidget(scene, {
     ...rest,
+    ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
   applyDslOptions(field, { visible });
   emitWidget(field);
+  applyStateSlots(field, disabled, error);
   wireFieldModel(field, value, onValueChange);
   return field;
 }
@@ -595,8 +620,11 @@ export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
  * `value` accepts a `Ref` (edits write straight back into it, no converter glue) or a getter (one-way);
  * `onValueChange` fires on every user change, so a caller that keeps state in a store can write it back.
  */
-export interface SliderDslOptions extends Omit<SliderOptions, 'value' | 'onChange'>, DslOptions {
+export interface SliderDslOptions
+  extends Omit<SliderOptions, 'value' | 'onChange' | 'disabled'>, DslOptions {
   value?: ReactiveSource<number>;
+  /** Reactive enabled state: `disabled: () => locked.value`. */
+  disabled?: ReactiveSource<boolean>;
   onValueChange?: (value: number, slider: SliderWidget) => void;
 }
 
@@ -610,14 +638,18 @@ export interface SliderDslOptions extends Omit<SliderOptions, 'value' | 'onChang
  */
 export function Slider(options: SliderDslOptions = {}): SliderWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, visible, ...rest } = options;
+  const { value, onValueChange, disabled, visible, ...rest } = options;
   const slider = new SliderWidget(scene, {
     ...rest,
+    ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
     ...(value === undefined ? {} : { value: readReactive(value) }),
   });
   scene.add.existing(slider);
   applyDslOptions(slider, { visible });
   emitWidget(slider);
+  if (disabled !== undefined) {
+    bindOption(slider, disabled, (host, next) => host.setEnabled(next !== true));
+  }
 
   if (value !== undefined) {
     const store = isWritableSource(value)
@@ -707,6 +739,29 @@ function normalizeContent<O>(
  * IME composition); a getter is read-only, so edits are routed to `onValueChange` instead. With
  * neither, the field simply keeps its own value.
  */
+/**
+ * Applies the reactive state slots of a text field: `disabled` and `error`.
+ *
+ * Both write through the widget's own API (`setEnabled`/`setError`), so a reactive error is exactly the
+ * error the DOM bridge, the accessibility mirror and the painted state already know about — no second
+ * source of truth. A literal is applied once; a `Ref`/getter keeps a frame-aligned binding.
+ */
+function applyStateSlots(
+  field: TextInputBase,
+  disabled: ReactiveSource<boolean> | undefined,
+  error: ReactiveSource<string | boolean | null> | undefined,
+): void {
+  if (error !== undefined) {
+    field.setError(readReactive(error) ?? null);
+    bindOption(field, error, (host, next) => {
+      host.setError(next ?? null);
+    });
+  }
+  if (disabled !== undefined) {
+    bindOption(field, disabled, (host, next) => host.setEnabled(next !== true));
+  }
+}
+
 function wireFieldModel<T extends TextFieldWidget | TextAreaWidget>(
   field: T,
   value: ReactiveSource<string> | undefined,

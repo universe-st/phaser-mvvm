@@ -148,6 +148,18 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
   /** Set by the focus manager so `focus()`/`blur()` work without reaching for the scene plugin. */
   focusManager: FocusTarget | null = null;
 
+  /**
+   * Notified when something {@link Widget.describeA11y} reports has changed.
+   *
+   * Installed by the accessibility bridge for every widget it mirrors, and cleared when the widget is
+   * destroyed. It exists because a *state* change (a validation error appearing after a submit, a
+   * field enabled by a finished save) happens on a control the user is not standing on, and the mirror
+   * only re-read a widget when focus moved: the screen reader kept announcing a normal, editable field
+   * until the user tabbed into it — the one moment the news is no longer useful. See
+   * {@link notifyA11yChanged}.
+   */
+  a11yListener: (() => void) | null = null;
+
   /** Called when the widget is activated by pointer, keyboard or gamepad. */
   onActivate: ((source: ActivationSource) => void) | null = null;
 
@@ -238,6 +250,7 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
       this.blur();
     }
     this.appearanceChanged();
+    this.notifyA11yChanged();
     return this;
   }
 
@@ -247,6 +260,7 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
     this._error = value;
     this.appearanceChanged();
+    this.notifyA11yChanged();
     return this;
   }
 
@@ -311,6 +325,16 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
    */
   getA11yDomElement(): HTMLElement | null {
     return null;
+  }
+
+  /**
+   * Asks the accessibility bridge to re-read this widget's description.
+   *
+   * Cheap by design: the bridge compares the new description with the last one it applied and returns
+   * without touching the DOM when nothing changed, so a widget may call this from a per-keystroke path.
+   */
+  notifyA11yChanged(): void {
+    this.a11yListener?.();
   }
 
   /** Moves keyboard/gamepad focus to this widget. */
@@ -611,6 +635,7 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = null;
     this.focusManager = null;
+    this.a11yListener = null;
     // The input router and the focus manager keep poking widgets they handed back (a removed row is
     // unregistered a frame later, and `refreshInteraction()` runs once after a structural change).
     // Leaving the flags set made those pokes look like real transitions, so a destroyed widget would

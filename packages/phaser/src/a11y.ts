@@ -191,6 +191,9 @@ export class A11yBridge {
       if (!entry || !wanted.has(entry.widget) || entry.widget.isDestroyed === true) {
         if (entry) {
           entry.node.remove();
+          if (entry.widget.a11yListener) {
+            entry.widget.a11yListener = null;
+          }
         }
         this.nodes.splice(i, 1);
       }
@@ -208,6 +211,11 @@ export class A11yBridge {
         element?.appendChild(node);
         entry = { widget, node };
         this.nodes.push(entry);
+        // From here on the widget tells us when its described state changes (a reactive error, a
+        // programmatic value), instead of waiting for focus to move somewhere else.
+        widget.a11yListener = () => {
+          this.sync(widget);
+        };
       }
       this.applyDescriptor(entry, widget.describeA11y());
     }

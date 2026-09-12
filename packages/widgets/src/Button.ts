@@ -176,6 +176,8 @@ export class Button extends Widget {
     }
     this.value = value;
     this.appearanceChanged();
+    // A toggle's value is its `checked` state to a screen reader.
+    this.notifyA11yChanged();
     return this;
   }
 
@@ -184,6 +186,8 @@ export class Button extends Widget {
       return this;
     }
     this.labelText = value;
+    // The visible text is the default accessible name.
+    this.notifyA11yChanged();
     this.applyThemeStyle();
     this.markDirty();
     return this;

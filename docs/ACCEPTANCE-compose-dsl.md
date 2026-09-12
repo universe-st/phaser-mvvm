@@ -13,7 +13,7 @@
 | Compose 风格 DSL                        | `packages/widgets/src/compose.ts`（子路径导出 `@phaser-mvvm/widgets/compose`） |
 | DSL 作用域机制（纯逻辑，可 Node 单测）  | `packages/phaser/src/uiscope.ts`                                               |
 | 反应式参数规则（常量 / `Ref` / getter） | `packages/widgets/src/reactive-source.ts`                                      |
-| 逐控件／逐容器验收场景                  | `apps/examples/src/scenes/compose.ts`（`#/compose`，10 个演示分区）            |
+| 逐控件／逐容器验收场景                  | `apps/examples/src/scenes/compose.ts`（`#/compose`，11 个演示分区）            |
 | 使用指南第 9 章                         | `docs/guide/09-compose-dsl.md`                                                 |
 | PLAN 记录                               | `docs/PLAN.md` §5.1                                                            |
 | 缺陷清单（含未修项）                    | `docs/DEFECT-BACKLOG.md`                                                       |
@@ -127,6 +127,25 @@ this.mvvm.mount(page);
 **回归对照**：`#/showcase`（旧工厂 API 验收页）在改动后仍正常渲染与交互（点击 `nav.buttons` 切换分区成功，43 个控件、无错误），确认 DSL 与缺陷修复没有破坏既有页面。
 
 ---
+
+### 3.2 第 84 轮追加：状态槽位（`disabled` / `error` / `variant`）
+
+`#/compose` 新增第 11 个分区 **State slots**：一个 `TextField`（`disabled` 与 `error` 都由 `ref` 驱动）、一个 `Slider`（同一个 `disabled`）、一个 `Panel`（`variant` 由 `ref` 驱动），外加三个只改 `ref` 的按钮（锁定 / 标记错误 / 换变体）。逐帧发布 `state.locked`/`state.error`/`state.variant`/`state.volume` 与每个控件的 `st.state.*`；`window.compose.setState({ locked, error, variant })` 与 `slots()` 是读写入口。
+
+**判据（Playwright MCP 真实鼠标）**：
+
+| #   | 断言                           | 实测                                                                                                                                          |
+| --- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | 点字段 → 拿到焦点              | `focus=state.field`，`st.state.field` 从 `normal` 到 `hover`                                                                                  |
+| S2  | `disabled: () => ref` 真的生效 | 点「锁定」后 `st.state.field=disabled`、`st.state.slider=disabled`（滑杆同槽位），**焦点自己离开字段**（`focus=state.lock`）                  |
+| S3  | 禁用的字段拒绝聚焦             | 再点字段：`focus` 仍是 `state.lock`（没有被抢走），DOM 桥同步禁用                                                                             |
+| S4  | `error: () => ref` 传文案      | 点「标记错误」→ `slots().fieldError === '这个值不合法（来自状态）'`，与 `state.error` 一致                                                    |
+| S5  | 清除即恢复                     | 点「清除错误」→ `fieldError=null`；解锁后 `st.state.field` 由 `disabled` 变 `error`（错误仍在）→ 清掉后 `hover`                               |
+| S6  | `variant: () => ref` 重绘      | 连点 5 次「换变体」：`surface → surfaceAlt → primary → danger → plain → surface`，像素上 `state.panel` 采样到 `#f85149`（暗）/`#cf222e`（亮） |
+| S7  | 触摸同权（CDP）                | 触摸 tap「锁定」→ 触摸拖拽滑杆 → `volume` 停在 **40**；tap 解锁后同样的拖拽 → **58**                                                          |
+| S8  | 逐帧探针不撒谎                 | 分区有 `pt.state.*`/`st.state.*`（此前 `#/compose` 只发 `pt.*`，本轮补上 `st.*`，与 `#/states`/`#/showcase` 对齐）                            |
+
+**像素门禁**：`scripts/visual-check.mjs` 把 `#/compose` 收进常驻矩阵，`SCENE_SETUP` 先切到 `state` 分区、再把面板变体**在运行时**改成 `danger`，然后断言 `state.panel` 采样到 `#f85149`/`#cf222e`。面板是**以 `surface` 构造**的，所以这个颜色只可能来自一次真正的重绘 —— 一个"换了变体但没重绘"的静默缺陷（V38 家族）会在这里红掉。实测：`OK state.panel: #f85149 at (1176,230)`（暗）、`OK state.panel: #cf222e at (1176,230)`（亮）。
 
 ## 4. 本轮修复的缺陷（均带回归测试）
 

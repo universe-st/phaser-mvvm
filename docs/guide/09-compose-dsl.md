@@ -139,6 +139,27 @@ Divider({ orientation: 'vertical', height: 'fill' });
 
 注意：只有**数据槽位**接受函数——`onClick` 这类本来就是函数，不会被当成 getter。
 
+**状态槽位**也跟着状态走（第 84 轮补齐）：`disabled`、`error`、`variant` 与 `value` 一样接受常量 / `ref` / getter。"能不能编辑"、"是不是错的"、"这块面该是什么颜色"本来就是状态，不必为了让它们变化而绕到命令式 API：
+
+```ts
+const saving = ref(false);
+const problem = ref<string | boolean | null>(null);
+
+TextField({ value: name, disabled: () => saving.value, error: () => problem.value });
+Slider({ value: volume, disabled: () => saving.value });
+Panel({ variant: () => (problem.value ? 'danger' : 'surface') }, () => Text('表单区域'));
+```
+
+| 槽位       | 控件                                     | 说明                                                   |
+| ---------- | ---------------------------------------- | ------------------------------------------------------ |
+| `disabled` | `TextField`/`TextArea`/`Slider`/`Button` | 翻转即失效/恢复：不可聚焦、不可点、DOM 桥同步禁用      |
+| `error`    | `TextField`/`TextArea`                   | 传错误**文案**（显示在字段下方）或 `null`/`false` 清除 |
+| `variant`  | `Button`/`Panel`                         | 变体名就是主题令牌；换令牌会连带重绘面板的默认描边     |
+| `loading`  | `Button`                                 | 加载中：拒绝激活但**仍可聚焦**（不要把焦点丢掉）       |
+| `tone`     | `Text`                                   | 语义色                                                 |
+
+`#/compose` 的 **State slots** 分区把这三个槽位摆在一起（锁定 / 标记错误 / 换变体三个按钮改的都是 `ref`），逐帧发布 `state.locked`/`state.error`/`state.variant` 与每个控件的 `st.state.*`；`window.compose.setState({…})` 与 `slots()` 是它的读写入口。矩阵见 [`ACCEPTANCE-compose-dsl.md`](../ACCEPTANCE-compose-dsl.md) §3.2。
+
 **双向**的意思是两边都能当源头：
 
 ```ts

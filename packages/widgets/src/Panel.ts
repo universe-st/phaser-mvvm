@@ -82,8 +82,8 @@ const PANEL_STYLE_KEYS = [
 const PANEL_WIDGET_KEYS = [...PANEL_STYLE_KEYS, ...BOX_CONTAINER_KEYS];
 
 export class Panel extends Widget {
-  /** Background flavour; fixed for the lifetime of the panel. */
-  readonly variant: PanelVariant;
+  /** Background flavour; see {@link Panel.setVariant} for the reactive slot. */
+  private panelVariant: PanelVariant;
   /** Whether the panel is a clickable, focusable card. */
   readonly interactive: boolean;
   /** Whether the panel keeps a hit area to intercept pointer input. */
@@ -93,7 +93,9 @@ export class Panel extends Widget {
   private readonly bodyGraphics: Phaser.GameObjects.Graphics;
   private readonly radius: number | null;
   private readonly elevation: number;
-  private readonly showBorder: boolean;
+  /** What the caller asked for; `undefined` means "follow the variant" (see `setVariant`). */
+  private readonly explicitBorder: boolean | undefined;
+  private showBorder: boolean;
   private skinCache: { theme: Theme; skin: ProceduralSkin } | null = null;
 
   constructor(scene: Phaser.Scene, options: PanelOptions = {}, children: readonly Widget[] = []) {
@@ -104,14 +106,13 @@ export class Panel extends Widget {
     );
     super(scene, { layout, ...baseWidgetOptions(options) });
 
-    this.variant = widget.variant ?? 'surface';
+    this.panelVariant = widget.variant ?? 'surface';
     this.interactive = widget.interactive === true;
     this.blockPointer = widget.blockPointer !== false;
     this.radius = typeof widget.radius === 'number' ? Math.max(0, widget.radius) : null;
     this.elevation = typeof widget.elevation === 'number' ? Math.max(0, widget.elevation) : 0;
-    this.showBorder =
-      widget.border ??
-      (this.variant === 'surface' || this.variant === 'surfaceAlt' || this.variant === 'overlay');
+    this.explicitBorder = widget.border;
+    this.showBorder = widget.border ?? defaultBorderFor(this.panelVariant);
 
     const box = boxOptionsOf(widget);
     this.container = {
@@ -139,6 +140,30 @@ export class Panel extends Widget {
     }
 
     this.refreshAppearance();
+  }
+
+  /** Background flavour; the reactive slot `Panel({ variant: () => … })` writes through {@link setVariant}. */
+  get variant(): PanelVariant {
+    return this.panelVariant;
+  }
+
+  /**
+   * Changes the background flavour.
+   *
+   * Reactive since round 84: a surface that turns `danger` while a form is invalid, or `primary` once
+   * it is saved, is state like any other. The skin cache is keyed by theme only, so it is dropped here,
+   * and a border the caller did not ask for explicitly follows the new variant exactly as it would have
+   * at construction time.
+   */
+  setVariant(variant: PanelVariant): this {
+    if (variant === this.panelVariant) {
+      return this;
+    }
+    this.panelVariant = variant;
+    this.showBorder = this.explicitBorder ?? defaultBorderFor(variant);
+    this.skinCache = null;
+    this.refreshAppearance();
+    return this;
   }
 
   /** Live description for the accessibility mirror: a clickable card without text needs a label. */
@@ -196,4 +221,9 @@ export class Panel extends Widget {
     this.skinCache = { theme, skin };
     return skin;
   }
+}
+
+/** The default border for a flavour: the filled surfaces get one, `plain` and `danger` do not. */
+function defaultBorderFor(variant: PanelVariant): boolean {
+  return variant === 'surface' || variant === 'surfaceAlt' || variant === 'overlay';
 }

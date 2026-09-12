@@ -311,15 +311,15 @@ export class A11yScene extends UIScene {
       setVolume: (value: number): number => {
         const slider = this.tracked.get('slider') as unknown as
           { setValue(value: number): unknown } | undefined;
+        // No `a11y.sync()` here: since round 84 the widget tells the bridge itself (`setValue` →
+        // `notifyA11yChanged()`), which is what a page outside of this demo needs too.
         slider?.setValue(value);
-        this.mvvm.a11y.sync(this.tracked.get('slider'));
         return this.volume.value;
       },
       validate: (): string => {
         const field = this.tracked.get('field') as unknown as
           { validateNow?(): unknown } | undefined;
         field?.validateNow?.();
-        this.mvvm.a11y.sync(this.tracked.get('field'));
         return String(this.tracked.get('field')?.error ?? 'none');
       },
       counts: (): Record<string, number> => ({

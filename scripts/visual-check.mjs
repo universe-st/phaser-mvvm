@@ -42,7 +42,7 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y', 'keyboard'];
+const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y', 'compose', 'keyboard'];
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.
@@ -53,9 +53,15 @@ const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene', 'a11y', 'keyb
  */
 const SCENE_SETUP = {
   hud: 'window.hud.scroll(260, 140)',
+  // The reactive-slot section, with the panel's flavour *changed at runtime*: the expectation below is
+  // the `danger` token, which can only be on screen if the reactive `variant` repainted the panel.
+  compose: 'window.compose.show("state"); window.compose.setState({ variant: "danger" })',
   // The modal scene's dialog only exists once it is opened; the scene reports the dialog's own rects
   // into #status on the first open of each kind, so this runs before the status read.
   modal: 'window.modal.open("confirm")',
+  // The validated field, so the AX expectation below can assert `invalid` — the state a screen reader
+  // needs *before* it reaches the field (`window.a11y.validate()` does not sync the mirror by hand).
+  a11y: 'window.a11y.validate(); window.a11y.setVolume(65)',
 };
 
 /**
@@ -101,12 +107,16 @@ const CANVAS_CLEAR_SKIP = new Set(['modal']);
  */
 const AX_EXPECTATIONS = {
   a11y: [
-    { role: 'textbox', name: '名字' },
+    // `invalid` (and the error text as the node's description) has to be on the surface *without*
+    // anyone calling `sync()`: a submit that fails leaves the error on a field that is not focused.
+    { role: 'textbox', name: '名字', properties: { invalid: true } },
     { role: 'textbox', name: '备注' },
     { role: 'button', name: '普通按钮' },
     { role: 'checkbox', name: '接收通知', properties: { checked: true } },
     { role: 'button', name: '不可用按钮', properties: { disabled: true } },
-    { role: 'slider', name: '音量', value: '40', properties: { valuemin: 0, valuemax: 100 } },
+    // The volume is written programmatically in `SCENE_SETUP` (no manual `sync()`): a slider whose
+    // `valuenow` only catches up when focus moves is a slider a screen reader reads wrong.
+    { role: 'slider', name: '音量', value: '65', properties: { valuemin: 0, valuemax: 100 } },
     { role: 'button', name: '可点击的卡片' },
     { role: 'region', name: '按钮区域' },
     { role: 'button', name: '区域内的按钮 1' },
@@ -330,6 +340,15 @@ const PIXEL_EXPECTATIONS = {
    *   light one - the sample reads the page colour if the panel is not where the layout says it is;
    * - `kb.key.enter` is the `primary` key, sampled left of its label (`fx: 0.12`) so the fill shows.
    */
+  /**
+   * `#/compose` with the reactive-slot section up and its panel flavour switched to `danger` at runtime
+   * (`SCENE_SETUP.compose`). The panel was *built* as `surface`, so the sampled `danger` fill is only
+   * there because the reactive `variant` slot repainted it - a variant that silently does nothing (the
+   * V38 family) fails here, in both themes.
+   */
+  compose: {
+    'state.panel': { rgb: 0xf85149, fx: 0.92, fy: 0.5 },
+  },
   keyboard: {
     'kb.keyboard': { rgb: 0x1f2630, fx: 0.03, fy: 0.5 },
     'kb.key.enter': { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
@@ -393,6 +412,9 @@ const LIGHT_EXPECTATIONS = {
     // `danger` and `surface` after the switch; the dialog is open (see SCENE_SETUP).
     'confirm.ok': { rgb: 0xcf222e, fx: 0.15, fy: 0.5 },
     'confirm.cancel': { rgb: 0xffffff, fx: 0.15, fy: 0.5 },
+  },
+  compose: {
+    'state.panel': { rgb: 0xcf222e, fx: 0.92, fy: 0.5 },
   },
   keyboard: {
     'kb.keyboard': { rgb: 0xeef1f4, fx: 0.03, fy: 0.5 },

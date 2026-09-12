@@ -73,23 +73,25 @@ TextField({
 });
 ```
 
-| 选项          | 类型                                                      | 默认     | 说明                                                                               |
-| ------------- | --------------------------------------------------------- | -------- | ---------------------------------------------------------------------------------- |
-| `label`       | `string`                                                  | `''`     | 字段标签。**不会**渲染成可见文字，只作为隐藏元素的 accessible name（无障碍读屏用） |
-| `value`       | `string`                                                  | `''`     | 初始值（会先过一遍输入类型过滤与 `maxLength`）                                     |
-| `placeholder` | `string`                                                  | `''`     | 值为空时以弱化色显示                                                               |
-| `maxLength`   | `number`                                                  | 不限     | 最大**码点**数（emoji 不会被截成半个）                                             |
-| `inputType`   | `'text' \| 'number' \| 'password' \| 'email' \| 'search'` | `'text'` | `password` 显示 `•`；`number` 过滤掉非数字字符；`email`/`search` 只影响移动端键盘  |
-| `align`       | `'left' \| 'center' \| 'right'`                           | `'left'` | 文本水平对齐                                                                       |
-| `readOnly`    | `boolean`                                                 | `false`  | 保留文本但拒绝一切编辑（仍可聚焦选中）                                             |
-| `disabled`    | `boolean`                                                 | `false`  | 不可聚焦、不可编辑，显示 `disabled` 状态                                           |
-| `clearable`   | `boolean`                                                 | `false`  | 右侧出现可点击的 `×`，点它清空                                                     |
-| `dom`         | `boolean`                                                 | `true`   | 是否允许使用 DOM 输入桥                                                            |
-| `validate`    | `(value: string) => string \| null`                       | —        | 校验器：返回错误文案即进入 `error` 状态，返回 `null` 表示通过                      |
-| `onChange`    | `(value, field) => void`                                  | —        | **用户**编辑后回调（`setValue` 不触发）                                            |
-| `onSubmit`    | `(value, field) => void`                                  | —        | 提交时回调（Enter，`TextArea` 见 §5）                                              |
-| `onFocus`     | `(field) => void`                                         | —        | 获得焦点时回调                                                                     |
-| `onBlur`      | `(field) => void`                                         | —        | 失焦时回调（**在校验之后**执行）                                                   |
+| 选项            | 类型                                                      | 默认     | 说明                                                                                    |
+| --------------- | --------------------------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `label`         | `string`                                                  | `''`     | 字段标签。**不会**渲染成可见文字，只作为隐藏元素的 accessible name（无障碍读屏用）      |
+| `value`         | `string`                                                  | `''`     | 初始值（会先过一遍输入类型过滤与 `maxLength`）                                          |
+| `placeholder`   | `string`                                                  | `''`     | 值为空时以弱化色显示                                                                    |
+| `maxLength`     | `number`                                                  | 不限     | 最大**码点**数（emoji 不会被截成半个）                                                  |
+| `inputType`     | `'text' \| 'number' \| 'password' \| 'email' \| 'search'` | `'text'` | `password` 显示 `•`；`number` 过滤掉非数字字符；`email`/`search` 只影响移动端键盘       |
+| `align`         | `'left' \| 'center' \| 'right'`                           | `'left'` | 文本水平对齐                                                                            |
+| `readOnly`      | `boolean`                                                 | `false`  | 保留文本但拒绝一切编辑（仍可聚焦选中）                                                  |
+| `disabled`      | `boolean`（**DSL 里可以是 `ref`/getter**）                | `false`  | 不可聚焦、不可编辑，显示 `disabled` 状态；`disabled: () => saving.value` 会跟着状态翻转 |
+| `error`         | `string \| boolean \| null`（**DSL 槽位**）               | `null`   | 直接给错误文案（显示在字段下方）；`null`/`false` 清除                                   |
+| `clearable`     | `boolean`                                                 | `false`  | 右侧出现可点击的 `×`，点它清空                                                          |
+| `dom`           | `boolean`                                                 | `true`   | 是否允许使用 DOM 输入桥                                                                 |
+| `validate`      | `(value: string) => string \| null`                       | —        | 校验器：返回错误文案即进入 `error` 状态，返回 `null` 表示通过                           |
+| `onChange`      | `(value, field) => void`                                  | —        | **用户**编辑后回调（`setValue` 不触发）                                                 |
+| `onValueChange` | `(value, field) => void`（**DSL 槽位**）                  | —        | 值变化的回调：`value` 传 `ref` 时它是写回通道，传 getter 时它是唯一的写回出口           |
+| `onSubmit`      | `(value, field) => void`                                  | —        | 提交时回调（Enter，`TextArea` 见 §5）                                                   |
+| `onFocus`       | `(field) => void`                                         | —        | 获得焦点时回调                                                                          |
+| `onBlur`        | `(field) => void`                                         | —        | 失焦时回调（**在校验之后**执行）                                                        |
 
 默认尺寸与内边距：高度 `theme.controlHeight.md`（36），内边距 `[8, 12, 8, 12]`；写了 `height`/`padding` 就用你的。宽度 `auto` 时按内容量宽（内容宽度下限 96，再加内边距才是控件宽度），所以**表单里通常显式写 `width`**（或 `'fill'`）。
 

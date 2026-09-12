@@ -1080,6 +1080,10 @@ export abstract class TextInputBase extends Widget {
         this.markDirty();
       }
       this.emit(TEXT_INPUT_EVENTS.CHANGE, value);
+      // The mirror holds the text (or the element does, for a bridged field) and has to hear about a
+      // programmatic write too: `field.setValue('')` from a "clear" button is a state change like any
+      // other for a screen reader.
+      this.notifyA11yChanged();
       if (options.userEdit !== false) {
         this.notifyChange(value);
       }

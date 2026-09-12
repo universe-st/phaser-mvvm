@@ -183,6 +183,9 @@ export class Slider extends Widget {
     }
     this.current = resolved;
     this.refreshAppearance();
+    // `valuenow` is what a screen reader reads for a slider, and a programmatic write (`bindNumberModel`)
+    // must reach it without waiting for focus.
+    this.notifyA11yChanged();
     return this;
   }
 

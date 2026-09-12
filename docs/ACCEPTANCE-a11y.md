@@ -179,3 +179,21 @@ live 区域属性（`Accessibility.getFullAXTree` 读出的计算值）：`role=
 | `#/pages` 弹出一页（页面还要淡出 120 ms）                        | 幽灵页的节点在淡出期间保留（它还在屏幕上），销毁后必须移除 | 21 → 21（`departing=detail:1`, `routing=false`）→ **18**（落定后只剩基页）                                                             |
 
 这三条现在是**手工断言**（写进本文档），没有做成脚本站点：它们的输入是"滚动多久/多少帧"，做成门禁会带上时间敏感性。相关的常驻门禁仍然是 `scripts/visual-check.mjs` 的 `AX_EXPECTATIONS`（`#/a11y` 的树里每条期望恰好一次、`Tab` 后恰好一个控制节点带 focus、live 区恰好一个）。
+
+---
+
+## 7. 状态变化直接到达无障碍表面（第 84 轮，V52）
+
+第 84 轮把 `disabled`/`error`/`variant` 做成数据槽之后，在 `#/compose` 的 State slots 分区量到一件旧事：**没被聚焦的控件改了状态，镜像与桥元素都不跟着变**。
+
+| #   | 断言                                       | 修前实测                                                                                              | 修后实测                                                                                                     |
+| --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| A15 | 反应式 `error` 立即到达表面（不碰焦点）    | 桥 `<input>` 与镜像 `<div>` 都是 `aria-invalid=null`、`aria-description=null`（一个正常可编辑的字段） | `aria-invalid=true`、`aria-description=这个值不合法（来自状态）`（两者同时）                                 |
+| A16 | 反应式 `disabled` 立即到达表面（不碰焦点） | `disabled` 仍是 `false`                                                                               | 桥元素 `disabled=true`、镜像 `aria-disabled=true`                                                            |
+| A17 | 清除状态立即回到正常                       | 需要等一次焦点变化                                                                                    | `aria-invalid` 立刻移除                                                                                      |
+| A18 | 程序化写值到达 AX 树（无手动 `sync()`）    | `#/a11y` 的 `setVolume(65)` 靠示例**自己**调 `mvvm.a11y.sync()` 才生效                                | 示例不再手动 sync，AX 树仍报 `valuenow=65`（常驻门禁）                                                       |
+| A19 | 门禁能失败（反向验证）                     | —                                                                                                     | 把 `notifyA11yChanged()` 改成空实现：`a11y: "名字": invalid is "false", expected true` + `2 check(s) failed` |
+
+机制：`Widget#a11yListener`（与 `structureListener` 同型）由 `A11yBridge` 在**建节点时**装上、节点移除或控件销毁时清掉；`setEnabled`/`setError`/`Button.setValue`/`Button.setText`/`Slider.setValue`/`TextInputBase.commit` 调 `notifyA11yChanged()`，桥用原有的签名比对决定是否真的写 DOM。
+
+常驻门禁在 `scripts/visual-check.mjs`：`SCENE_SETUP.a11y` 调 `window.a11y.validate()` 与 `window.a11y.setVolume(65)`（**都不再手动 sync**），`AX_EXPECTATIONS.a11y` 要求 `名字` 的 `invalid=true`、`音量` 的 `value=65`。矩阵 §0 的其余判据不受影响（14 个控制节点、无重名、`Tab` 后恰好一个带 focus）。

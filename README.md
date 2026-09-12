@@ -258,6 +258,8 @@ phaser-mvvm/
 | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`docs/PLAN.md`](./docs/PLAN.md)                                               | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3）       |
 | [`docs/guide/`](./docs/guide/README.md)                                        | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表  |
+| [`docs/ACCEPTANCE-options.md`](./docs/ACCEPTANCE-options.md)                   | 验收记录：选项审计（拼错的选项被指名 + 建议、发布模式零输出、全示例零误报与门禁的阳性对照）                                                                   |
+| [`docs/ACCEPTANCE-a11y.md`](./docs/ACCEPTANCE-a11y.md)                         | 验收记录：无障碍镜像与浏览器可访问性树、`aria-live` 播报、**状态变化主动同步（V52）**                                                                         |
 | [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)           | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                       |
 | [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)     | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                       |
 | [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                     | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                         |

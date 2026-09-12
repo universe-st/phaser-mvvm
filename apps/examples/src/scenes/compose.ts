@@ -19,7 +19,13 @@
 import Phaser from 'phaser';
 import { computed, onDevWarning, ref } from '@phaser-mvvm/core';
 import { buildUiSubtree, setTheme, themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
-import type { BranchWidget, PanelOptions, Repeat, ScrollView } from '@phaser-mvvm/widgets';
+import type {
+  BranchWidget,
+  PanelOptions,
+  PanelVariant,
+  Repeat,
+  ScrollView,
+} from '@phaser-mvvm/widgets';
 import {
   Absolute,
   Branch,
@@ -31,6 +37,7 @@ import {
   List,
   Panel,
   Rect,
+  Slider,
   render,
   Row,
   Scroll,
@@ -55,6 +62,7 @@ type SectionId =
   | 'stack'
   | 'params'
   | 'list'
+  | 'state'
   | 'parity';
 
 interface SectionDef {
@@ -74,6 +82,7 @@ const SECTIONS: readonly SectionDef[] = [
   { id: 'stack', title: 'Stack & Absolute', caption: '重叠 · 对齐 · 角标' },
   { id: 'params', title: 'Layout params', caption: 'width · grow · min/max · alignSelf' },
   { id: 'list', title: 'List', caption: 'keyed · 虚拟化 · 增删' },
+  { id: 'state', title: 'State slots', caption: 'disabled · error · variant 由状态驱动' },
   { id: 'parity', title: 'Parity', caption: 'DSL 与工厂 API 几何一致' },
 ];
 
@@ -85,6 +94,13 @@ const ICON_TEXTURE = 'compose.icon';
 interface SampleRow {
   id: string;
   label: string;
+}
+
+/** Cycles a panel flavour, so the reactive `variant` slot has something to follow. */
+function nextPanelVariant(current: PanelVariant): PanelVariant {
+  const order: readonly PanelVariant[] = ['surface', 'surfaceAlt', 'primary', 'danger', 'plain'];
+  const index = order.indexOf(current);
+  return order[(index + 1) % order.length] as PanelVariant;
 }
 
 function createRows(count: number): SampleRow[] {
@@ -110,6 +126,12 @@ export class ComposeScene extends Phaser.Scene {
   private readonly highlighted = ref(false);
   /** Drives the `hideMode: 'keep'` demo: hidden, but its slot stays. */
   private readonly keepShown = ref(true);
+  /** Reactive state slots: `disabled`, `error` and a panel's `variant` all read these. */
+  private readonly locked = ref(false);
+  private readonly stateError = ref<string | boolean | null>(null);
+  private readonly stateVariant = ref<PanelVariant>('surface');
+  private readonly stateName = ref('张三');
+  private readonly stateVolume = ref(40);
   /** Which branch the `Branch()` demo shows ('a' | 'b' | 'missing'). */
   private readonly branchKey = ref('a');
   private readonly branchClicks = ref(0);
@@ -142,6 +164,8 @@ export class ComposeScene extends Phaser.Scene {
    * layout assigned (rounds 53 and 56 use this).
    */
   private readonly reportTextProbes = new Map<string, Widget>();
+  /** Rects the pixel gate samples for the reactive-slot section (`state.panel` & co). */
+  private readonly reportStateProbes = new Map<string, Widget>();
 
   constructor() {
     super('compose');
@@ -209,6 +233,13 @@ export class ComposeScene extends Phaser.Scene {
   override update(): void {
     this.publishControls();
     this.publishBranch();
+    this.publish('state.locked', this.locked.value);
+    this.publish(
+      'state.error',
+      this.stateError.value === null ? 'none' : String(this.stateError.value),
+    );
+    this.publish('state.variant', this.stateVariant.value);
+    this.publish('state.volume', Math.round(this.stateVolume.value));
     this.publish('rows', this.rows.value.length);
     if (this.listWidget) {
       this.publish('rows.rendered', this.listWidget.renderedCount);
@@ -228,6 +259,11 @@ export class ComposeScene extends Phaser.Scene {
       this.reportSection(pending);
       if (pending === 'text') {
         for (const [key, widget] of this.reportTextProbes) {
+          reportWidget(key, widget);
+        }
+      }
+      if (pending === 'state') {
+        for (const [key, widget] of this.reportStateProbes) {
           reportWidget(key, widget);
         }
       }
@@ -357,6 +393,9 @@ export class ComposeScene extends Phaser.Scene {
         break;
       case 'list':
         this.buildList();
+        break;
+      case 'state':
+        this.buildState();
         break;
       case 'parity':
         this.buildParity();
@@ -1043,6 +1082,121 @@ export class ComposeScene extends Phaser.Scene {
    * Both cards live in the same `Row` with identical options, so identical geometry is expected node
    * by node. The comparison result is published as `parity=ok` or `parity=mismatch:…`.
    */
+  /**
+   * The reactive *state* slots: `disabled`, `error` and `variant`.
+   *
+   * A page's state is not only its data — "is this editable", "is this valid", "is this dangerous" are
+   * state too, and Compose writes them as parameters (`enabled = saving`, `isError = error != null`,
+   * `containerColor = …`). Here they are the same reactive slots as `value`: a literal, a `ref` or a
+   * getter, and the widget follows.
+   */
+  private buildState(): void {
+    this.card(
+      'State slots',
+      'disabled / error / variant 与 value 一样是数据槽：字面量、ref 或 getter',
+      () => {
+        Column({ gap: 12, width: 460, alignItems: 'stretch' }, () => {
+          this.track(
+            'state.field',
+            TextField({
+              value: this.stateName,
+              label: '被状态驱动的输入框',
+              placeholder: '锁定后点不动，也不会被聚焦',
+              name: 'state.field',
+              disabled: () => this.locked.value,
+              error: () => this.stateError.value,
+            }),
+          );
+          Text(
+            () =>
+              `locked=${this.locked.value} error=${
+                this.stateError.value === null || this.stateError.value === false
+                  ? 'none'
+                  : String(this.stateError.value)
+              } 值=${this.stateName.value || '(空)'}`,
+            { tone: 'muted' },
+          );
+
+          this.track(
+            'state.slider',
+            Slider({
+              value: this.stateVolume,
+              min: 0,
+              max: 100,
+              width: 260,
+              name: 'state.slider',
+              disabled: () => this.locked.value,
+            }),
+          );
+
+          const statePanel = Panel(
+            {
+              variant: () => this.stateVariant.value,
+              radius: 8,
+              padding: 10,
+              width: 'fill',
+              name: 'state.panel',
+            },
+            () => {
+              // Left-aligned and short, so the pixel gate can sample the right-hand half of the panel
+              // and read the *flavour* rather than a glyph.
+              Text(() => `variant=${this.stateVariant.value}`, { tone: 'muted' });
+            },
+          );
+          this.reportStateProbes.set('state.panel', statePanel);
+          this.reportStateProbes.set('state.field', this.tracked.get('state.field') as Widget);
+
+          Row({ gap: 8, wrap: true }, () => {
+            this.track(
+              'state.lock',
+              Button(() => (this.locked.value ? '解锁' : '锁定'), {
+                variant: 'secondary',
+                size: 'sm',
+                name: 'state.lock',
+                onClick: () => {
+                  this.locked.value = !this.locked.value;
+                },
+              }),
+            );
+            this.track(
+              'state.fail',
+              Button('标记错误', {
+                variant: 'danger',
+                size: 'sm',
+                name: 'state.fail',
+                onClick: () => {
+                  this.stateError.value = '这个值不合法（来自状态）';
+                },
+              }),
+            );
+            this.track(
+              'state.clear',
+              Button('清除错误', {
+                variant: 'ghost',
+                size: 'sm',
+                name: 'state.clear',
+                onClick: () => {
+                  this.stateError.value = null;
+                },
+              }),
+            );
+            this.track(
+              'state.variant',
+              Button('换变体', {
+                variant: 'primary',
+                size: 'sm',
+                name: 'state.variant',
+                onClick: () => {
+                  this.stateVariant.value = nextPanelVariant(this.stateVariant.value);
+                },
+              }),
+            );
+          });
+        });
+      },
+    );
+  }
+
   private buildParity(): void {
     this.card('Parity', '同一张卡片：工厂 API 与 DSL 的几何必须逐项相同', () => {
       const options = {
@@ -1112,6 +1266,9 @@ export class ComposeScene extends Phaser.Scene {
         pagePoint(this.game, widget).y,
       )}`,
     );
+    // The visual state as well, like `#/states` and `#/showcase`: a reactive slot has to be observable
+    // from the page, not only from `window.compose.slots()`.
+    this.publish(`st.${key}`, widget.visualState);
   }
 
   /**
@@ -1154,6 +1311,21 @@ export class ComposeScene extends Phaser.Scene {
     }
     this.published.set(key, text);
     setDemoState(key, value);
+  }
+
+  /** The current values of the reactive state slots (what the widgets are following). */
+  private slots(): Record<string, unknown> {
+    const field = this.tracked.get('state.field') as
+      (Widget & { getError?: () => string | null }) | undefined;
+    return {
+      locked: this.locked.value,
+      error: this.stateError.value,
+      fieldError: field?.getError?.() ?? null,
+      variant: this.stateVariant.value,
+      name: this.stateName.value,
+      volume: Math.round(this.stateVolume.value),
+      fieldState: field?.visualState ?? 'gone',
+    };
   }
 
   /** Exposes the scene controller for interactive checks. */
@@ -1199,6 +1371,24 @@ export class ComposeScene extends Phaser.Scene {
         pointerTargets: this.mvvm.input.widgets.length,
         a11yNodes: this.mvvm.a11y.count,
       }),
+      /** Reactive state slots: flip them from a check and watch the widgets follow. */
+      setState: (patch: {
+        locked?: boolean;
+        error?: string | boolean | null;
+        variant?: PanelVariant;
+      }): Record<string, unknown> => {
+        if (patch.locked !== undefined) {
+          this.locked.value = patch.locked;
+        }
+        if (patch.error !== undefined) {
+          this.stateError.value = patch.error;
+        }
+        if (patch.variant !== undefined) {
+          this.stateVariant.value = patch.variant;
+        }
+        return this.slots();
+      },
+      slots: () => this.slots(),
       geometry: () => ({
         page: rectOf(this.page),
         nav: rectOf(this.nav),
