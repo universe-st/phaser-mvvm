@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { appendStatus, reportWidget } from '../status';
+import { appendStatus, reportCanvas, reportWidget } from '../status';
 
 /**
  * M0 acceptance scene.
@@ -59,5 +59,6 @@ export class M0Scene extends Phaser.Scene {
     reportWidget('row', row);
     reportWidget('rect.blue', blue);
     reportWidget('rect.amber', amber);
+    reportCanvas(this.game);
   }
 }

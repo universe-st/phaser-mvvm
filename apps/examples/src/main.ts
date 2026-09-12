@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
+import { StackScene } from './scenes/stack';
 import { appendStatus, installErrorReporting, setStatus } from './status';
 
 // Registers `this.add.vbox/hbox/uiGrid/uiStack/uiRect/uiLabel`.
@@ -10,8 +11,10 @@ installFactories();
 installErrorReporting();
 setStatus('boot');
 
+const SCENES = { m0: M0Scene, probe: ProbeScene, stack: StackScene } as const;
+
 const requested = window.location.hash.replace(/^#\/?/, '');
-const initial = requested === 'probe' ? 'probe' : 'm0';
+const initial = requested in SCENES ? (requested as keyof typeof SCENES) : 'm0';
 document.title = `phaser-mvvm examples · ${initial}`;
 
 const game = new Phaser.Game({
@@ -25,6 +28,9 @@ const game = new Phaser.Game({
   },
   render: {
     antialias: true,
+    // Headless screenshots read the canvas outside the rAF paint, so `?capture=1` keeps the
+    // drawing buffer around (see scripts/visual-check.mjs).
+    preserveDrawingBuffer: new URLSearchParams(window.location.search).has('capture'),
   },
   // Required by the M5 DOM input bridge / a11y mirror (ADR-0004); harmless before that lands.
   dom: {
@@ -42,12 +48,13 @@ const game = new Phaser.Game({
   },
 });
 
-game.scene.add('m0', M0Scene, initial === 'm0');
-game.scene.add('probe', ProbeScene, initial === 'probe');
+for (const [key, scene] of Object.entries(SCENES)) {
+  game.scene.add(key, scene, key === initial);
+}
 
 const renderer = game.renderer?.type === Phaser.WEBGL ? 'webgl' : 'canvas';
 appendStatus(
-  `scene=${initial} renderer=${renderer} size=${game.scale.gameSize.width}x${game.scale.gameSize.height}`,
+  `scene=${initial} renderer=${renderer} size=${game.scale.gameSize.width}x${game.scale.gameSize.height} dpr=${window.devicePixelRatio}`,
 );
 
 // Exposed for screenshots and E2E assertions.

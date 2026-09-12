@@ -2,8 +2,10 @@
 
 基于 **Phaser 4**（`phaser@4.2.1 "Giedi"`）的 **MVVM UI 框架**：在 Phaser 4 渲染管线上提供「响应式数据 + 声明式视图 + 自动布局 + 基础控件」的完整方案 —— 不 fork Phaser，只用公开 API 与插件/工厂注册，游戏逻辑照常使用原生 Phaser。
 
-> **当前状态：M0–M2 进行中，API 未冻结。**
-> 本仓库处于早期开发阶段：workspace 骨架、TypeScript 严格模式、Vite 示例壳、vitest 与 CI 已就位；响应式内核（M1）与布局引擎（M2）正在实现中。**下面出现的所有 API 都是目标形态（PLAN §5 草案），可能随时调整，不要在生产代码中依赖。** 未实现的部分在文中均标注了对应里程碑编号。
+> **当前状态：M0–M2 已完成并通过验收（2026-09），API 仍未冻结。**
+> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（175 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（251 个单测，含黄金快照）、Phaser 4 适配层的骨架（`Widget` / `UIRoot` / 场景插件 / `this.add.vbox|hbox|uiGrid|uiStack|uiAbsolute|uiRect|uiLabel`）、三个可运行的示例场景与无头浏览器「几何 + 像素」验收脚本。
+> 验收证据与已知边界见 [`docs/ACCEPTANCE-M0-M2.md`](./docs/ACCEPTANCE-M0-M2.md)。
+> **API 仍可能调整**（绑定层 M6、控件库 M4/M5 尚未落地），未实现的部分在文中均标注了对应里程碑编号。
 
 ---
 
@@ -72,20 +74,21 @@
 | `@phaser-mvvm/widgets`  | 控件库：`Panel`/`Label`/`Button`/`Image`/`Spacer`/`Divider`（**M4**）、`TextField`/`TextArea`（**M5**）、`Repeat`（**M6**）、`ScrollView`（**M7**）、`Modal`（**M8**）                          | 包骨架已建（M0）；实现自 **M4** 起                                     |
 | `@phaser-mvvm/template` | JSON/模板 → builder 编译                                                                                                                                                                        | **未创建，Phase 2**                                                    |
 
-### 2.3 当前进度（M0–M2 并行开发中，内容变化很快）
+### 2.3 当前进度（M0–M2 已完成，M3+ 未开始）
 
-下表是撰写本文时的粗略进度，**只描述里程碑级别的事实**；要看此刻的真实内容请直接 `ls packages/*/src`：
+里程碑级事实（详细验收证据见 [`docs/ACCEPTANCE-M0-M2.md`](./docs/ACCEPTANCE-M0-M2.md)）：
 
-| 位置                   | 现状                                                                                                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/core/src`    | **M1 尚未落地**（响应式内核实现中）；撰写本文时 `src/` 尚未创建                                                                                             |
-| `packages/layout/src`  | **M2 进行中**：约束、`LayoutParams`、几何、引擎、box/grid/stack 排布已有源文件，测试目录尚未建立                                                            |
-| `packages/phaser/src`  | **M3 部分先行**：`Widget` / `UIRoot` / `LayoutWidget` / 插件 / 工厂注册等适配层文件已出现；`input`/`focus`/`nav`/`a11y`/主题与 **M8** 的 `scene/*` 尚未建立 |
-| `packages/widgets/src` | 仅入口占位；**M4** 起的控件尚未实现                                                                                                                         |
-| `apps/examples/src`    | Vite 示例入口与场景已存在（`main.ts` + `scenes/`，含 M0 场景与 probe 场景），对应 **M0** 验收项                                                             |
-| `docs/`                | 已有 `PLAN.md` 与 `adr/`（ADR 索引在 `docs/adr/README.md`）；`api/`、`widget-spec/` 属 **M10**，尚未创建                                                    |
+| 位置                   | 现状                                                                                                                                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src`    | **M1 完成**：`ref/reactive/computed/watch/watchEffect/effect/effectScope/makeObservable`、`pre`/`post`/`frame` 三档调度器（`nextTick`/`flushSync`/`flushFrame`/`configureScheduler`）、循环更新保护；**175 个单测**                          |
+| `packages/layout/src`  | **M2 完成**：`BoxConstraints`、`LayoutParams` 归一化、`LayoutEngine`（测量缓存 + 脏传播 + relayout boundary + 像素对齐）、`box`/`grid`/`stack`/`absolute` 四种排布、`measureContent`/`applyRect` 节点契约；**251 个单测**（含 4 个黄金快照） |
+| `packages/phaser/src`  | **M3 部分先行**：`Widget`（`Container` + `LayoutNode`）、`UIRoot`、`MVVMPlugin`（`this.mvvm`，帧对齐 flush）、工厂注册、`RectWidget`/`LabelWidget` 探针控件。`input`/`focus`/`nav`/`a11y`/主题/`scene/*`（M8）尚未建立                       |
+| `packages/widgets/src` | 仅入口占位；**M4** 起的控件库尚未实现                                                                                                                                                                                                        |
+| `apps/examples/src`    | 三个场景：`#/m0`（vbox→hbox→两个矩形）、`#/probe`（stack + absolute + 百分比 + 嵌套 box）、`#/stack`（层叠与负偏移角标）；页面底部 `#status` 输出引擎实际分配的 rect，供无头校验断言                                                         |
+| `scripts/`             | `visual-check.mjs`：CDP 驱动单个无头 Chrome（固定视口）→ 读 `#status` 几何 + 截图 → `png-sample.py` 采样像素比对；`png-sample.py`                                                                                                            |
+| `docs/`                | `PLAN.md`、`adr/`（8 篇）、`ACCEPTANCE-M0-M2.md`；`api/`、`widget-spec/` 属 **M10**，尚未创建                                                                                                                                                |
 
-因此 **在各包 `src/` 补齐之前，仓库级的 `pnpm typecheck` / `pnpm test` / `pnpm build` 可能会失败**（`tsc` 报 `No inputs were found`、`vitest` 无测试文件、`tsup` 找不到入口）。需要针对单个包操作时用 `pnpm --filter <包名> run <脚本>`。
+仓库级门禁目前全绿：`pnpm -r run typecheck`、`pnpm -r run test`、`pnpm -r run build`、`pnpm exec prettier --check .`、`pnpm run build:examples`、`node scripts/visual-check.mjs`。
 
 ---
 

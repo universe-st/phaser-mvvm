@@ -13,17 +13,15 @@
  *   pooled per node.
  */
 
-import { type BoxConstraints, constraintsKey, deflate, enforce, unbounded } from './constraint';
 import {
-  type Rect,
-  type Size,
-  type SnapMode,
-  clamp,
-  copyRect,
-  deflateRect,
-  rectEquals,
-  snapRect,
-} from './geom';
+  type BoxConstraints,
+  constraintsKey,
+  deflate,
+  enforce,
+  loosen,
+  unbounded,
+} from './constraint';
+import { type Rect, type Size, type SnapMode, clamp, copyRect, rectEquals, snapRect } from './geom';
 import { type LengthUnit, type ResolvedParams, resolveLength } from './params';
 import type {
   ArrangerContext,
@@ -164,26 +162,43 @@ export class LayoutEngine {
   }
 
   /**
-   * Marks `node` and every ancestor dirty.
+   * Marks `node` and its ancestors dirty, stopping *at* a relayout boundary.
    *
    * Ancestors must be marked because (a) an auto-sized ancestor's measurement depends on its
    * children's sizes, and (b) the arrange pass walks down from the root and skips clean subtrees,
    * so a dirty node deep in the tree would otherwise never be re-arranged.
    *
-   * The cost stays proportional to the change: ancestors re-measure, but their clean children are
-   * answered from the measurement cache, and only the dirty subtree is re-arranged.
+   * A node declaring `isRelayoutBoundary` promises that its own size does not depend on its parent's
+   * constraint, so the walk ends there: the boundary and its subtree are recalculated, while the
+   * ancestors above it answer from the measurement cache and are arranged with unchanged rects.
+   * That keeps an incremental layout proportional to the change instead of to the tree depth.
    */
   invalidate(node: LayoutNode): void {
     let current: LayoutNode | null = node;
     while (current && !this.dirty.has(current)) {
       this.dirty.add(current);
       this.dirtyPending.push(current);
+      if (current !== node && current.isRelayoutBoundary === true) {
+        break;
+      }
       current = current.parent ?? null;
     }
   }
 
+  /** Whether this specific node's cached measurement (or its subtree) is stale. */
   isDirty(node: LayoutNode): boolean {
     return this.dirty.has(node);
+  }
+
+  /**
+   * Whether *any* node is stale, i.e. whether `layout()` has work to do.
+   *
+   * This is the entry point hosts must use before deciding to skip a pass: with relayout
+   * boundaries, a change deep inside a fixed-size panel does not mark the root dirty, so
+   * `isDirty(root)` alone would silently skip the pass and leave the UI stale.
+   */
+  get hasDirtyNodes(): boolean {
+    return this.dirtyPending.length > 0;
   }
 
   /** Drops cached measurements for a subtree (used when fonts/themes change globally). */
@@ -245,8 +260,30 @@ export class LayoutEngine {
     let contentHeight: number;
 
     if (node.container && node.children.length > 0) {
-      const ctx = this.acquireContext(node, ZERO_RECT, content, percentBaseOf(content), true);
+      // Constraints flow down, but a container's children are never *forced* to fill it: the flow
+      // arrangers measure at-most and hand out the leftover in the arrange pass (`grow`/`shrink`,
+      // `alignSelf`/`alignItems: 'stretch'`). A tight container (fixed width/height, or a tight
+      // incoming constraint) would otherwise stretch every `auto` child to its own size.
+      // `contentSize` keeps the real (max) extent, so percentages and `fill` still resolve against
+      // the container's content box, and `content` is still what the result is clamped into.
+      const ctx = this.acquireContext(
+        node,
+        ZERO_RECT,
+        loosen(content),
+        percentBaseOf(content),
+        true,
+      );
       const measured = this.measureContainer(node.container, ctx);
+      // The flow arrangers skip `position: 'absolute'` children, so nobody else would measure them
+      // and `arrangeAbsolute` (which only reads `child.measured`) would place them at 0×0.
+      if (node.container.type !== 'absolute') {
+        for (let i = 0; i < ctx.children.length; i++) {
+          const child = ctx.children[i] as ChildRecord;
+          if (child.params.position === 'absolute') {
+            this.measureChildOf(ctx, child, ctx.constraint);
+          }
+        }
+      }
       contentWidth = clamp(measured.width, content.minWidth, content.maxWidth);
       contentHeight = clamp(measured.height, content.minHeight, content.maxHeight);
     } else {
@@ -381,6 +418,7 @@ export class LayoutEngine {
   }
 
   private arrangeNode(node: LayoutNode, rect: Rect): void {
+    // `rect` is in the *parent's* local coordinates: that is what the renderer object stores.
     node.applyRect(rect);
     this.stats.arrangeCalls++;
 
@@ -388,9 +426,17 @@ export class LayoutEngine {
       return;
     }
 
+    // Children are arranged in *this node's* local coordinate space, whose origin is the node's
+    // own top-left corner (containers position their children relatively). Only the sizes come from
+    // `rect`; the offsets come from this node's padding. Mixing the two would accumulate the
+    // parent's offset at every nesting level.
     const params = node.layoutParams;
-    const ctx = this.acquireContext(node, rect, unbounded(), { width: 0, height: 0 }, false);
-    deflateRect(ctx.rect, params.padding);
+    const padding = params.padding;
+    const ctx = this.acquireContext(node, ZERO_RECT, unbounded(), { width: 0, height: 0 }, false);
+    ctx.rect.x = padding.left;
+    ctx.rect.y = padding.top;
+    ctx.rect.width = Math.max(0, rect.width - padding.left - padding.right);
+    ctx.rect.height = Math.max(0, rect.height - padding.top - padding.bottom);
     ctx.constraint = {
       minWidth: 0,
       maxWidth: ctx.rect.width,

@@ -110,7 +110,9 @@ function flushPostJobs(): void {
 /** Runs every pending `pre` and `post` job synchronously. Frame jobs stay queued. */
 export function flushSync(): void {
   if (flushDepth > 0) {
-    warn('flushSync() was called while a flush was already running; the jobs join the current flush.');
+    warn(
+      'flushSync() was called while a flush was already running; the jobs join the current flush.',
+    );
     return;
   }
   preFlushScheduled = false;

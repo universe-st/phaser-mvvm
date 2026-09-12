@@ -4,3 +4,5 @@ coverage/
 docs/PLAN.md
 pnpm-lock.yaml
 .tmp/
+# Generated layout baselines (written by `UPDATE_GOLDEN=1 pnpm test`).
+packages/layout/test/golden/

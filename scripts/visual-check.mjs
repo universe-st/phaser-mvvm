@@ -1,27 +1,34 @@
 #!/usr/bin/env node
 /**
- * Visual + DOM check for `apps/examples`.
+ * Visual + geometry check for `apps/examples`.
  *
- * Builds the example app, serves the production bundle with `vite preview`, then for every scene
- * hash:
- *   1. captures a PNG with headless Chrome (`--screenshot`),
- *   2. dumps the DOM so the `#status` block (real geometry reported by the scenes) can be asserted.
+ * One headless Chrome instance, driven over the DevTools protocol, so the DOM read and the
+ * screenshot always come from the *same* page and viewport (two separate `--dump-dom` /
+ * `--screenshot` runs disagree about the viewport height and silently shift every sample).
+ *
+ * For each scene it:
+ *   1. sets an explicit viewport (deterministic across machines and CI),
+ *   2. navigates to the scene hash in `?capture=1` mode (the app enables
+ *      `preserveDrawingBuffer` so the WebGL frame survives the capture),
+ *   3. reads the `#status` block, which the scenes fill with the rects the layout engine assigned,
+ *   4. captures a PNG and samples the centre pixel of selected widgets
+ *      (`scripts/png-sample.py`, Pillow-based).
  *
  * Usage:
- *   node scripts/visual-check.mjs                 # builds, serves, checks m0 + probe
- *   node scripts/visual-check.mjs --no-build      # reuse an existing dist/
- *   node scripts/visual-check.mjs --port 4174
+ *   node scripts/visual-check.mjs
+ *   node scripts/visual-check.mjs --no-build
+ *   node scripts/visual-check.mjs --config vite.check.config.ts
+ *   node scripts/visual-check.mjs --size 1024x768 --port 4174
  *
- * Exit code is non-zero if a scene reports an ERROR/REJECTION line or Chrome fails.
+ * Exit code is non-zero when a scene reports an error, a sample mismatches, or Chrome fails.
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const examplesDir = join(root, 'apps', 'examples');
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -30,10 +37,62 @@ const flag = (name, fallback) => {
 };
 const has = (name) => args.includes(name);
 
-const port = Number(flag('--port', '4173'));
+const requestedPort = Number(flag('--port', '4173'));
+const port = await freePort(requestedPort);
+const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
-const size = flag('--size', '1280x720');
-const scenes = ['m0', 'probe'];
+const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
+const scenes = ['m0', 'probe', 'stack'];
+
+/**
+ * A stale server on the requested port would silently serve an old bundle, so probe for a port that
+ * answers nothing. Both `localhost` (IPv6 `::1` included) and `127.0.0.1` are probed, because a
+ * listener bound to one of them is invisible to a plain socket bind on the other.
+ */
+async function freePort(start) {
+  for (let candidate = start; candidate < start + 30; candidate++) {
+    if (!(await isServing(candidate))) {
+      return candidate;
+    }
+  }
+  throw new Error(`no free port in ${start}..${start + 30}`);
+}
+
+async function isServing(port) {
+  for (const host of ['localhost', '127.0.0.1']) {
+    try {
+      await fetch(`http://${host}:${port}/index.html`, { signal: AbortSignal.timeout(750) });
+      return true;
+    } catch {
+      // not answering on this host
+    }
+  }
+  return false;
+}
+
+/** Widget label -> expected fill colour; `{rgb, fx, fy}` samples off-centre (partly covered widgets). */
+const PIXEL_EXPECTATIONS = {
+  m0: {
+    'rect.blue': 0x2f6feb,
+    'rect.amber': 0xf2a33c,
+  },
+  probe: {
+    backdrop: 0x161b22,
+    'abs.topleft': 0x3fb950,
+    'abs.bottomright': 0xf85149,
+    'hud.left': 0x8b949e,
+    'hud.center': 0xd29922,
+    'hud.right': 0xa371f7,
+    bar: 0x2f6feb,
+  },
+  stack: {
+    // The card covers the centre of the backdrop, so the backdrop is sampled near its own corner.
+    backdrop: { rgb: 0x161b22, fx: 0.05, fy: 0.05 },
+    card: 0x1f6feb,
+    badge: 0x3fb950,
+    footer: 0xf2a33c,
+  },
+};
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
@@ -53,9 +112,9 @@ function chromePath() {
   throw new Error(`no Chrome/Chromium binary found (checked: ${CHROME_CANDIDATES.join(', ')})`);
 }
 
-function run(command, commandArgs, options = {}) {
+function run(command, commandArgs) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(command, commandArgs, { cwd: root, stdio: 'inherit', ...options });
+    const child = spawn(command, commandArgs, { cwd: root, stdio: 'inherit' });
     child.on('error', rejectPromise);
     child.on('exit', (code) =>
       code === 0 ? resolvePromise() : rejectPromise(new Error(`${command} exited with ${code}`)),
@@ -63,110 +122,316 @@ function run(command, commandArgs, options = {}) {
   });
 }
 
-function chrome(args_, { capture = false } = {}) {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(chromePath(), args_, {
-      stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr?.on('data', (chunk) => {
-      stderr += chunk;
-    });
-    child.on('error', rejectPromise);
-    child.on('exit', (code) => {
-      if (code === 0) {
-        resolvePromise({ stdout, stderr });
-      } else {
-        rejectPromise(new Error(`chrome exited with ${code}\n${stderr}`));
-      }
-    });
-  });
-}
-
-async function waitForServer(url, timeoutMs = 30000) {
+async function waitFor(check, timeoutMs, what) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { redirect: 'manual' });
-      if (response.ok || response.status === 304) {
+      if (await check()) {
         return;
       }
     } catch {
-      // not up yet
+      // keep waiting
     }
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 200));
   }
-  throw new Error(`server did not become ready: ${url}`);
+  throw new Error(`timed out waiting for ${what}`);
+}
+
+/** Minimal DevTools-protocol client built on Node's global fetch + WebSocket. */
+class CdpSession {
+  constructor(webSocket) {
+    this.socket = webSocket;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.listeners = new Map();
+    webSocket.addEventListener('message', (event) => {
+      const message = JSON.parse(event.data);
+      if (message.id && this.pending.has(message.id)) {
+        const { resolve: resolvePromise, reject } = this.pending.get(message.id);
+        this.pending.delete(message.id);
+        if (message.error) {
+          reject(new Error(`${message.error.message} (${message.error.code})`));
+        } else {
+          resolvePromise(message.result);
+        }
+        return;
+      }
+      const handlers = this.listeners.get(message.method);
+      if (handlers) {
+        for (const handler of handlers) {
+          handler(message.params);
+        }
+      }
+    });
+  }
+
+  send(method, params = {}) {
+    const id = this.nextId++;
+    return new Promise((resolvePromise, reject) => {
+      this.pending.set(id, { resolve: resolvePromise, reject });
+      this.socket.send(JSON.stringify({ id, method, params }));
+    });
+  }
+
+  on(method, handler) {
+    const handlers = this.listeners.get(method) ?? [];
+    handlers.push(handler);
+    this.listeners.set(method, handlers);
+  }
+
+  once(method) {
+    return new Promise((resolvePromise) => {
+      const handler = (params) => {
+        const handlers = this.listeners.get(method) ?? [];
+        this.listeners.set(
+          method,
+          handlers.filter((entry) => entry !== handler),
+        );
+        resolvePromise(params);
+      };
+      this.on(method, handler);
+    });
+  }
+}
+
+async function connect(webSocketDebuggerUrl) {
+  const socket = new WebSocket(webSocketDebuggerUrl);
+  await new Promise((resolvePromise, reject) => {
+    socket.addEventListener('open', resolvePromise, { once: true });
+    socket.addEventListener('error', () => reject(new Error('websocket error')), { once: true });
+  });
+  return new CdpSession(socket);
+}
+
+/** Extracts the text of the page's `#status` block. */
+function parseStatus(text) {
+  if (typeof text !== 'string') {
+    return null;
+  }
+  const trimmed = text.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Parses `label=@x,y wxh` lines reported by the scenes. */
+function parseRects(status) {
+  const rects = new Map();
+  for (const line of status.split('\n')) {
+    const match = /^([\w.]+)=@(-?[\d.]+),(-?[\d.]+) ([\d.]+)x([\d.]+)$/.exec(line.trim());
+    if (match) {
+      rects.set(match[1], {
+        x: Number(match[2]),
+        y: Number(match[3]),
+        width: Number(match[4]),
+        height: Number(match[5]),
+      });
+    }
+  }
+  return rects;
+}
+
+/** Builds the pixel-check spec for a scene from its status block. */
+function pixelSpec(scene, png, status) {
+  const expectations = PIXEL_EXPECTATIONS[scene];
+  if (!expectations) {
+    return null;
+  }
+  const rects = parseRects(status);
+  // Stage coordinates are canvas-relative; the app reports the canvas rect (Phaser may centre it).
+  const canvas = rects.get('canvas') ?? { x: 0, y: 0, width: viewWidth, height: viewHeight };
+  const checks = [
+    {
+      label: 'canvas.clear',
+      x: canvas.x + 4,
+      y: canvas.y + 4,
+      rgb: [0x0d, 0x11, 0x17],
+    },
+  ];
+
+  for (const [label, expected] of Object.entries(expectations)) {
+    const rect = rects.get(label);
+    if (!rect) {
+      checks.push({ label, x: 0, y: 0, rgb: [0, 0, 0], missing: true });
+      continue;
+    }
+    const fx = typeof expected === 'object' ? (expected.fx ?? 0.5) : 0.5;
+    const fy = typeof expected === 'object' ? (expected.fy ?? 0.5) : 0.5;
+    const rgb = typeof expected === 'object' ? expected.rgb : expected;
+    checks.push({
+      label,
+      x: Math.round(canvas.x + rect.x + rect.width * fx),
+      y: Math.round(canvas.y + rect.y + rect.height * fy),
+      rgb: [(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff],
+    });
+  }
+
+  return { png, scale: 1, checks };
 }
 
 async function main() {
   mkdirSync(outDir, { recursive: true });
 
   if (!has('--no-build')) {
-    await run('pnpm', ['--filter', '@phaser-mvvm/examples', 'run', 'build'], { cwd: root });
+    await run('pnpm', ['--filter', '@phaser-mvvm/examples', 'exec', 'vite', 'build']);
   }
 
   const preview = spawn(
     'pnpm',
-    ['--filter', '@phaser-mvvm/examples', 'run', 'preview', '--', '--port', String(port)],
+    [
+      '--filter',
+      '@phaser-mvvm/examples',
+      'exec',
+      'vite',
+      'preview',
+      '--port',
+      String(port),
+      '--strictPort',
+    ],
     { cwd: root, stdio: 'inherit' },
   );
+  preview.on('exit', (code) => {
+    if (code !== null && code !== 0) {
+      console.error(`[visual-check] preview server exited with ${code}`);
+    }
+  });
+
+  const cleanup = () => {
+    chromeProcess?.kill('SIGTERM');
+    preview.kill('SIGTERM');
+  };
+  process.once('SIGINT', () => {
+    cleanup();
+    process.exit(130);
+  });
 
   const base = `http://localhost:${port}`;
+  const debugBase = `http://127.0.0.1:${debugPort}`;
+  let chromeProcess = null;
   let failures = 0;
 
   try {
-    await waitForServer(`${base}/index.html`);
+    await waitFor(async () => (await fetch(`${base}/index.html`)).ok, 30000, 'vite preview');
 
-    for (const scene of scenes) {
-      const url = `${base}/#/${scene}`;
-      const png = join(outDir, `${scene}.png`);
-      const dom = join(outDir, `${scene}.html`);
+    // Guard against a stale server answering on this port: the served HTML must be the built one.
+    const builtIndex = `${readFileSync(join(root, 'apps/examples/dist/index.html'), 'utf8')}`;
+    const servedIndex = await (await fetch(`${base}/index.html`)).text();
+    if (builtIndex.trim() !== servedIndex.trim()) {
+      throw new Error(
+        `the server on port ${port} is serving a different bundle than apps/examples/dist (stale server?)`,
+      );
+    }
 
-      await chrome([
+    chromeProcess = spawn(
+      chromePath(),
+      [
         '--headless=new',
         '--hide-scrollbars',
         '--enable-unsafe-swiftshader',
         '--mute-audio',
-        `--window-size=${size.replace('x', ',')}`,
-        '--virtual-time-budget=6000',
-        `--screenshot=${png}`,
-        url,
-      ]);
-      console.log(`[visual-check] screenshot  ${png}`);
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        `--remote-debugging-port=${debugPort}`,
+        `--window-size=${viewWidth},${viewHeight}`,
+        'about:blank',
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
 
-      const { stdout } = await chrome(
-        [
-          '--headless=new',
-          '--enable-unsafe-swiftshader',
-          '--virtual-time-budget=6000',
-          '--dump-dom',
-          url,
-        ],
-        { capture: true },
+    await waitFor(
+      async () => (await fetch(`${debugBase}/json/version`)).ok,
+      20000,
+      'chrome devtools endpoint',
+    );
+
+    const target = await (
+      await fetch(`${debugBase}/json/new?about:blank`, { method: 'PUT' })
+    ).json();
+    const session = await connect(target.webSocketDebuggerUrl);
+
+    await session.send('Page.enable');
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: viewWidth,
+      height: viewHeight,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+
+    for (const scene of scenes) {
+      // A distinct query string forces a real document load per scene: navigating between two hashes
+      // of the same document fires no load event and would hang the wait below.
+      const url = `${base}/?capture=1&scene=${scene}#/${scene}`;
+      const png = join(outDir, `${scene}.png`);
+
+      const loaded = session.once('Page.loadEventFired');
+      await session.send('Page.navigate', { url });
+      await loaded;
+
+      // Wait until the scene reported its layout (or an error) into #status.
+      await waitFor(
+        async () => {
+          const { result } = await session.send('Runtime.evaluate', {
+            expression: "document.getElementById('status')?.textContent ?? ''",
+            returnByValue: true,
+          });
+          return typeof result.value === 'string' && /(---|ERROR:|REJECTION:)/.test(result.value);
+        },
+        15000,
+        `${scene} layout`,
       );
-      writeFileSync(dom, stdout);
 
-      const statusMatch = /<pre id="status">([\s\S]*?)<\/pre>/.exec(stdout);
-      const status = statusMatch
-        ? statusMatch[1].replace(/&[a-z]+;/g, ' ').trim()
-        : '(no status block)';
+      const { result } = await session.send('Runtime.evaluate', {
+        expression: "document.getElementById('status')?.textContent ?? ''",
+        returnByValue: true,
+      });
+      const status = parseStatus(result.value);
+      writeFileSync(join(outDir, `${scene}.txt`), `${status ?? ''}\n`);
       console.log(`[visual-check] status for ${scene}:\n${status}\n`);
 
-      if (/ERROR:|REJECTION:/.test(status) || status === '(no status block)') {
-        failures++;
+      const shot = await session.send('Page.captureScreenshot', { format: 'png' });
+      writeFileSync(png, Buffer.from(shot.data, 'base64'));
+      console.log(`[visual-check] screenshot  ${png}`);
+
+      if (!status) {
+        console.error(`[visual-check] ${scene}: no #status content`);
+        failures += 1;
+        continue;
+      }
+      if (/ERROR:|REJECTION:/.test(status)) {
+        console.error(`[visual-check] ${scene}: the page reported an error`);
+        failures += 1;
+        continue;
+      }
+
+      const spec = pixelSpec(scene, png, status);
+      if (!spec) {
+        continue;
+      }
+      const missing = spec.checks.filter((check) => check.missing);
+      for (const check of missing) {
+        console.error(`[visual-check] ${scene}: no rect reported for "${check.label}"`);
+        failures += 1;
+      }
+      if (missing.length === spec.checks.length) {
+        continue;
+      }
+
+      const specFile = join(outDir, `${scene}.pixels.json`);
+      writeFileSync(specFile, `${JSON.stringify(spec, null, 2)}\n`);
+      try {
+        await run('python3', [join(root, 'scripts', 'png-sample.py'), specFile]);
+      } catch {
+        failures += 1;
       }
     }
+
+    await fetch(`${debugBase}/json/close/${target.id}`);
   } finally {
+    chromeProcess?.kill('SIGTERM');
     preview.kill('SIGTERM');
   }
 
   if (failures > 0) {
-    console.error(`[visual-check] ${failures} scene(s) reported errors`);
+    console.error(`[visual-check] ${failures} check(s) failed`);
     process.exitCode = 1;
   } else {
     console.log('[visual-check] ok');

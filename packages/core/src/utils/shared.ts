@@ -45,8 +45,12 @@ export const isSet = (value: unknown): value is Set<unknown> => toRawType(value)
 
 export const isDate = (value: unknown): value is Date => toRawType(value) === 'Date';
 
-export const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  toRawType(value) === 'Object';
+/** `true` for object literals and `Object.create(null)` objects, but not for class instances. */
+export const isPlainObject = (value: unknown): value is Record<string, unknown> => {
+  if (toRawType(value) !== 'Object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === null || prototype === Object.prototype;
+};
 
 /** Array index keys such as `'0'`; excludes `'-1'`, `'1.5'` and `'NaN'`. */
 export const isIntegerKey = (key: unknown): key is string =>
@@ -55,13 +59,19 @@ export const isIntegerKey = (key: unknown): key is string =>
 /**
  * `true` when two values differ. Based on `Object.is`, so `NaN` equals `NaN` and `+0`/`-0` differ.
  */
-export const hasChanged = (value: unknown, oldValue: unknown): boolean => !Object.is(value, oldValue);
+export const hasChanged = (value: unknown, oldValue: unknown): boolean =>
+  !Object.is(value, oldValue);
 
 export const extend = Object.assign;
 
 /** Defines a non-enumerable, writable property (used for the internal flag keys). */
 export const def = (target: object, key: PropertyKey, value: unknown): void => {
-  Object.defineProperty(target, key, { configurable: true, enumerable: false, value, writable: true });
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: false,
+    value,
+    writable: true,
+  });
 };
 
 /** Well-known symbols whose access on a proxy must not be tracked. */

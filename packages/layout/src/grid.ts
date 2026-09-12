@@ -61,6 +61,16 @@
  * - `columns: 'auto'` with a non-positive `minColumnWidth + columnGap` cannot fit an infinite number
  *   of columns, so it falls back to one column per child (the "unbounded" rule).
  * - Container-level `justifyItems` / `alignItems: 'auto'` mean "use the default", i.e. `'stretch'`.
+ * - Cells are measured with the cell (or span) width as an *upper* bound rather than as a tight
+ *   size: a forced cell width would make every `auto` item report the whole cell and leave
+ *   `justifyItems`/`alignItems` nothing to align. The grid box is derived from the column count and
+ *   the gaps, so its own measured size does not depend on this choice.
+ * - `'stretch'` (and a `'fill'` item) fills the cell; `'fill'` items are filled even under a
+ *   non-stretch alignment, because `fill` resolves against the grid's content box instead of the
+ *   cell. Non-stretch alignment positions the child's *margin box* inside the cell, so `center`
+ *   and `end` account for the leading margin.
+ * - Cells never stretch to fill a taller content box: the grid box is the sum of its rows, and any
+ *   leftover cross space stays at the bottom (there is no grid equivalent of `alignContent`).
  */
 
 import type { BoxConstraints } from './constraint';
@@ -111,7 +121,10 @@ function columnCountOf(options: GridLayoutOptions, width: number, count: number)
     return Number.isFinite(columns) ? Math.max(1, Math.floor(columns)) : 1;
   }
   const gap = gapOption(options.columnGap);
-  const minColumnWidth = Math.max(0, numberOption(options.minColumnWidth, DEFAULT_MIN_COLUMN_WIDTH));
+  const minColumnWidth = Math.max(
+    0,
+    numberOption(options.minColumnWidth, DEFAULT_MIN_COLUMN_WIDTH),
+  );
   if (!Number.isFinite(width)) {
     return Math.max(1, count);
   }
@@ -303,10 +316,7 @@ function applyRowHeight(
 }
 
 /** Floors every row at `minRowHeight`, used when `rows` is a fixed count. */
-function applyMinRowHeight(
-  rowHeights: number[],
-  options: GridLayoutOptions,
-): void {
+function applyMinRowHeight(rowHeights: number[], options: GridLayoutOptions): void {
   if (typeof options.rows !== 'number') {
     return;
   }
@@ -325,7 +335,10 @@ export function measureGrid(ctx: ArrangerContext, options: GridLayoutOptions = {
 
   const columnGap = gapOption(options.columnGap);
   const rowGap = gapOption(options.rowGap);
-  const minColumnWidth = Math.max(0, numberOption(options.minColumnWidth, DEFAULT_MIN_COLUMN_WIDTH));
+  const minColumnWidth = Math.max(
+    0,
+    numberOption(options.minColumnWidth, DEFAULT_MIN_COLUMN_WIDTH),
+  );
   const width = ctx.contentSize.width;
   const definite = Number.isFinite(width);
   const columns = columnCountOf(options, width, count);
@@ -337,9 +350,15 @@ export function measureGrid(ctx: ArrangerContext, options: GridLayoutOptions = {
   for (let i = 0; i < count; i += 1) {
     const child = items[i] as LayoutChild;
     const cells = spanExtent(cellWidth, child.params.gridColumnSpan, columnGap);
-    const constraint: BoxConstraints = definite
-      ? { minWidth: cells, maxWidth: cells, minHeight: 0, maxHeight: UNBOUNDED_HEIGHT }
-      : { minWidth: 0, maxWidth: cells, minHeight: 0, maxHeight: UNBOUNDED_HEIGHT };
+    // The cell width is an *upper* bound, not a forced size: a tight cell width would make every
+    // `auto` item report the whole cell and leave `justifyItems`/`alignItems` with nothing to do.
+    // The grid box itself is derived from the column count and gaps, so it does not depend on this.
+    const constraint: BoxConstraints = {
+      minWidth: 0,
+      maxWidth: cells,
+      minHeight: 0,
+      maxHeight: UNBOUNDED_HEIGHT,
+    };
     const measured = ctx.measureChild(child, constraint);
     applyRowHeight(
       rowHeights,
@@ -374,8 +393,12 @@ function placeInCell(
   const justify = containerAlign(options.justifyItems);
   const align = containerAlign(options.alignItems);
   const outer = ctx.resolveOuterSize(child);
-  const outerWidth = justify === 'stretch' ? cell.width : outer.width;
-  const outerHeight = align === 'stretch' ? cell.height : outer.height;
+  // `'stretch'` fills the cell; so does a `fill` item, whose length resolves against the grid's
+  // content box rather than against the cell it lands in (the cell is its containing block).
+  const outerWidth =
+    justify === 'stretch' || ctx.isFill(child, 'horizontal') ? cell.width : outer.width;
+  const outerHeight =
+    align === 'stretch' || ctx.isFill(child, 'vertical') ? cell.height : outer.height;
 
   ctx.placeChild(child, {
     x: alignOffset(cell.x, cell.width, outerWidth, justify) + margin.left,

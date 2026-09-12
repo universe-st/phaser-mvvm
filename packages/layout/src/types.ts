@@ -102,10 +102,13 @@ export interface LayoutNode {
   applyRect(rect: Rect): void;
 
   /**
-   * Hint that this node's own size does not depend on its parent's constraint (e.g. a widget with
-   * fixed width and height). It is currently informational — dirty state always propagates to the
-   * root so the top-down arrange pass can reach a changed node — and is reserved for a future
-   * "arrange from a sub-root" optimisation.
+   * This node's own size does not depend on its parent's constraint (a widget with a fixed width
+   * and height, for example), so `LayoutEngine.invalidate()` stops its upward walk here: the
+   * boundary and its subtree are recalculated while the ancestors above it keep their cached
+   * measurements and their existing rects.
+   *
+   * Hosts must therefore ask the engine `hasDirtyNodes` (not `isDirty(root)`) before skipping a
+   * layout pass.
    */
   readonly isRelayoutBoundary?: boolean;
 }

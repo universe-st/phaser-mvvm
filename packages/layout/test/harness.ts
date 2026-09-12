@@ -122,10 +122,7 @@ export function stack(
 }
 
 /** A container that only arranges its `position: 'absolute'` children. */
-export function absolute(
-  children: readonly LayoutNode[] = [],
-  params?: LayoutParams,
-): TestNode {
+export function absolute(children: readonly LayoutNode[] = [], params?: LayoutParams): TestNode {
   return new TestNode({ params, children, container: { type: 'absolute' } });
 }
 
@@ -141,6 +138,11 @@ export function layout(
   engine: LayoutEngine = new LayoutEngine(),
 ): LayoutResult {
   return { size: engine.layout(root, constraint), engine };
+}
+
+/** An engine without pixel snapping, so sub-pixel geometry can be asserted exactly. */
+export function exactEngine(): LayoutEngine {
+  return new LayoutEngine({ snapMode: 'none' });
 }
 
 /** The rect a node received from `applyRect`; throws when the node was never arranged. */

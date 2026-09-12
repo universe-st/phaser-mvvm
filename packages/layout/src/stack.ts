@@ -22,6 +22,9 @@ type AlignKeyword = Exclude<Align, 'auto' | 'stretch'>;
 export function measureStack(ctx: ArrangerContext, _options?: StackLayoutOptions): Size {
   let width = 0;
   let height = 0;
+  // Stacked children are aligned, not stretched, so they are measured at-most: the engine hands
+  // containers a loosened constraint, so a tight parent (a full-screen `UIRoot`, say) cannot force
+  // every stacked child to fill it.
   for (const child of ctx.children) {
     if (child.params.position === 'absolute' || !child.node.inFlow) {
       continue;

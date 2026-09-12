@@ -286,6 +286,8 @@ this.add.textField({ x: 0, y: 0, model: 'form.name', maxLength: 20 });
 
 单人全职估算；标 ★ 的里程碑可与前一项局部并行。
 
+**执行状态（2026-09）**：**M0 / M1 / M2 已完成并通过验收**，验收记录见 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md)（含实测命令输出、端到端几何+像素校验、集成期发现并修复的 5 个真实缺陷、已知边界）。M3 起为未开始状态。
+
 | 里程碑 | 内容 | 交付物 | 验收标准 | 估算 |
 |--------|------|--------|----------|------|
 | **M0 骨架与基线** | pnpm workspace、TS strict、vite 示例、vitest、Prettier、CI 工作流（ESLint/size-limit/覆盖率门禁推迟到 M4）；Phaser 依赖策略落地（`peerDependencies: phaser ^4.2` + devDependency `phaser@4.2.1`，本地源码仅作参考）；ADR 记录关键决策（§10） | 可运行的空框架 + 一个用 `this.add.hbox()` 渲染出两个矩形的示例（`apps/examples` 的 `#/m0` 与 `#/probe`） | `pnpm install`、`pnpm -r typecheck`、`pnpm -r test`、`pnpm run build:examples` 全绿；`pnpm run visual-check` 截图成功且 `#status` 无错误行；`phaser.d.ts` 类型可解析 | 1–2 天 |

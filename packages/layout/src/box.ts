@@ -65,15 +65,23 @@
  *   horizontal (row-wrap) case.
  * - A main-axis `'fill'` child contributes base size 0 and grow weight 1, so it absorbs the leftover
  *   instead of forcing a wrap; an explicit `grow > 0` wins over that implicit 1. A resolvable
- *   `basis` replaces the measured base main size.
+ *   `basis` replaces the measured base main size, and — as with CSS `flex-basis` — it also becomes
+ *   the child's main-axis size whenever nothing grows or shrinks it.
  * - `'stretch'` gives the child the whole line cross size (minus its cross margins) even when the
- *   child declares a cross length, as the SPEC states literally.
+ *   child declares a cross length, as the SPEC states literally. A cross-axis `'fill'` child gets
+ *   the line cross size as well, because `fill` resolves against the container's content box rather
+ *   than against the line it lands in.
  * - Cross-axis alignment positions the child's *margin box* inside the line, so `center`/`end`
  *   account for the leading margin.
  * - Free-space distribution during measure is skipped when the "tight" main extent is unbounded
- *   (`min === max === Infinity`), which would otherwise produce Infinite sizes.
- * - A local array is allocated only when children must be filtered/sorted/reversed; the placement
- *   path itself allocates nothing per child beyond the rect handed to `placeChild`.
+ *   (`min === max === Infinity`), which would otherwise produce Infinite sizes. Note that the engine
+ *   hands containers a *loosened* constraint (children are never forced to fill their parent), so in
+ *   practice this branch only fires for a zero-extent axis: all free space is distributed in the
+ *   arrange pass. The resulting geometry is identical either way, because the engine clamps the
+ *   container's measured content into the container's own constraint.
+ * - A local array is allocated only when children must be filtered/sorted/reversed, plus one small
+ *   working set per call; the placement path itself allocates nothing per child beyond the rect
+ *   handed to `placeChild`.
  */
 
 import type { BoxConstraints } from './constraint';
@@ -95,7 +103,10 @@ function isFlowChild(child: LayoutChild): boolean {
  * (stable, so ties keep declaration order) and reversed when `reverse` is set. `ctx.children` is
  * returned untouched when no work is needed, so the common case allocates nothing.
  */
-export function orderedFlowChildren(ctx: ArrangerContext, reverse: boolean): readonly LayoutChild[] {
+export function orderedFlowChildren(
+  ctx: ArrangerContext,
+  reverse: boolean,
+): readonly LayoutChild[] {
   const declared = ctx.children;
   let keepAll = true;
   let sorted = true;
@@ -181,7 +192,9 @@ function baseMainOf(ctx: ArrangerContext, child: LayoutChild, axis: Axis, outer:
   if (params.basis !== null) {
     const resolved = resolveLength(params.basis, extentOf(axis, ctx.contentSize));
     if (resolved !== null) {
-      return Math.max(0, resolved) + marginStart(axis, params.margin) + marginEnd(axis, params.margin);
+      return (
+        Math.max(0, resolved) + marginStart(axis, params.margin) + marginEnd(axis, params.margin)
+      );
     }
   }
   return extentOf(axis, outer);
@@ -329,11 +342,11 @@ function placeLine(
     const margin = child.params.margin;
     const align = alignSelfOf(child.params.alignSelf, flow.alignItems);
     const outerMain = flow.mains[i] as number;
-    const outerCross = align === 'stretch' ? lineCross : (flow.crosses[i] as number);
-    const borderMain = Math.max(
-      0,
-      outerMain - marginStart(axis, margin) - marginEnd(axis, margin),
-    );
+    // `'stretch'` fills the line; so does a cross-axis `fill` item, whose length resolves against
+    // the container's content box rather than against the line it lands in.
+    const outerCross =
+      align === 'stretch' || ctx.isFill(child, crossAxis) ? lineCross : (flow.crosses[i] as number);
+    const borderMain = Math.max(0, outerMain - marginStart(axis, margin) - marginEnd(axis, margin));
     const borderCross = Math.max(
       0,
       outerCross - marginStart(crossAxis, margin) - marginEnd(crossAxis, margin),

@@ -75,10 +75,16 @@ export class UIRoot extends Widget {
     this.flushLayout();
   }
 
-  /** Runs a layout pass if anything in the tree is dirty. */
+  /**
+   * Runs a layout pass if anything in the widget tree is dirty.
+   *
+   * The check is `hasDirtyNodes`, not `isDirty(this)`: a change inside a fixed-size widget does not
+   * propagate dirty state to the root (relayout boundary), so testing the root alone would skip the
+   * pass and leave the UI stale.
+   */
   flushLayout(): void {
     const engine = this.layoutEngine;
-    if (this.laidOut && !engine.isDirty(this)) {
+    if (this.laidOut && !engine.hasDirtyNodes) {
       return;
     }
     const width = typeof this.layoutParams.width === 'number' ? this.layoutParams.width : 0;

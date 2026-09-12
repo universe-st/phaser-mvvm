@@ -112,11 +112,15 @@ describe('golden layout snapshots', () => {
       leaf({ width: 80, height: 28 }),
     ]);
 
-    const sidebar = leaf({ width: 120, height: 'fill' });
-    const content = box({ direction: 'vertical', gap: 10, alignItems: 'stretch' }, [
-      leaf({ width: 'fill', height: '50%' }),
-      leaf({ width: 'fill', height: 40 }),
-    ]);
+    const sidebar = leaf({ width: 120, height: 'fill', shrink: 0 });
+    // `width: 'fill'` (main-axis grow with a zero basis) rather than `auto`: an auto-width box whose
+    // children resolve `fill` against its content box would size itself to the available width and
+    // then overflow its own row.
+    const content = box(
+      { direction: 'vertical', gap: 10, alignItems: 'stretch' },
+      [leaf({ width: 'fill', height: '50%' }), leaf({ width: 'fill', height: 40 })],
+      { width: 'fill' },
+    );
 
     const main = box({ direction: 'horizontal', gap: 10 }, [sidebar, content]);
 
@@ -128,7 +132,10 @@ describe('golden layout snapshots', () => {
       padding: 12,
     });
 
-    const rootWithBadge = new TestNode({ container: { type: 'box', options: { direction: 'vertical' } }, children: [root, overlay] });
+    const rootWithBadge = new TestNode({
+      container: { type: 'box', options: { direction: 'vertical' } },
+      children: [root, overlay],
+    });
 
     snapshot('dashboard', rootWithBadge as TestNode, 800, 600);
   });
