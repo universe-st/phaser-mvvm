@@ -43,6 +43,7 @@
  */
 
 import Phaser from 'phaser';
+import { devLog, isDevMode } from '@phaser-mvvm/core';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import { stageRectOf, Widget } from '@phaser-mvvm/phaser';
 import type { Theme } from '@phaser-mvvm/phaser';
@@ -545,6 +546,11 @@ export class ScrollView extends Widget {
     this.measureContentExtent();
     const nextX = this.scrollsX() ? clampOffset(x, this.limitX, this.bounceEnabled) : 0;
     const nextY = this.scrollsY() ? clampOffset(y, this.limitY, this.bounceEnabled) : 0;
+    if (isDevMode() && (nextX !== x || nextY !== y) && !this.bounceEnabled) {
+      // A *request* that the limits had to correct: exactly what "the list will not scroll to the end"
+      // looks like from the outside (see DEFECT-BACKLOG V-… on re-clamping after a viewport change).
+      devLog(`scroll: clamped (${Math.round(x)}, ${Math.round(y)}) -> (${nextX}, ${nextY})`);
+    }
     if (nextX === this.currentX && nextY === this.currentY) {
       return this;
     }

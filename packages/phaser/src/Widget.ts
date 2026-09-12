@@ -28,6 +28,7 @@ import {
 import { effectScope, type EffectScope } from '@phaser-mvvm/core';
 import { getTheme, onThemeChange, type Theme } from './theme';
 import type { NavAction } from './nav';
+import { devLog, isDevMode } from '@phaser-mvvm/core';
 import { resolveWidgetState, type WidgetState } from './widget-state';
 
 export interface WidgetOptions {
@@ -246,6 +247,12 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
   activate(source: ActivationSource = 'pointer'): boolean {
     if (!this._enabled) {
       return false;
+    }
+    if (isDevMode()) {
+      // One line per successful activation, whatever the input device: the first question when a
+      // control "does nothing" is whether it was activated at all, and this answers it without a
+      // debugger. `isDevMode()` guards the interpolation so release builds build no string.
+      devLog(`activate: ${this.name || this.constructor.name} (${source})`);
     }
     this.onActivate?.(source);
     this.emit(WIDGET_EVENTS.ACTIVATE, source);

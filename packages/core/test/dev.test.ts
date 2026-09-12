@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   deepEqual,
+  devLog,
   isDevMode,
   onDevWarning,
   readonly,
@@ -121,5 +122,43 @@ describe('deepEqual', () => {
     const thing = new Thing(1);
     expect(deepEqual(thing, thing)).toBe(true);
     expect(deepEqual(thing, new Thing(1))).toBe(false);
+  });
+});
+
+describe('devLog · tracing costs nothing in release', () => {
+  it('prints a prefixed line while dev mode is on', () => {
+    const lines: unknown[][] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => lines.push(args);
+    try {
+      devLog('mount: page attached');
+      devLog('layout: 12 widget(s)', { passes: 3 });
+    } finally {
+      console.log = original;
+    }
+    expect(lines).toEqual([
+      ['[phaser-mvvm] mount: page attached'],
+      ['[phaser-mvvm] layout: 12 widget(s)', { passes: 3 }],
+    ]);
+  });
+
+  it('prints nothing once dev mode is off', () => {
+    setDevMode(false);
+    const lines: unknown[][] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => lines.push(args);
+    try {
+      devLog('activate: ok (pointer)');
+    } finally {
+      console.log = original;
+    }
+    expect(lines).toEqual([]);
+  });
+
+  it('leaves release call sites free to skip building the message', () => {
+    // Call sites in the frame path are written as `if (isDevMode()) devLog(...)` so the template
+    // string is never built in release; this pins the contract they rely on.
+    setDevMode(false);
+    expect(isDevMode()).toBe(false);
   });
 });

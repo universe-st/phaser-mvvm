@@ -26,7 +26,14 @@ import type {
   Rect,
   Size,
 } from '@phaser-mvvm/layout';
-import { BindingContext, createBinding, reactive, warn } from '@phaser-mvvm/core';
+import {
+  BindingContext,
+  createBinding,
+  reactive,
+  warn,
+  devLog,
+  isDevMode,
+} from '@phaser-mvvm/core';
 import type { PathScope, StopBinding } from '@phaser-mvvm/core';
 import { Widget } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
@@ -322,6 +329,13 @@ export class Repeat<Item> extends Widget {
     }
 
     const plan = planRepeatUpdate(this.mountedKeys, windowKeys);
+    if (isDevMode() && (plan.removed.length > 0 || plan.added.length > 0)) {
+      // Virtualisation is invisible by design, so a wrong window looks like "rows are missing" with no
+      // clue why. This is the one line that makes the window observable (guarded: it runs per diff).
+      devLog(
+        `repeat: window [${window.start}, ${window.end}) of ${keys.length} - mounted ${this.mountedKeys.length}`,
+      );
+    }
     for (const key of plan.removed) {
       this.unmountRow(key);
     }

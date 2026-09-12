@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { isDevMode, setDevMode } from '@phaser-mvvm/core';
 import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
 import { installWidgetFactories } from '@phaser-mvvm/widgets';
 import { BindingsScene } from './scenes/bindings';
@@ -24,6 +25,16 @@ installWidgetFactories();
 
 installErrorReporting();
 setStatus('boot');
+
+// Lets an acceptance run prove the "release mode prints nothing" half of the logging contract from
+// the browser: `window.mvvmDev.setDevMode(false)`, interact, and expect zero `[phaser-mvvm]` lines.
+(window as unknown as { mvvmDev?: unknown }).mvvmDev = {
+  setDevMode: (enabled: boolean): boolean => {
+    setDevMode(enabled === true);
+    return isDevMode();
+  },
+  isDevMode: (): boolean => isDevMode(),
+};
 
 const SCENES = {
   m0: M0Scene,

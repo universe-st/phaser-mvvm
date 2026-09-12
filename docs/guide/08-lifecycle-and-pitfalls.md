@@ -127,6 +127,24 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ---
 
+### 3.1 开发模式会打印什么
+
+打开控制台，框架用 `[phaser-mvvm]` 前缀打印这些轨迹（发布模式调用 `setDevMode(false)`，**一行都不打**）：
+
+| 轨迹        | 例子                                                                                              | 什么时候看它                                              |
+| ----------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| 建树 / 挂载 | `ui(): built 107 widget(s), 8 level(s) deep`、`mount: page attached and laid out (111 widget(s))` | 页面规模不对、以为建了却没挂上                            |
+| 焦点        | `focus: button.default`                                                                           | Tab/点击之后焦点去哪了                                    |
+| 激活        | `activate: button.default (pointer)` / `(keyboard)`                                               | "点了没反应"：先确认到底有没有激活成功                    |
+| 虚拟化窗口  | `repeat: window [0, 8) of 30 - mounted 2`                                                         | 行"不见了"、`itemExtent` 算错                             |
+| 滚动被钳制  | `scroll: clamped (0, 771) -> (0, 529.5)`                                                          | "滚不到底"：请求值被上限纠正（多半是内容尺寸/视口没算对） |
+| 慢布局趟    | `layout: measured 440 node(s) in 15.00 ms (…)`                                                    | 掉帧：哪一帧、多少节点、缓存命中多少                      |
+| 生命周期    | `shutdown: UI tree destroyed (…)`                                                                 | 场景重启后是否真的清干净                                  |
+
+想在某次会话里关掉它们：控制台 `window.mvvmDev.setDevMode(false)`（示例应用暴露的开关）。
+
+---
+
 ## 4. 排查手册：症状 → 原因 → 修法
 
 ### 4.1 「界面不更新」
