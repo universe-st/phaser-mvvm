@@ -156,14 +156,24 @@ function unregisterScrollView(view: ScrollView): void {
   sceneScrollViews.get(scene)?.delete(view);
 }
 
-/** Depth-first search for the virtualised list inside a content subtree. */
+/**
+ * Depth-first search for the virtualised list inside a content subtree.
+ *
+ * The walk stops at a nested `ScrollView`: a port inside the content owns its own virtual window, and
+ * claiming it here made an enclosing page drive the inner list's offset (and report the list's extent
+ * as its own content length) — the same parent/child conflict as a shared drag.
+ */
 function findVirtualTarget(root: Widget): VirtualScrollTarget | null {
   if (isVirtualScrollTarget(root)) {
     return root;
   }
   const children = root.getWidgetChildren();
   for (let i = 0; i < children.length; i++) {
-    const found = findVirtualTarget(children[i] as Widget);
+    const child = children[i] as Widget;
+    if (child instanceof ScrollView) {
+      continue;
+    }
+    const found = findVirtualTarget(child);
     if (found !== null) {
       return found;
     }
@@ -171,10 +181,20 @@ function findVirtualTarget(root: Widget): VirtualScrollTarget | null {
   return null;
 }
 
-/** Accumulates `appliedRect`s of a subtree into rects relative to its own origin. */
+/**
+ * Accumulates `appliedRect`s of a subtree into rects relative to its own origin.
+ *
+ * The walk stops at a nested `ScrollView`: what an enclosing port has to measure is that view's
+ * *viewport*, never the content inside it. Descending would count the virtualised fillers a list uses
+ * to reserve its full length, so a page containing a 5000-pixel list could be scrolled thousands of
+ * pixels past its own end (into blank space) — the vertical twin of the shared-drag conflict.
+ */
 function collectRects(widget: Widget, offsetX: number, offsetY: number, out: ScrollRect[]): void {
   const rect = widget.appliedRect;
   out.push({ x: offsetX, y: offsetY, width: rect.width, height: rect.height });
+  if (widget instanceof ScrollView) {
+    return;
+  }
   const children = widget.getWidgetChildren();
   for (let i = 0; i < children.length; i++) {
     const child = children[i] as Widget;
@@ -246,12 +266,17 @@ export class ScrollView extends Widget {
     this.inertiaEnabled = widget.inertia !== false;
     this.bounceEnabled = widget.bounce === true;
 
-    // One layout child (the holder); the content inside it is the user's tree.
-    this.container = { type: 'stack', options: { align: 'start' } };
+    // The port's container is a `scroll` box: it measures the holder without the viewport's limit on
+    // the axis it scrolls, so content can be longer than the viewport instead of being squashed into
+    // it (see `ScrollLayoutOptions`). The holder keeps `position: 'absolute'` and carries the scroll
+    // offset in `left`/`top`, which is what makes scrolling a pure arrange-time move.
+    this.container = { type: 'scroll', options: { axis: this.scrollAxis() } };
     this.focusable = true;
 
+    // Cross axis `fill` (so the content sees the viewport width/height), scroll axis `auto` (so the
+    // content can be longer than the viewport). No explicit size: the arranger resolves it.
     this.holder = new Widget(scene, {
-      layout: { position: 'absolute', left: 0, top: 0 },
+      layout: { position: 'absolute', left: 0, top: 0, ...this.holderSizing() },
       name: `${options.name ?? 'scroll'}.content`,
     });
     this.holder.container = { type: 'stack', options: { align: 'start' } };
@@ -394,14 +419,10 @@ export class ScrollView extends Widget {
       this.clipReady = false;
       return;
     }
-    // The holder *is* the scrollport content box: giving it the viewport size is what lets the
-    // content ask for `width: 'fill'`/`height: 'fill'` (an auto-sized box would collapse a fill
-    // child to nothing), while anything longer simply overflows it. `setLayoutParams` patches only
-    // the keys it is given, so the holder keeps its `position: 'absolute'`.
-    const holderParams = this.holder.layoutParams;
-    if (holderParams.width !== rect.width || holderParams.height !== rect.height) {
-      this.holder.setLayoutParams({ width: rect.width, height: rect.height });
-    }
+    // The holder used to be given the viewport size here. It no longer is: it is `fill` on the cross
+    // axis (resolved by the arranger against the port's content box) and `auto` on the scroll axis
+    // (its natural length, which the `scroll` container measures without the viewport's cap). The
+    // offset still has to be re-applied because the limits may have changed with the new size.
     this.enableClip();
     if (this.clipReady) {
       // The widget may have moved inside its parent: the clip camera follows the rect.
@@ -410,6 +431,22 @@ export class ScrollView extends Widget {
     this.clampToLimits();
     this.applyOffsets();
     this.paintScrollbar();
+  }
+
+  /** Layout axis of the port, in the terms the layout package uses. */
+  private scrollAxis(): 'vertical' | 'horizontal' | 'both' {
+    return this.direction;
+  }
+
+  /** Cross-axis `fill` / scroll-axis `auto` sizing for the holder. */
+  private holderSizing(): LayoutParams {
+    if (this.direction === 'vertical') {
+      return { width: 'fill', height: 'auto' };
+    }
+    if (this.direction === 'horizontal') {
+      return { width: 'auto', height: 'fill' };
+    }
+    return { width: 'auto', height: 'auto' };
   }
 
   // ------------------------------------------------------------------ clipping
@@ -779,7 +816,8 @@ export class ScrollView extends Widget {
     if (!this.containsPoint(point.x, point.y)) {
       return;
     }
-    // A deeper scroll view under the same pointer owns the gesture (no double scrolling).
+    // A deeper scroll view under the same pointer owns the gesture; it chains what it cannot consume
+    // back up through `dispatchWheel`, so the event is handled exactly once per gesture.
     if (this.innermostAt(point.x, point.y) !== this) {
       return;
     }
@@ -790,9 +828,50 @@ export class ScrollView extends Widget {
     }
     // The wheel belongs to the view under the pointer: stop the page from scrolling instead.
     event.preventDefault();
-    this.stopScroll();
-    this.scrollBy(dx, dy);
+    this.dispatchWheel(dx, dy, point);
   };
+
+  /**
+   * Applies a wheel delta to this view, then hands whatever it could not use to the scroll views that
+   * enclose it.
+   *
+   * A view takes an axis only when it actually scrolls along it *and* still has room in that
+   * direction. That is what keeps nesting predictable: a vertical wheel over a horizontal strip
+   * scrolls the page instead of being swallowed, and a list that has reached its end passes the rest
+   * of the gesture to its container rather than feeling stuck.
+   */
+  private dispatchWheel(dx: number, dy: number, point: { x: number; y: number }): void {
+    let remainingX = dx;
+    let remainingY = dy;
+    let view: ScrollView | null = this;
+    while (view && (remainingX !== 0 || remainingY !== 0)) {
+      if (view !== this && !view.containsPoint(point.x, point.y)) {
+        break;
+      }
+      const used = view.applyWheel(remainingX, remainingY);
+      remainingX -= used.x;
+      remainingY -= used.y;
+      view = view.enclosingScrollView();
+    }
+  }
+
+  /** Moves by as much of `dx`/`dy` as this view has room for; returns the part it consumed. */
+  private applyWheel(dx: number, dy: number): { x: number; y: number } {
+    if (this.isDestroyed || this.enabled === false) {
+      return { x: 0, y: 0 };
+    }
+    const wantX = this.scrollsX() ? dx : 0;
+    const wantY = this.scrollsY() ? dy : 0;
+    if (wantX === 0 && wantY === 0) {
+      return { x: 0, y: 0 };
+    }
+    this.stopScroll();
+    const beforeX = this.currentX;
+    const beforeY = this.currentY;
+    // `setOffset` clamps (or bounces), so the difference is exactly what was consumed.
+    this.setOffset(this.currentX + wantX, this.currentY + wantY);
+    return { x: this.currentX - beforeX, y: this.currentY - beforeY };
+  }
 
   private readonly onPointerDown = (pointer: Phaser.Input.Pointer): void => {
     if (!this.dragEnabled || this.isDestroyed || this.enabled === false) {
@@ -809,6 +888,13 @@ export class ScrollView extends Widget {
       this.barDrag = bar.mode;
       this.barGrab = bar.grab;
       this.dragBarTo(bar, { x: pointer.worldX, y: pointer.worldY });
+      this.dragStart = null;
+      return;
+    }
+
+    // A deeper scroll view under the same pointer owns the drag: without this, dragging inside a
+    // nested list scrolled the list *and* the page behind it at the same time.
+    if (this.innermostAt(pointer.worldX, pointer.worldY) !== this) {
       this.dragStart = null;
       return;
     }
@@ -947,6 +1033,18 @@ export class ScrollView extends Widget {
       node = node.parentContainer;
     }
     return depth;
+  }
+
+  /** The nearest scroll view above this one in the display chain, or `null`. */
+  private enclosingScrollView(): ScrollView | null {
+    let node = this.parentContainer;
+    while (node) {
+      if (node instanceof ScrollView) {
+        return node;
+      }
+      node = node.parentContainer;
+    }
+    return null;
   }
 
   /** The innermost live scroll view under a point, or `null`. */

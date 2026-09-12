@@ -17,6 +17,7 @@ import type {
   ContainerLayout,
   GridLayoutOptions,
   LayoutNode,
+  ScrollLayoutOptions,
   StackLayoutOptions,
 } from '../src/types';
 
@@ -119,6 +120,15 @@ export function stack(
   params?: LayoutParams,
 ): TestNode {
   return new TestNode({ params, children, container: { type: 'stack', options } });
+}
+
+/** A scroll port: its content is measured without the port's own limit on the scroll axis. */
+export function scrollPort(
+  options: ScrollLayoutOptions = {},
+  children: readonly LayoutNode[] = [],
+  params?: LayoutParams,
+): TestNode {
+  return new TestNode({ params, children, container: { type: 'scroll', options } });
 }
 
 /** A container that only arranges its `position: 'absolute'` children. */

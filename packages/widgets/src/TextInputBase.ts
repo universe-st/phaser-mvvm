@@ -693,8 +693,11 @@ export abstract class TextInputBase extends Widget {
         if (top + rect.height < box.y || top > box.y + box.height) {
           continue;
         }
-        const left = Math.max(box.x, rect.x - this.scrollX);
-        const right = Math.min(box.x + box.width, rect.x + rect.width - this.scrollX);
+        // `selectionRects` works in *content* coordinates, exactly like the line objects
+        // (`renderLines` draws them at `box.x + line.x`), so the content-box origin has to be added
+        // here too — without it the highlight sits `padding.left` to the left of the glyphs.
+        const left = Math.max(box.x, box.x + rect.x - this.scrollX);
+        const right = Math.min(box.x + box.width, box.x + rect.x + rect.width - this.scrollX);
         if (right - left <= 0) {
           continue;
         }
@@ -706,7 +709,7 @@ export abstract class TextInputBase extends Widget {
       const caretDisplay = displayOffset(this.value, this.caret, this.inputType);
       const position = caretRectOf(this.displayLines, caretDisplay, this.measureWidth);
       const left = Math.min(
-        Math.max(position.x - this.scrollX, box.x),
+        Math.max(box.x + position.x - this.scrollX, box.x),
         Math.max(box.x, box.x + box.width - caretWidth),
       );
       const top = box.y + this.contentOffsetY + position.y - this.scrollY;

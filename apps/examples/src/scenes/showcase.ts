@@ -573,11 +573,18 @@ export class ShowcaseScene extends Phaser.Scene {
     ]);
   }
 
-  /** A visible frame: the frame *is* the container whose algorithm is being demonstrated. */
+  /**
+   * A visible frame: the frame *is* the container whose algorithm is being demonstrated.
+   *
+   * `alignSelf: 'start'` keeps the width the caller declares: a card is a vertical box, whose default
+   * cross-axis `stretch` would otherwise widen every frame to the card (which silently un-wrapped
+   * `Box · wrap` and shrank nothing about the point of a fixed-size track).
+   */
   private frame(params: Partial<PanelOptions>, children: readonly Widget[]): Widget {
-    return this.add.uiPanel({ variant: 'surface', radius: 6, padding: 6, ...params }, [
-      ...children,
-    ]);
+    return this.add.uiPanel(
+      { variant: 'surface', radius: 6, padding: 6, alignSelf: 'start', ...params },
+      [...children],
+    );
   }
 
   /**
@@ -1209,25 +1216,28 @@ export class ShowcaseScene extends Phaser.Scene {
           ),
         ]),
         this.card('Absolute · corners', 'position: absolute with left/top/right/bottom', [
-          this.add.uiAbsolute({ width: 300, height: 150, name: 'absolute.corners' }, [
-            this.block(0x2f6feb, 'left/top', 76, 28, { position: 'absolute', left: 6, top: 6 }),
-            this.block(0x3fb950, 'right/top', 76, 28, { position: 'absolute', right: 6, top: 6 }),
-            this.block(0xf2a33c, 'left/bottom', 76, 28, {
-              position: 'absolute',
-              left: 6,
-              bottom: 6,
-            }),
-            this.block(0xf85149, 'right/bottom', 76, 28, {
-              position: 'absolute',
-              right: 6,
-              bottom: 6,
-            }),
-            this.block(0x8957e5, 'left/top 50%', 86, 28, {
-              position: 'absolute',
-              left: '50%',
-              top: '50%',
-            }),
-          ]),
+          this.add.uiAbsolute(
+            { width: 300, height: 150, alignSelf: 'start', name: 'absolute.corners' },
+            [
+              this.block(0x2f6feb, 'left/top', 76, 28, { position: 'absolute', left: 6, top: 6 }),
+              this.block(0x3fb950, 'right/top', 76, 28, { position: 'absolute', right: 6, top: 6 }),
+              this.block(0xf2a33c, 'left/bottom', 76, 28, {
+                position: 'absolute',
+                left: 6,
+                bottom: 6,
+              }),
+              this.block(0xf85149, 'right/bottom', 76, 28, {
+                position: 'absolute',
+                right: 6,
+                bottom: 6,
+              }),
+              this.block(0x8957e5, 'left/top 50%', 86, 28, {
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+              }),
+            ],
+          ),
         ]),
         this.card('Absolute · flow interaction', 'an absolute child takes no space in its parent', [
           this.row([

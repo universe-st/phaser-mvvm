@@ -64,11 +64,31 @@ export interface StackLayoutOptions {
   align?: Exclude<Align, 'auto' | 'stretch'>;
 }
 
+/**
+ * A scroll port: the content is measured **without the port's own limit on the scroll axis**.
+ *
+ * This is the layout half of "overflow: scroll". A node with a definite height normally caps its
+ * content at that height, which is right for a panel (a child may not push its container around) but
+ * wrong for a scroll port: content taller than the viewport would be squashed into it, so the flow
+ * positions of everything below the first overflowing child would be wrong (in the showcase, whole
+ * sections overlapped each other). The port therefore hands its children an *unbounded* maximum on
+ * the axis it scrolls, while the port's own size stays whatever its parameters say.
+ *
+ * The cross axis is untouched, so a child's `width: 'fill'` still resolves against the viewport, and
+ * percentages keep resolving against the viewport too: an unbounded maximum only suspends the cap,
+ * it does not remove the containing block (see `LayoutEngine`'s content base).
+ */
+export interface ScrollLayoutOptions {
+  /** Axis (or axes) the port scrolls along. Defaults to `'vertical'`. */
+  axis?: Axis | 'both';
+}
+
 /** How a container node lays its children out. `null` means the node is a leaf. */
 export type ContainerLayout =
   | { type: 'box'; options: BoxLayoutOptions }
   | { type: 'grid'; options: GridLayoutOptions }
   | { type: 'stack'; options: StackLayoutOptions }
+  | { type: 'scroll'; options: ScrollLayoutOptions }
   | { type: 'absolute' };
 
 export interface LayoutNode {

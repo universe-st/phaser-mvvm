@@ -16,6 +16,7 @@ import {
   collectInteractive,
   diffInteractionState,
   isClickGesture,
+  isHoverPointer,
   isWithinTree,
 } from '../src/input';
 
@@ -140,6 +141,31 @@ describe('diffInteractionState', () => {
     diffInteractionState(previous, [asWidget(button)]);
 
     expect(previous.get(asWidget(button))).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ hover pointer */
+
+describe('isHoverPointer', () => {
+  it('accepts a mouse that has moved', () => {
+    expect(isHoverPointer({ active: true, wasTouch: false, moveTime: 12 })).toBe(true);
+  });
+
+  it('rejects a missing pointer', () => {
+    expect(isHoverPointer(null)).toBe(false);
+    expect(isHoverPointer(undefined)).toBe(false);
+  });
+
+  it('rejects an inactive pointer', () => {
+    expect(isHoverPointer({ active: false, moveTime: 12 })).toBe(false);
+  });
+
+  it('rejects a pointer that has driven a touch (it would pin the hover where the finger lifted)', () => {
+    expect(isHoverPointer({ active: true, wasTouch: true, moveTime: 12 })).toBe(false);
+  });
+
+  it('rejects a pointer that never moved, so a fresh page highlights nothing', () => {
+    expect(isHoverPointer({ active: true, wasTouch: false, moveTime: 0 })).toBe(false);
   });
 });
 

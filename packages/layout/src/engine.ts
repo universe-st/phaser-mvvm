@@ -35,6 +35,7 @@ import type {
 } from './types';
 import { arrangeBox, measureBox } from './box';
 import { arrangeGrid, measureGrid } from './grid';
+import { arrangeScroll, measureScroll } from './scroll';
 import { arrangeAbsolute, measureAbsolute } from './stack';
 import { arrangeStack, measureStack } from './stack';
 
@@ -299,13 +300,16 @@ export class LayoutEngine {
         node,
         ZERO_RECT,
         loosen(content),
-        percentBaseOf(content),
+        contentBaseOf(content, base),
         true,
       );
       const measured = this.measureContainer(node.container, ctx);
       // The flow arrangers skip `position: 'absolute'` children, so nobody else would measure them
-      // and `arrangeAbsolute` (which only reads `child.measured`) would place them at 0×0.
-      if (node.container.type !== 'absolute') {
+      // and `arrangeAbsolute` (which only reads `child.measured`) would place them at 0×0. A `scroll`
+      // port is deliberately excluded: its own measure covers every child, and measuring the holder a
+      // second time here would overwrite the unbounded (natural) length it just established with the
+      // port's own clamped one — which is exactly how content taller than the viewport got squashed.
+      if (skipsAbsoluteChildren(node.container)) {
         for (let i = 0; i < ctx.children.length; i++) {
           const child = ctx.children[i] as ChildRecord;
           if (child.params.position === 'absolute') {
@@ -433,6 +437,8 @@ export class LayoutEngine {
         return measureGrid(ctx, container.options);
       case 'stack':
         return measureStack(ctx, container.options);
+      case 'scroll':
+        return measureScroll(ctx, container.options);
       case 'absolute':
         return measureAbsolute(ctx);
       default:
@@ -527,6 +533,10 @@ export class LayoutEngine {
         break;
       case 'stack':
         arrangeStack(ctx, container.options);
+        arrangeAbsolute(ctx);
+        break;
+      case 'scroll':
+        arrangeScroll(ctx, container.options);
         arrangeAbsolute(ctx);
         break;
       case 'absolute':
@@ -633,6 +643,34 @@ function percentBaseOf(constraint: BoxConstraints): Size {
     width: Number.isFinite(constraint.maxWidth) ? constraint.maxWidth : Infinity,
     height: Number.isFinite(constraint.maxHeight) ? constraint.maxHeight : Infinity,
   };
+}
+
+/**
+ * The base `fill` and percentage lengths resolve against for a container's children.
+ *
+ * Normally that is the container's own content box. When an axis of that box is unbounded — which is
+ * exactly what a scroll port hands its content, so it can grow past the viewport — the axis falls
+ * back to the containing block the container itself was measured in. Without the fallback a
+ * `height: 'fill'` child of a scroll port would resolve against `Infinity`, collapse to its content
+ * and lose the viewport height it is explicitly asking for (a virtualised list inside a `ScrollView`
+ * is the case that matters).
+ */
+function contentBaseOf(content: BoxConstraints, base: Size): Size {
+  return {
+    width: Number.isFinite(content.maxWidth) ? content.maxWidth : base.width,
+    height: Number.isFinite(content.maxHeight) ? content.maxHeight : base.height,
+  };
+}
+
+/**
+ * Containers whose flow arranger ignores `position: 'absolute'` children.
+ *
+ * Only those need the engine's extra measuring pass over the absolute children (see `measureNode`).
+ * `absolute` handles them itself, and `scroll` measures every child because it is the one place where
+ * "how long is the content" has to survive the port's own size limit.
+ */
+function skipsAbsoluteChildren(container: ContainerLayout): boolean {
+  return container.type === 'box' || container.type === 'grid' || container.type === 'stack';
 }
 
 /** Convenience for tests and adapters: lays out a single node and returns its size. */

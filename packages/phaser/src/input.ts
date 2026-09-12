@@ -4,9 +4,15 @@
  * Phaser already does the hard part (hit testing, cameras, `topOnly`); this router adds the widget
  * semantics on top of it:
  *
- * - hover/press state is mirrored onto the widget (`setHovered`/`setPressed`) so skins can paint it,
+ * - hover is *derived* every frame from the router's own hit test instead of being mirrored from
+ *   Phaser's `pointerover`/`pointerout` stream. Those events are delivered per interactive object,
+ *   so moving the pointer from a button onto the panel behind it produced an `out` on the button
+ *   whose "new target" was the panel — and a router that only clears hover when the event *is* the
+ *   deepest target left the button highlighted forever. "The deepest widget under the pointer" is a
+ *   *state*, not a transition, so recomputing it can never go stale: it also covers a widget that
+ *   moved, was hidden or was rebuilt under a stationary pointer, and a pointer that left the canvas,
  * - a press becomes an activation only when the pointer barely moved between down and up
- *   (`dragThreshold`), which is what keeps a future `ScrollView` drag from clicking a button,
+ *   (`dragThreshold`), which is what keeps a `ScrollView` drag from clicking a button,
  * - a disabled widget never hovers, presses or activates, and a widget that is disabled *while*
  *   hovering/pressed is corrected by a per-frame poll,
  * - a *capture* widget (a modal overlay) shields the widgets underneath it.
@@ -22,10 +28,10 @@ import type { ActivationSource, Widget } from './Widget';
  * Phaser input event names.
  *
  * They are spelled out (rather than read from `Phaser.Input.Events`) so that this module has no
- * *runtime* dependency on Phaser: importing it in a Node test costs nothing.
+ * *runtime* dependency on Phaser: importing it in a Node test costs nothing. Only the events that
+ * describe a *transition* the router cannot observe by polling are hooked (`down`/`up`); hover is
+ * polled, so `pointerover`/`pointerout` are deliberately not listened to.
  */
-const EVENT_OVER = 'pointerover';
-const EVENT_OUT = 'pointerout';
 const EVENT_DOWN = 'pointerdown';
 const EVENT_UP = 'pointerup';
 const EVENT_DESTROY = 'destroy';
@@ -86,6 +92,33 @@ export interface ContainerLike {
   readonly parentContainer?: ContainerLike | null;
 }
 
+/** The pointer fields hover depends on; a `Phaser.Input.Pointer` satisfies it structurally. */
+export interface HoverPointerState {
+  /** `false` while the pointer has not been used yet. */
+  active?: boolean;
+  /** `true` once the pointer drove a touch (including the mouse events a browser fakes from a tap). */
+  wasTouch?: boolean;
+  /** Timestamp of the most recent movement; still `0` until the pointer has actually moved. */
+  moveTime?: number;
+}
+
+/**
+ * Whether a pointer may drive hover.
+ *
+ * A *touch* must not: it leaves the pointer where the finger lifted, so a polled hover would pin the
+ * highlight onto whatever sits under that spot. `moveTime > 0` keeps a freshly loaded page from
+ * highlighting whatever happens to be at the pointer's default (0, 0).
+ */
+export function isHoverPointer(pointer: HoverPointerState | null | undefined): boolean {
+  if (!pointer) {
+    return false;
+  }
+  if (pointer.active === false || pointer.wasTouch === true) {
+    return false;
+  }
+  return (pointer.moveTime ?? 0) > 0;
+}
+
 /**
  * True when `node` is `ancestor` itself or one of its descendants in the container chain.
  *
@@ -108,11 +141,16 @@ export function isWithinTree(node: ContainerLike, ancestor: ContainerLike): bool
 /** One widget's listeners, kept together so `detach()` can unhook exactly what `attach()` hooked. */
 interface WidgetBinding {
   readonly widget: Widget;
-  readonly onOver: (pointer: Phaser.Input.Pointer) => void;
-  readonly onOut: (pointer: Phaser.Input.Pointer) => void;
   readonly onDown: (pointer: Phaser.Input.Pointer) => void;
   readonly onUp: (pointer: Phaser.Input.Pointer) => void;
   readonly onDestroy: () => void;
+}
+
+/** A press that is still held, with the pointer that made it (used to detect a stale press). */
+interface HeldPress {
+  readonly x: number;
+  readonly y: number;
+  readonly pointer: Phaser.Input.Pointer;
 }
 
 /**
@@ -160,7 +198,8 @@ export class InputRouter {
   private bindings: WidgetBinding[] = [];
   private widgetCache: Widget[] | null = null;
   private readonly enabledState = new Map<Widget, boolean>();
-  private readonly pressedAt = new Map<Widget, PointLike>();
+  private readonly pressedAt = new Map<Widget, HeldPress>();
+  private hoveredWidget: Widget | null = null;
   private captureWidget: Widget | null = null;
   private previousTopOnly = true;
 
@@ -264,8 +303,9 @@ export class InputRouter {
   /**
    * Per-frame maintenance, called by the host plugin.
    *
-   * Polls `Widget.enabled` (a widget disabled while hovered or pressed must drop both states) and
-   * prunes references to widgets that were destroyed without an explicit `refresh()`.
+   * Polls `Widget.enabled` (a widget disabled while hovered or pressed must drop both states), prunes
+   * references to widgets that were destroyed without an explicit `refresh()`, and re-derives hover
+   * and the press state from the live pointer (see `syncPointerState`).
    */
   update(_time = 0, _delta = 0): void {
     const widgets = this.widgetList();
@@ -280,6 +320,57 @@ export class InputRouter {
         this.unregister(widget);
       }
     }
+
+    this.syncPointerState();
+  }
+
+  /**
+   * Re-derives the pointer state of the tree: hover is *the deepest widget under the pointer*, and a
+   * press whose pointer is no longer down is stale.
+   *
+   * Both are states rather than event streams, which is what makes them self-correcting: a widget
+   * that scrolls, is hidden, is rebuilt or is disabled under a stationary pointer drops its hover on
+   * the next frame, and a press released outside every widget (Phaser delivers no `pointerup` to a
+   * Game Object the pointer is not over) cannot stay pressed.
+   */
+  private syncPointerState(): void {
+    const pointer = this.hoverPointer();
+    const target = pointer ? this.resolveTarget(pointer) : null;
+    if (target !== this.hoveredWidget) {
+      const previous = this.hoveredWidget;
+      this.hoveredWidget = target;
+      if (previous && !previous.isDestroyed) {
+        previous.setHovered(false);
+      }
+      if (target) {
+        target.setHovered(true);
+      }
+    }
+
+    for (const [widget, press] of [...this.pressedAt]) {
+      if (press.pointer.isDown === true) {
+        continue;
+      }
+      this.pressedAt.delete(widget);
+      if (!widget.isDestroyed) {
+        widget.setPressed(false);
+      }
+    }
+  }
+
+  /**
+   * The pointer hover is derived from, or `null` when there is nothing to point with.
+   *
+   * The mouse pointer is used rather than `activePointer` because a *touch* leaves the pointer where
+   * the finger lifted, which would pin a hover onto whatever is underneath (see `isHoverPointer`).
+   */
+  private hoverPointer(): Phaser.Input.Pointer | null {
+    const manager = this.scene?.input?.manager;
+    if (!manager || manager.isOver === false) {
+      return null;
+    }
+    const pointer = manager.mousePointer;
+    return isHoverPointer(pointer) ? pointer : null;
   }
 
   /**
@@ -297,6 +388,7 @@ export class InputRouter {
     this.widgetCache = null;
     this.enabledState.clear();
     this.pressedAt.clear();
+    this.hoveredWidget = null;
     this.captureWidget = null;
     this.rootWidget = null;
     this.scene = null;
@@ -320,12 +412,6 @@ export class InputRouter {
 
     const binding: WidgetBinding = {
       widget,
-      onOver: (pointer) => {
-        this.handleOver(widget, pointer);
-      },
-      onOut: (pointer) => {
-        this.handleOut(widget, pointer);
-      },
       onDown: (pointer) => {
         this.handleDown(widget, pointer);
       },
@@ -337,8 +423,6 @@ export class InputRouter {
       },
     };
 
-    widget.on(EVENT_OVER, binding.onOver);
-    widget.on(EVENT_OUT, binding.onOut);
     widget.on(EVENT_DOWN, binding.onDown);
     widget.on(EVENT_UP, binding.onUp);
     widget.once(EVENT_DESTROY, binding.onDestroy);
@@ -359,8 +443,6 @@ export class InputRouter {
     this.widgetCache = null;
 
     if (binding) {
-      widget.off(EVENT_OVER, binding.onOver);
-      widget.off(EVENT_OUT, binding.onOut);
       widget.off(EVENT_DOWN, binding.onDown);
       widget.off(EVENT_UP, binding.onUp);
       widget.off(EVENT_DESTROY, binding.onDestroy);
@@ -424,33 +506,11 @@ export class InputRouter {
 
   private resetInteraction(widget: Widget): void {
     this.pressedAt.delete(widget);
+    if (this.hoveredWidget === widget) {
+      this.hoveredWidget = null;
+    }
     widget.setHovered(false);
     widget.setPressed(false);
-  }
-
-  private handleOver(widget: Widget, pointer: Phaser.Input.Pointer): void {
-    if (this.resolveTarget(pointer) !== widget) {
-      return;
-    }
-    if (this.isBlockedByCapture(widget, pointer)) {
-      return;
-    }
-    if (!widget.enabled) {
-      return;
-    }
-    widget.setHovered(true);
-  }
-
-  private handleOut(widget: Widget, pointer: Phaser.Input.Pointer): void {
-    const target = this.resolveTarget(pointer);
-    if (target !== null && target !== widget) {
-      // Another (deeper) widget owns the pointer: never clear its hover/pressed state from here.
-      return;
-    }
-    if (this.isBlockedByCapture(widget, pointer)) {
-      return;
-    }
-    this.resetInteraction(widget);
   }
 
   private handleDown(widget: Widget, pointer: Phaser.Input.Pointer): void {
@@ -463,7 +523,7 @@ export class InputRouter {
     if (!widget.enabled) {
       return;
     }
-    this.pressedAt.set(widget, { x: pointer.worldX, y: pointer.worldY });
+    this.pressedAt.set(widget, { x: pointer.worldX, y: pointer.worldY, pointer });
     widget.setPressed(true);
   }
 
@@ -493,10 +553,11 @@ export class InputRouter {
     }
 
     // `resetInteraction` cleared hover above; a click leaves the pointer inside the widget, so the
-    // hover state has to be restored (Phaser will not re-emit `pointerover` for a pointer that never
-    // left).
+    // hover state has to be restored right away (the next frame's poll would do it a frame later,
+    // which is visible as a flicker on a click).
     if (widget.enabled && this.resolveTarget(pointer) === widget) {
       widget.setHovered(true);
+      this.hoveredWidget = widget;
     }
   }
 
