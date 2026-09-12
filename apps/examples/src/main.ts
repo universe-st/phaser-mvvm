@@ -6,6 +6,7 @@ import { ComposeScene } from './scenes/compose';
 import { DashboardScene } from './scenes/dashboard';
 import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
+import { HudScene } from './scenes/hud';
 import { LifecycleScene } from './scenes/lifecycle';
 import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
@@ -38,6 +39,7 @@ const SCENES = {
   compose: ComposeScene,
   lifecycle: LifecycleScene,
   states: StatesScene,
+  hud: HudScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

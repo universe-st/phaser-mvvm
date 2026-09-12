@@ -18,6 +18,7 @@ import {
   isClickGesture,
   isHoverPointer,
   isWithinTree,
+  pointerInWidgetSpace,
   shouldFocusOnPress,
 } from '../src/input';
 
@@ -284,5 +285,47 @@ describe('collectInteractive · command hosts', () => {
     const root = fakeWidget({ children: [plain] });
 
     expect(collectInteractive(asWidget(root))).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ pointer space */
+
+describe('pointerInWidgetSpace · the router and Phaser agree on where the pointer is', () => {
+  const camera = { scrollX: 260, scrollY: 140 };
+  /** A pointer at screen (167, 28) with the camera scrolled: Phaser stores the world point on it. */
+  const pointer = {
+    x: 167,
+    y: 28,
+    worldX: 167 + camera.scrollX,
+    worldY: 28 + camera.scrollY,
+    camera,
+  };
+  const world = { scrollFactorX: 1, scrollFactorY: 1 };
+  const pinned = { scrollFactorX: 0, scrollFactorY: 0 };
+
+  it('returns the world point for a scroll factor of 1 (the default UI)', () => {
+    expect(pointerInWidgetSpace(pointer, world, null)).toEqual({ x: 427, y: 168 });
+  });
+
+  it('returns the screen point for a camera-pinned widget', () => {
+    // `px = worldX + scrollX * 0 - scrollX` — the exact expression `InputManager#hitTest` uses, which
+    // is why a pinned tree now passes both gates no matter *which* node was pinned.
+    expect(pointerInWidgetSpace(pointer, pinned, null)).toEqual({ x: 167, y: 28 });
+  });
+
+  it('interpolates for a partial scroll factor, like the renderer draws it', () => {
+    const half = { scrollFactorX: 0.5, scrollFactorY: 0.5 };
+    expect(pointerInWidgetSpace(pointer, half, null)).toEqual({ x: 297, y: 98 });
+  });
+
+  it('falls back to the main camera when the pointer carries none', () => {
+    const loose = { x: 167, y: 28, worldX: 427, worldY: 168, camera: null };
+    expect(pointerInWidgetSpace(loose, pinned, camera)).toEqual({ x: 167, y: 28 });
+    expect(pointerInWidgetSpace(loose, world, camera)).toEqual({ x: 427, y: 168 });
+  });
+
+  it('treats a missing camera as unscrolled instead of producing NaN', () => {
+    const loose = { x: 10, y: 20, worldX: 10, worldY: 20, camera: null };
+    expect(pointerInWidgetSpace(loose, pinned, null)).toEqual({ x: 10, y: 20 });
   });
 });

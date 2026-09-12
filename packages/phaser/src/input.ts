@@ -57,6 +57,54 @@ export interface InputRouterOptions {
   dragThreshold?: number;
 }
 
+/**
+ * The pointer expressed in the coordinate space one widget is laid out in.
+ *
+ * This mirrors `Phaser.Input.InputManager#hitTest` line for line, so the router's own walk and Phaser's
+ * hit test can never disagree about *where* the pointer is - the invariant ADR-0009 is built on:
+ *
+ * ```js
+ * px = pointer.worldX + camera.scrollX * gameObject.scrollFactorX - camera.scrollX;
+ * ```
+ *
+ * A scroll factor of `1` gives the world point (the default, unpinned UI); `0` gives the screen point
+ * (a camera-pinned HUD). Anything in between interpolates, exactly as the renderer draws it.
+ */
+export function pointerInWidgetSpace(
+  pointer: UiPointer,
+  widget: ScrollFactorLike,
+  fallbackCamera: CameraLike | null,
+): PointLike {
+  const camera = pointer.camera ?? fallbackCamera;
+  const scrollX = camera?.scrollX ?? 0;
+  const scrollY = camera?.scrollY ?? 0;
+  return {
+    x: pointer.worldX + scrollX * widget.scrollFactorX - scrollX,
+    y: pointer.worldY + scrollY * widget.scrollFactorY - scrollY,
+  };
+}
+
+/** The pointer fields {@link pointerInWidgetSpace} reads. */
+export interface UiPointer {
+  x: number;
+  y: number;
+  worldX: number;
+  worldY: number;
+  camera?: CameraLike | null;
+}
+
+/** The camera fields {@link pointerInWidgetSpace} reads. */
+export interface CameraLike {
+  scrollX: number;
+  scrollY: number;
+}
+
+/** The widget fields {@link pointerInWidgetSpace} reads. */
+export interface ScrollFactorLike {
+  scrollFactorX: number;
+  scrollFactorY: number;
+}
+
 /** A plain 2D point. */
 export interface PointLike {
   x: number;
@@ -221,6 +269,9 @@ export class InputRouter {
   private widgetCache: Widget[] | null = null;
   private readonly enabledState = new Map<Widget, boolean>();
   private readonly pressedAt = new Map<Widget, HeldPress>();
+
+  /** Reused output of `pointerInUiSpace`; nothing holds on to the result past the call. */
+  private readonly space = { x: 0, y: 0 };
   private hoveredWidget: Widget | null = null;
   private captureWidget: Widget | null = null;
   private previousTopOnly = true;
@@ -486,19 +537,30 @@ export class InputRouter {
    * is drawn on top) gives the semantics a UI needs.
    */
   /**
-   * The pointer in the space the widget tree is laid out in.
+   * The pointer in the space **one widget** is laid out in.
    *
-   * Layout rects are in the space the UI root lives in - the world, unless the UI is pinned to the camera
-   * (`root.setScrollFactor(0)`, the HUD recipe). With a scrolled camera `pointer.worldX/Y` is then the wrong
-   * space: the hit test *and* this walk disagree by exactly the camera offset. `resolveTarget` is the gate
-   * that runs after Phaser's own hit test, so both have to agree.
+   * `InputRouter` is the second gate: Phaser's own hit test decides whether a widget sees the event at
+   * all, and `resolveTarget` then re-walks the tree. The two only agree if they use the same point, and
+   * Phaser computes that point **per object** (`InputManager#hitTest`):
+   *
+   * ```js
+   * px = pointer.worldX + camera.scrollX * gameObject.scrollFactorX - camera.scrollX;
+   * ```
+   *
+   * So the factor that matters is the *candidate's own*, not the root's. The previous version keyed off
+   * `rootWidget.scrollFactor*`, which broke every tree pinned below the root: `page.setScrollFactor(0)`
+   * (a HUD page next to a world-space page) rendered pinned and passed Phaser's hit test, but this walk
+   * still compared layout rects against `pointer.worldX/Y` and rejected the widget — visible, hit-testable
+   * and yet dead. Mirroring the formula removes the class of bug instead of one instance of it.
    */
-  private pointerInUiSpace(pointer: Phaser.Input.Pointer): { x: number; y: number } {
-    const root = this.rootWidget;
-    if (root !== null && root.scrollFactorX === 0 && root.scrollFactorY === 0) {
-      return { x: pointer.x, y: pointer.y };
-    }
-    return { x: pointer.worldX, y: pointer.worldY };
+  private pointerInUiSpace(
+    pointer: Phaser.Input.Pointer,
+    widget: Widget,
+  ): { x: number; y: number } {
+    const point = pointerInWidgetSpace(pointer, widget, this.scene?.cameras.main ?? null);
+    this.space.x = point.x;
+    this.space.y = point.y;
+    return this.space;
   }
 
   private resolveTarget(pointer: Phaser.Input.Pointer): Widget | null {
@@ -506,8 +568,6 @@ export class InputRouter {
     if (!root) {
       return null;
     }
-
-    const { x, y } = this.pointerInUiSpace(pointer);
 
     const visit = (widget: Widget, offsetX: number, offsetY: number): Widget | null => {
       const children = widget.getWidgetChildren();
@@ -529,6 +589,7 @@ export class InputRouter {
       // `offset` already includes this widget's own position, so the point is expressed relative to
       // the widget's origin: the box to test is (0,0)-(width,height), *not* its parent-local rect.
       const rect = widget.appliedRect;
+      const { x, y } = this.pointerInUiSpace(pointer, widget);
       const localX = x - offsetX;
       const localY = y - offsetY;
       const inside = localX >= 0 && localX <= rect.width && localY >= 0 && localY <= rect.height;
@@ -564,7 +625,7 @@ export class InputRouter {
     if (!widget.enabled) {
       return;
     }
-    const origin = this.pointerInUiSpace(pointer);
+    const origin = this.pointerInUiSpace(pointer, widget);
     this.pressedAt.set(widget, { x: origin.x, y: origin.y, pointer });
     widget.setPressed(true);
 
@@ -593,7 +654,7 @@ export class InputRouter {
     }
     // Phaser only emits `pointerup` on an object when the pointer is still over it, so "released
     // inside the widget" is already guaranteed here; only the travel has to be checked.
-    if (!isClickGesture(down, this.pointerInUiSpace(pointer), this.dragThreshold)) {
+    if (!isClickGesture(down, this.pointerInUiSpace(pointer, widget), this.dragThreshold)) {
       return;
     }
 

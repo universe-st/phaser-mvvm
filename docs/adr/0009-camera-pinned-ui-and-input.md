@@ -24,7 +24,8 @@
 
 - 钉住的 HUD 现在可点、可悬停：实测（`root.setScrollFactor(0)` + `camera.scrollX/Y = 260/140`）点击屏幕上的按钮 → `clicks = 1`、焦点落在该按钮；未钉住的普通页面行为不变（同样 `clicks = 1`）。
 - `setScrollFactor` 从「只影响自身」变成「影响子树」：对普通 UI 无影响（默认全是 1），但如果调用方**故意**想让某个子树用不同的 scrollFactor，就必须在设置之后单独覆盖该子树。
-- 尚未做的收尾：把「相机钉住的 HUD」做成 `apps/examples` 里的常驻场景（现在只有运行时探针的验收记录），并考虑在 `addWidget` 时让新子树自动继承根的 scrollFactor。
+- 收尾（均已做）：① `addWidget()` 会让新子树继承父节点的 scrollFactor；② 常驻场景 `#/hud` 上线，用**真实点击**验收（含挂载后新增的交互控件）——见 [`ACCEPTANCE-hud.md`](../ACCEPTANCE-hud.md)。
+- **补充（第 38 轮）**：决策第 3 条「路由器与 Phaser 的命中测试必须处在同一坐标空间」此前是按**根**的因子近似实现的，于是「只钉一页」这种子树钉法（多页面场景里的常规做法）渲染与 Phaser 命中都正确、却被我们自己的第二道闸门拒掉。现在改为**按候选控件自己的**因子折算（`pointerInWidgetSpace()`，与 `InputManager#hitTest` 的公式逐字一致），`1` 与 `0` 两端的结果与原实现完全相同，中间取值也与渲染一致。已知遗留：UI 之上的点击仍会派发给 UI 之下的 Phaser 对象（`topOnly` 被路由器置为 `false`），登记为 V9。
 
 ## 证据
 
