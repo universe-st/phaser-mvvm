@@ -12,6 +12,10 @@
  *   cannot be moved),
  * - the mirror lives in Phaser's DOM container (`dom.createContainer: true`), the same overlay the
  *   text-input bridge uses, and it is created and torn down with the plugin,
+ * - **the DOM is nested like the widget tree** (`nest`): a control is a child of the closest mirrored
+ *   ancestor, so a `role="region"` really contains its buttons and the content root of a modal layer can
+ *   be `role="dialog"` with its controls in it. A flat list of siblings can say "here are 8 controls" and
+ *   nothing about which of them belong together,
  * - the nodes carry `tabindex="-1"`: reachable for a screen reader, but **not** in the `Tab` order, so
  *   keyboard control still belongs to the framework (arrow keys, `Tab`, gamepad).
  *
@@ -30,6 +34,8 @@
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { isWithinTree } from './input';
 import type { MVVMPlugin } from './plugin';
+// Type-only on purpose: `a11y.ts` is imported by `test/a11y.test.ts`, which runs in plain Node — a value
+// import of `Widget` would pull in Phaser (it extends a Phaser class) and `window` with it.
 import type { Widget } from './Widget';
 
 /** The mirror node of one widget carries this attribute, plus `data-mvvm-a11y-name`. */
@@ -59,6 +65,15 @@ export interface A11yDescriptor {
   invalid?: boolean;
   /** Extra sentence read after the label (`aria-description`). */
   hint?: string;
+  /**
+   * `aria-modal`: this node *covers* the rest of the UI, so a reader may keep navigation inside it.
+   *
+   * Only the mirror sets this, and only on the content root of the top modal layer — every other node
+   * that is covered by that layer is `aria-hidden` instead (`isInert`), which is what actually removes it
+   * from the computed tree. A dialog that only says `aria-modal` and leaves its siblings visible is
+   * worse than one that says nothing.
+   */
+  modal?: boolean;
 }
 
 export interface A11yOptions {
@@ -112,6 +127,8 @@ export class A11yBridge {
   private on = false;
   /** The widget whose surface currently holds DOM focus (see `focusChanged`). */
   private domFocused: Widget | null = null;
+  /** Set when a node leaves the mirror, so the pass that removed it knows to re-nest (see `nest`). */
+  private nestNeeded = false;
   /** Last applied signature per widget, so an unchanged control costs no DOM writes. */
   private readonly lastApplied = new Map<Widget, string>();
 
@@ -136,19 +153,28 @@ export class A11yBridge {
    * The widget holding DOM focus is never hidden: `aria-hidden` on a focused element is invalid and
    * browsers either ignore it or drop the focus, so the incoming control wins over the outgoing one even
    * when a refresh lands between "the layer was pushed" and "focus moved inside it".
+   *
+   * Because mirror nodes are **nested** (`nest`), a second exemption is needed for the same reason
+   * `aria-hidden` is inherited in the DOM: a container that still holds the focused control may not be
+   * hidden either, or hiding the container takes the control out of the tree with it. That is not
+   * hypothetical for the transitional frame above — a `ScrollView` reporting `role="region"` around the
+   * focused field is exactly this shape, and its own buttons stay `aria-hidden` individually.
    */
   private isInert(widget: Widget): boolean {
     if (widget === this.plugin.focus.focusedWidget) {
       return false;
     }
+    const focused = this.plugin.focus.focusedWidget;
+    /** A container is not hidden while the control the reader is on lives inside it. */
+    const holdsFocus = focused !== null && focused !== widget && within(focused, widget);
     const modal = this.plugin.modal.top;
     if (modal) {
-      return !within(widget, modal.content);
+      return !within(widget, modal.content) && !holdsFocus;
     }
     // Only the *covered* pages are inert, not "everything outside the top page": a HUD or a footer that
     // lives next to the page host is part of the live UI and must stay reachable.
     for (const page of this.plugin.pages.handles) {
-      if (!page.active && within(widget, page.widget)) {
+      if (!page.active && within(widget, page.widget) && !holdsFocus) {
         return true;
       }
     }
@@ -216,20 +242,27 @@ export class A11yBridge {
     if (!this.on || !this.attach()) {
       return;
     }
-    const wanted = new Set<Widget>();
-    // `input.widgets` is in tree order, which is the order a screen reader should read them in.
+    const dialog = this.dialogRoot();
+    // The seed is the interactive set — "everything the user can act on", which is what a screen reader
+    // should hear. It deliberately includes **disabled** controls (they exist on screen and are announced
+    // as `aria-disabled`) while a `Label` or a decorative panel is skipped because it has no descriptor.
+    const seed = new Set<Widget>();
     for (const widget of this.plugin.input.widgets) {
-      if (widget.describeA11y() !== null) {
-        wanted.add(widget);
-      }
+      seed.add(widget);
     }
-    // A focusable widget whose descriptor appears late (a `Repeat` template that sets one) still has to
-    // be mirrored, so the focus collection is unioned in rather than replaced.
+    // A focusable widget whose descriptor appears late (a `Repeat` template that sets one) still has to be
+    // mirrored, so the focus collection is unioned in rather than replaced.
     for (const widget of this.plugin.focus.focusables) {
-      if (widget.describeA11y() !== null) {
-        wanted.add(widget);
-      }
+      seed.add(widget);
     }
+    // The content root of the top layer is mirrored even when it describes nothing by itself: it is the
+    // node `role="dialog"` goes on, and a dialog with its controls beside it rather than inside it says
+    // nothing about what is being asked.
+    if (dialog) {
+      seed.add(dialog);
+    }
+    const ordered = this.collectWanted(seed, dialog);
+    const wanted = new Set(ordered);
 
     for (let i = this.nodes.length - 1; i >= 0; i--) {
       const entry = this.nodes[i];
@@ -244,7 +277,7 @@ export class A11yBridge {
       }
     }
 
-    for (const widget of wanted) {
+    for (const widget of ordered) {
       let entry = this.nodes.find((candidate) => candidate.widget === widget);
       if (!entry) {
         const node = document.createElement('div');
@@ -252,8 +285,10 @@ export class A11yBridge {
         // `-1` (not `0`): programmatically focusable so a screen reader can land on the control, but out
         // of the Tab order — navigation stays with the framework (`Tab`, arrows, gamepad).
         node.setAttribute('tabindex', '-1');
-        const element = this.root;
-        element?.appendChild(node);
+        // Where it ends up is `nest()`'s job (it needs the whole wanted set to place anything); a node
+        // that is not in the document yet must not be handed to `focusChanged()` in between, which is why
+        // `nest()` runs before this method returns.
+        this.root?.appendChild(node);
         entry = { widget, node };
         this.nodes.push(entry);
         // From here on the widget tells us when its described state changes (a reactive error, a
@@ -262,8 +297,17 @@ export class A11yBridge {
           this.sync(widget);
         };
       }
-      this.applyDescriptor(entry, widget.describeA11y());
+      this.applyDescriptor(entry, this.descriptorFor(widget, dialog));
     }
+
+    // `nest()` places siblings in `this.nodes` order, so the list itself has to be in tree order — a
+    // newly mirrored widget was pushed at the end, and a named container would otherwise be read *after*
+    // the controls it contains.
+    const rank = new Map<Widget, number>();
+    ordered.forEach((widget, index) => rank.set(widget, index));
+    this.nodes.sort((a, b) => (rank.get(a.widget) ?? -1) - (rank.get(b.widget) ?? -1));
+
+    this.nest();
 
     if (isDevMode()) {
       devLog(`a11y: mirrored ${this.nodes.length} widget(s)`);
@@ -283,18 +327,211 @@ export class A11yBridge {
     if (!this.on) {
       return;
     }
+    const dialog = this.dialogRoot();
     if (widget) {
       const entry = this.nodes.find((candidate) => candidate.widget === widget);
       if (entry) {
-        this.applyDescriptor(entry, widget.describeA11y());
+        this.applyDescriptor(entry, this.descriptorFor(widget, dialog));
       }
+    } else {
+      // Backwards, because a destroyed widget's node leaves the mirror inside `applyDescriptor()`, and
+      // splicing an array while walking it forwards skips the entry after every removal — which is how a
+      // destroyed control used to stay in the tree with its last attributes, next to its successor.
+      for (let i = this.nodes.length - 1; i >= 0; i--) {
+        const entry = this.nodes[i];
+        if (!entry) {
+          continue;
+        }
+        this.applyDescriptor(
+          entry,
+          entry.widget.isDestroyed === true ? null : this.descriptorFor(entry.widget, dialog),
+        );
+      }
+    }
+    // A node left the mirror: whatever was nested inside it is now detached from the document, so the
+    // survivors have to be placed again.
+    if (this.nestNeeded) {
+      this.nest();
+    }
+  }
+
+  /**
+   * The widgets to mirror, in **tree order** — the order a screen reader reads them in, and the order the
+   * mirror's DOM siblings are in.
+   *
+   * A widget is mirrored when it is in `seed` (the interactive set, plus the dialog) or when the app gave
+   * it an accessible name. The second rule is what makes a **container** namable: a plain `Column` is not
+   * a pointer target, so without it a named one would never be mirrored and its `label` would go nowhere —
+   * and naming a group ("字段区域") is how a reader is told what the controls inside it belong to. It is
+   * deliberately narrow: a widget with a descriptor but no name still comes from `seed` alone, so nothing
+   * decorative is dragged into the tree by accident.
+   *
+   * The walk is also what keeps the order right: `seed` is assembled from three collections (the router's
+   * widgets, the focus set, the dialog), and appending those in turn would read a container *after* the
+   * controls inside it.
+   */
+  private collectWanted(seed: Set<Widget>, dialog: Widget | null): Widget[] {
+    const ordered: Widget[] = [];
+    const seen = new Set<Widget>();
+    const stack: Widget[] = [this.plugin.root];
+    while (stack.length > 0) {
+      const widget = stack.pop();
+      if (!widget || widget.isDestroyed === true) {
+        continue;
+      }
+      if (!seen.has(widget) && (seed.has(widget) || widget.a11yLabel !== null)) {
+        if (this.descriptorFor(widget, dialog) !== null) {
+          seen.add(widget);
+          ordered.push(widget);
+        }
+      }
+      const children = widget.getWidgetChildren();
+      // Depth-first, children in order: the stack is a stack, so they go on backwards.
+      for (let i = children.length - 1; i >= 0; i--) {
+        const child = children[i];
+        if (child) {
+          stack.push(child);
+        }
+      }
+    }
+    // Anything the walk did not reach (a focusable outside the UI root) keeps its place at the end.
+    for (const widget of seed) {
+      if (!seen.has(widget) && this.descriptorFor(widget, dialog) !== null) {
+        seen.add(widget);
+        ordered.push(widget);
+      }
+    }
+    return ordered;
+  }
+
+  /**
+   * The widget that carries `role="dialog"`: the content root of the top modal layer, or `null`.
+   *
+   * `ModalHost#top` builds a fresh handle on every read, so this is read once per pass and handed down
+   * rather than asked once per widget.
+   */
+  private dialogRoot(): Widget | null {
+    return this.plugin.modal.top?.content ?? null;
+  }
+
+  /**
+   * The descriptor to mirror for `widget`: what the widget says about itself, plus what the bridge
+   * knows about it.
+   *
+   * The content root of the top layer is a **dialog** — that is the one thing the bridge knows and the
+   * widget cannot, and it has to survive the widget's own answer: a container that only carries a `label`
+   * answers "named group" (the base rule in `Widget.describeA11y`), and a group is not what a modal is.
+   * A *different* role is a real decision by the app (`alertdialog`, `group`, …) and is kept — the layer
+   * only adds `aria-modal` to it.
+   */
+  private descriptorFor(widget: Widget, dialog: Widget | null): A11yDescription {
+    const own = widget.describeA11y();
+    if (dialog === null || widget !== dialog) {
+      return own;
+    }
+    if (own && own.role !== 'group') {
+      return { ...own, modal: true };
+    }
+    // The name is the content root's own `label` option (`Widget.a11yLabel`), so a dialog is named the
+    // way every other widget is and the modal host needs no ARIA option of its own. `''` rather than
+    // `undefined`: the name otherwise falls back to the widget's `name`, and an unnamed dialog announcing
+    // itself as `ui.page#3` (the container the DSL built) is worse than one that stays unnamed.
+    return { role: 'dialog', label: own?.label ?? widget.a11yLabel ?? '', modal: true };
+  }
+
+  /**
+   * Places every mirror node inside the mirror node of its closest mirrored ancestor, in tree order.
+   *
+   * Called after every structural change (a node was created or destroyed, a refresh found the tree
+   * changed) and **only** then: re-appending an unchanged node is a DOM mutation, and mutations are what
+   * wake the accessibility tree, so the stable case has to cost nothing.
+   */
+  private nest(): void {
+    this.nestNeeded = false;
+    const root = this.root;
+    if (!root) {
       return;
     }
+    const index = new Map<Widget, HTMLElement>();
     for (const entry of this.nodes) {
-      this.applyDescriptor(
-        entry,
-        entry.widget.isDestroyed === true ? null : entry.widget.describeA11y(),
-      );
+      index.set(entry.widget, entry.node);
+    }
+    // `this.nodes` is in tree order (the wanted set is built from the router's tree-ordered collection),
+    // so appending in this order puts siblings in the order a reader should hear them.
+    for (const entry of this.nodes) {
+      entry.node.removeAttribute('aria-owns');
+      this.mirrorParentOf(entry.widget, index, root).appendChild(entry.node);
+    }
+    // A widget that owns a DOM element (a text field's `<input>`) is **not** a DOM child of the mirror
+    // node it belongs to: the element is the surface and it lives in the overlay next to the mirror root,
+    // and moving it for real would move the thing the browser positions, styles and focuses. `aria-owns`
+    // is ARIA's answer for exactly this, and Chrome's computed tree honours it — measured on `#/keyboard`
+    // with a dialog open: 34 of the dialog's 35 controls were in the dialog and the dialog's own field was
+    // a sibling of the dialog; with `aria-owns`, 35 of 35.
+    const owned = new Map<HTMLElement, string[]>();
+    for (const entry of this.nodes) {
+      const element = entry.widget.getA11yDomElement();
+      if (!element) {
+        continue;
+      }
+      const owner = this.mirrorParentOf(entry.widget, index, root);
+      if (owner === root) {
+        // Nothing to belong to: at the top of the mirror the element is already a page-level control, and
+        // owning it from the (role-less) mirror root would only insert a generic node above it.
+        continue;
+      }
+      const ids = owned.get(owner) ?? [];
+      ids.push(ensureElementId(element));
+      owned.set(owner, ids);
+    }
+    for (const [owner, ids] of owned) {
+      owner.setAttribute('aria-owns', ids.join(' '));
+    }
+    // Re-appending *moves* nodes. Chrome keeps focus on a moved element, but DOM focus on a mirror node
+    // is the whole mechanism a screen reader follows (`focusChanged`), so it is put back rather than
+    // trusted to survive.
+    this.restoreDomFocus();
+  }
+
+  /**
+   * The DOM node a mirror node belongs in: the mirror node of the nearest ancestor widget that has one,
+   * else the root of the mirror.
+   *
+   * A widget that owns a DOM element (a text field's `<input>`, see `applyDescriptor`) is not in the
+   * mirror, so a control inside one would land on the next mirrored ancestor instead — nothing in the
+   * framework nests a mirrored widget inside such a widget today. The element itself is attached to that
+   * ancestor with `aria-owns` (see `nest`).
+   */
+  private mirrorParentOf(
+    widget: Widget,
+    index: Map<Widget, HTMLElement>,
+    root: HTMLElement,
+  ): HTMLElement {
+    let node = widget.parentContainer as unknown as Widget | null;
+    while (node) {
+      const mirror = index.get(node);
+      if (mirror) {
+        return mirror;
+      }
+      node = node.parentContainer as unknown as Widget | null;
+    }
+    return root;
+  }
+
+  /** Puts DOM focus back on the surface of the widget `focusChanged()` recorded, if it was lost. */
+  private restoreDomFocus(): void {
+    const widget = this.domFocused;
+    if (!widget || widget.isDestroyed === true) {
+      return;
+    }
+    const surface = this.surfaceOf(widget);
+    if (!surface || document.activeElement === surface) {
+      return;
+    }
+    try {
+      surface.focus({ preventScroll: true });
+    } catch {
+      // Nothing to do: the live region is the fallback, and it has already been told.
     }
   }
 
@@ -479,6 +716,7 @@ export class A11yBridge {
     }
     this.domFocused = null;
     this.lastApplied.clear();
+    this.nestNeeded = false;
     this.root?.remove();
     this.root = null;
     this.live = null;
@@ -496,6 +734,9 @@ export class A11yBridge {
   private applyDescriptor(entry: MirrorNode, descriptor: A11yDescription): void {
     const { node, widget } = entry;
     if (descriptor === null) {
+      // Its mirror children are DOM children: they come out of the document with it, so the survivors are
+      // placed again by `nest()` at the end of the pass that got here.
+      this.nestNeeded = true;
       node.remove();
       this.lastApplied.delete(widget);
       const index = this.nodes.indexOf(entry);
@@ -568,6 +809,7 @@ const MANAGED_ATTRIBUTES = [
   'aria-disabled',
   'aria-invalid',
   'aria-checked',
+  'aria-modal',
   'aria-valuenow',
   'aria-valuemin',
   'aria-valuemax',
@@ -613,6 +855,7 @@ export function a11yAttributes(
     'aria-checked',
     descriptor.checked === undefined ? null : String(descriptor.checked),
   );
+  setIf(attributes, 'aria-modal', descriptor.modal === true ? 'true' : null);
   if (VALUE_RANGE_ROLES.has(descriptor.role)) {
     setIf(
       attributes,
@@ -705,6 +948,24 @@ function setAttribute(node: HTMLElement, name: string, value: string | null): vo
   } else {
     node.setAttribute(name, value);
   }
+}
+
+/** Counter for the ids `aria-owns` needs; one page has one mirror, so a module-level counter is enough. */
+let ownedIdCounter = 0;
+/**
+ * The element's `id`, created on first use.
+ *
+ * An `aria-owns` list names elements by id, and a field's `<input>` usually has none — the text-input
+ * bridge positions it by style, not by id. An existing id is never replaced: an app (or a test) that
+ * labelled the element keeps its name.
+ */
+function ensureElementId(element: HTMLElement): string {
+  if (element.id.length > 0) {
+    return element.id;
+  }
+  ownedIdCounter += 1;
+  element.id = `mvvm-a11y-owned-${ownedIdCounter}`;
+  return element.id;
 }
 
 /** Phaser's DOM overlay container (created by `dom: { createContainer: true }`). */

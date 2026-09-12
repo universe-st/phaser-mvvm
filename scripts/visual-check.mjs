@@ -223,6 +223,107 @@ const AX_CONTROL_ROLES = new Set([
 const AX_TAB_SCENES = new Set(['a11y', 'keyboard']);
 
 /**
+ * What the computed tree must **nest**, as opposed to which controls it lists.
+ *
+ * The mirror is a DOM tree shaped like the widget tree (`A11yBridge#nest`), so that a node which says it
+ * contains things really does: a `role="region"` around six buttons is worth nothing if the six are its
+ * siblings, and `role="dialog"` is a name for a container nobody is inside. Chrome's tree follows the DOM
+ * nesting, so this is measurable — and it is the only thing that measures it: an exact control count
+ * (above) is satisfied just as well by eight flat siblings.
+ *
+ * `descendants` counts roles anywhere below the node, because Chrome inserts its own wrappers
+ * (`StaticText`, `InlineTextBox`) between a node and its contents.
+ */
+const AX_STRUCTURE_EXPECTATIONS = {
+  a11y: [
+    // The scroll area reports `role="region"`; its six buttons have to be *inside* it (before round 103
+    // every mirror node was a sibling under one hidden div, and this read `0`).
+    { role: 'region', name: '按钮区域', descendants: { button: 6 } },
+    // A container with a `label` is a named `group`, and the two fields inside it are attached to it with
+    // `aria-owns`: their real `<input>` elements live in the DOM overlay next to the mirror root, so they
+    // cannot be DOM children. Without `aria-owns` this read `0` — the fields were siblings of the group
+    // that names them (measured on `#/keyboard`'s dialog: 34 of its 35 controls inside).
+    { role: 'group', name: '字段区域', descendants: { textbox: 2 } },
+  ],
+  modal: [
+    // `SCENE_SETUP` opens `confirm`, whose content root is labelled `删除这一项？`: the dialog has to be a
+    // dialog (name, `aria-modal`) with its own two buttons in it, and — because the page underneath is
+    // `aria-hidden` rather than merely unlisted — nothing else.
+    {
+      role: 'dialog',
+      name: '删除这一项？',
+      properties: { modal: 'true' },
+      descendants: { button: 2 },
+    },
+  ],
+};
+
+/** A node's non-ignored descendants, walking `childIds` (Chrome's flattened tree). */
+function axDescendants(byId, root) {
+  const found = [];
+  const seen = new Set();
+  const queue = [...(root.childIds ?? [])];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    const node = byId.get(id);
+    if (!node) {
+      continue;
+    }
+    if (!node.ignored) {
+      found.push(node);
+    }
+    queue.push(...(node.childIds ?? []));
+  }
+  return found;
+}
+
+/** Compares the tree's *structure* with `AX_STRUCTURE_EXPECTATIONS`; appends to `problems`. */
+function checkAxStructure(nodes, visible, scene, problems) {
+  const expected = AX_STRUCTURE_EXPECTATIONS[scene];
+  if (!expected) {
+    return;
+  }
+  const byId = new Map(nodes.map((node) => [node.nodeId, node]));
+  for (const want of expected) {
+    const matches = visible.filter(
+      (node) => node.role?.value === want.role && (node.name?.value ?? '') === want.name,
+    );
+    if (matches.length !== 1) {
+      problems.push(
+        `structure "${want.name}" (${want.role}): found ${matches.length} node(s), expected 1`,
+      );
+      continue;
+    }
+    const node = matches[0];
+    for (const [name, value] of Object.entries(want.properties ?? {})) {
+      const actual = axProperty(node, name);
+      if (actual !== String(value)) {
+        problems.push(
+          `structure "${want.name}": ${name} is ${JSON.stringify(actual)}, expected ${value}`,
+        );
+      }
+    }
+    const inside = axDescendants(byId, node);
+    const counts = {};
+    for (const child of inside) {
+      counts[child.role?.value] = (counts[child.role?.value] ?? 0) + 1;
+    }
+    for (const [role, count] of Object.entries(want.descendants ?? {})) {
+      if ((counts[role] ?? 0) !== count) {
+        problems.push(
+          `structure "${want.name}" (${want.role}) holds ${counts[role] ?? 0} ${role} descendant(s), ` +
+            `expected ${count} (it holds: ${inside.map((child) => child.role?.value).join(', ') || 'nothing'})`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * One computed AX property.
  *
  * Chrome's protocol mixes types here: `value.value` comes back as `true` for some properties and as the
@@ -240,7 +341,7 @@ function axProperty(node, name) {
  */
 async function checkAxTree(session, scene) {
   const expected = AX_EXPECTATIONS[scene];
-  if (!expected) {
+  if (!expected && !AX_STRUCTURE_EXPECTATIONS[scene]) {
     return [];
   }
   const problems = [];
@@ -267,7 +368,7 @@ async function checkAxTree(session, scene) {
   const visible = nodes.filter((node) => !node.ignored);
   const controls = visible.filter((node) => AX_CONTROL_ROLES.has(node.role?.value));
 
-  for (const want of expected) {
+  for (const want of expected ?? []) {
     const matches = controls.filter(
       (node) => node.role?.value === want.role && (node.name?.value ?? '') === want.name,
     );
@@ -289,12 +390,15 @@ async function checkAxTree(session, scene) {
     }
   }
 
-  if (controls.length !== expected.length) {
+  if (expected && controls.length !== expected.length) {
     problems.push(
       `the tree exposes ${controls.length} control node(s), expected ${expected.length} ` +
         `(${controls.map((node) => `${node.role?.value}:${node.name?.value ?? ''}`).join(', ')})`,
     );
   }
+
+  // Which controls are there, and — separately — what they are nested inside of.
+  checkAxStructure(nodes, visible, scene, problems);
 
   if (AX_TAB_SCENES.has(scene)) {
     const focused = controls.filter((node) => axProperty(node, 'focused') === 'true');

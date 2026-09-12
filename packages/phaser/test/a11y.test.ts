@@ -96,6 +96,28 @@ describe('a11yAttributes', () => {
     expect(attributes['role']).toBe('tab');
     expect(attributes['aria-label']).toBe('概览');
   });
+
+  it('writes `aria-modal` only for a modal dialog', () => {
+    // The dialog the mirror synthesizes for a modal layer's content root carries `modal: true`; every
+    // other descriptor that ever passes through here must not inherit it, because `aria-modal` on a
+    // node whose siblings are still in the tree tells a reader to stay inside something that is not
+    // actually isolated.
+    const dialog = a11yAttributes({ role: 'dialog', label: '删除确认', modal: true }, widget);
+    expect(dialog['aria-modal']).toBe('true');
+    expect(
+      a11yAttributes({ role: 'dialog', label: '删除确认' }, widget)['aria-modal'],
+    ).toBeUndefined();
+    expect(a11yAttributes({ role: 'region', modal: false }, widget)['aria-modal']).toBeUndefined();
+    expect(a11yAttributes({ role: 'button' }, widget)['aria-modal']).toBeUndefined();
+  });
+
+  it('leaves a name-less dialog unnamed instead of borrowing the container name', () => {
+    // `descriptorFor()` passes `label: ''` for an unlabelled dialog precisely so this fallback does not
+    // fire: the widget here *has* a name (`demo.button`), and the dialog must not be announced as the
+    // internal container the DSL built.
+    expect(a11yAttributes({ role: 'dialog', label: '' }, widget)['aria-label']).toBeUndefined();
+    expect(a11yAttributes({ role: 'dialog' }, widget)['aria-label']).toBe('demo.button');
+  });
 });
 
 describe('a11yText', () => {

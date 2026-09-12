@@ -19,6 +19,7 @@ import { ref } from '@phaser-mvvm/core';
 import { A11Y_ATTRIBUTE, A11Y_LIVE_ATTRIBUTE, UIScene, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
+  Column,
   Divider,
   Panel,
   Scroll,
@@ -129,26 +130,31 @@ export class A11yScene extends UIScene {
           }),
         );
 
-        this.track(
-          'field',
-          TextField({
-            name: 'a11y.field',
-            label: '名字',
-            value: this.name,
-            placeholder: '名字（必填）',
-            validate: (value: string) => (value.trim().length === 0 ? '名字不能为空' : null),
-          }),
-        );
-        this.track(
-          'notes',
-          TextArea({
-            name: 'a11y.notes',
-            label: '备注',
-            placeholder: '备注',
-            height: 56,
-            maxLength: 80,
-          }),
-        );
+        // A container with a `label` is a named `group` in the mirror, and the two fields inside it are
+        // attached to it with `aria-owns` (their real `<input>` elements live in the DOM overlay, so they
+        // cannot be its DOM children). Both are asserted by `scripts/visual-check.mjs`.
+        Column({ gap: 8, width: 'fill', name: 'a11y.fields', label: '字段区域' }, () => {
+          this.track(
+            'field',
+            TextField({
+              name: 'a11y.field',
+              label: '名字',
+              value: this.name,
+              placeholder: '名字（必填）',
+              validate: (value: string) => (value.trim().length === 0 ? '名字不能为空' : null),
+            }),
+          );
+          this.track(
+            'notes',
+            TextArea({
+              name: 'a11y.notes',
+              label: '备注',
+              placeholder: '备注',
+              height: 56,
+              maxLength: 80,
+            }),
+          );
+        });
 
         this.track(
           'card',

@@ -169,7 +169,11 @@ export class Panel extends Widget {
   /** Live description for the accessibility mirror: a clickable card without text needs a label. */
   override describeA11y(): A11yDescriptor | null {
     if (!this.interactive) {
-      return null;
+      // A plain panel is usually a decoration, and a decoration is not mirrored — but one that was given
+      // a `label` is a named group (the base rule), which is how a modal body ends up as `role="dialog"`
+      // with a name: the mirror asks the widget first and synthesizes the dialog only when it says
+      // nothing at all.
+      return super.describeA11y();
     }
     return {
       role: 'button',

@@ -19,7 +19,23 @@ import type {
 import { reportUnknownOptions } from './option-keys';
 import { Widget } from './Widget';
 
-export interface BoxWidgetOptions extends LayoutParams {
+/**
+ * The two base-widget options a layout container takes.
+ *
+ * `name` is the debug name (dev traces, probes). `label` is the **accessible** name: a container that has
+ * one is a group a screen reader can name, which is what makes `role="region"`-style nesting useful —
+ * `Panel` and `ScrollView` had it, the plain layout containers (`Column`/`Row`/`Grid`/`Stack`/
+ * `Absolute`) did not: the audit accepted the key (`BASE_WIDGET_OPTION_KEYS`), the constructor dropped it
+ * into the layout bag where `normalizeParams` ignores it, and `tsc` rejected it outright (V74).
+ */
+export interface ContainerWidgetOptions {
+  /** Debug name. */
+  name?: string;
+  /** Accessible name for the DOM mirror (`Widget.a11yLabel`). */
+  label?: string;
+}
+
+export interface BoxWidgetOptions extends LayoutParams, ContainerWidgetOptions {
   direction?: Axis;
   gap?: number;
   rowGap?: number;
@@ -29,10 +45,9 @@ export interface BoxWidgetOptions extends LayoutParams {
   wrap?: boolean;
   alignContent?: Justify;
   reverse?: boolean;
-  name?: string;
 }
 
-export interface GridWidgetOptions extends LayoutParams {
+export interface GridWidgetOptions extends LayoutParams, ContainerWidgetOptions {
   columns?: number | 'auto';
   rows?: number | 'auto';
   minColumnWidth?: number;
@@ -42,15 +57,13 @@ export interface GridWidgetOptions extends LayoutParams {
   justifyItems?: Align;
   alignItems?: Align;
   autoFlow?: 'row' | 'column';
-  name?: string;
 }
 
-export interface StackWidgetOptions extends LayoutParams {
+export interface StackWidgetOptions extends LayoutParams, ContainerWidgetOptions {
   align?: StackLayoutOptions['align'];
-  name?: string;
 }
 
-export type AbsoluteWidgetOptions = LayoutParams & { name?: string };
+export type AbsoluteWidgetOptions = LayoutParams & ContainerWidgetOptions;
 
 const BOX_KEYS = [
   'direction',
@@ -93,7 +106,10 @@ export function splitOptions<C extends Record<string, unknown>>(
 
   for (const key of Object.keys(options)) {
     const value = options[key];
-    if (value === undefined || key === 'name') {
+    if (value === undefined || key === 'name' || key === 'label') {
+      // `name` and `label` belong to the base widget (the constructors pass them on); leaving them in
+      // `layout` would make `normalizeParams` ignore them, which is how a container's accessible name
+      // used to disappear (V74).
       continue;
     }
     if (containerKeys.includes(key)) {
@@ -113,7 +129,7 @@ export class BoxWidget extends Widget {
       BOX_KEYS,
     );
     const direction: Axis = (container.direction as Axis | undefined) ?? 'vertical';
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, name: options.name, label: options.label });
     this.container = {
       type: 'box',
       options: { ...container, direction },
@@ -130,7 +146,7 @@ export class GridWidget extends Widget {
       options as Record<string, unknown>,
       GRID_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, name: options.name, label: options.label });
     this.container = { type: 'grid', options: container as GridLayoutOptions };
     for (const child of children) {
       this.addWidget(child);
@@ -144,7 +160,7 @@ export class StackWidget extends Widget {
       options as Record<string, unknown>,
       STACK_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, name: options.name, label: options.label });
     this.container = { type: 'stack', options: container as StackLayoutOptions };
     for (const child of children) {
       this.addWidget(child);
@@ -159,7 +175,7 @@ export class AbsoluteWidget extends Widget {
       options as Record<string, unknown>,
       [],
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, name: options.name, label: options.label });
     this.container = { type: 'absolute' };
     for (const child of children) {
       this.addWidget(child);

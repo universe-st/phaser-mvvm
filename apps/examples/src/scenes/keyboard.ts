@@ -184,40 +184,51 @@ export class KeyboardScene extends Phaser.Scene {
     this.dialogNote.value = '用键盘输入，Enter 提交，Esc 取消';
     const handle = this.mvvm.modal.open(
       () => {
-        Column({ gap: 10, padding: 16, width: 520, name: 'kb.dlg.body' }, () => {
-          Text('手柄输入：对话框', { size: 'lg', name: 'kb.dlg.title' });
-          const field = TextField({
-            name: 'kb.dlg.field',
-            label: '角色名',
-            value: this.dialogValue,
-            placeholder: '用下面的键盘输入',
-            maxLength: 10,
-            width: 'fill',
-          });
-          this.dialogField = field;
-          const keyboard = VirtualKeyboard({
-            target: () => this.dialogField,
-            onSubmit: () => {
-              this.dialogSubmits += 1;
-              this.dialogNote.value = `提交：${this.dialogValue.value || '(空)'}`;
-              this.closeDialog('submit');
-            },
-            onChange: () => {
-              this.dialogNote.value = `已输入 ${this.dialogValue.value.length} 个字符`;
-            },
-          });
-          this.dialogKeyboard = keyboard;
-          Text(() => this.dialogNote.value, { tone: 'muted', name: 'kb.dlg.note' });
-          Row({ gap: 8 }, () => {
-            Button('取消', {
-              variant: 'ghost',
-              name: 'kb.dlg.cancel',
-              onClick: () => {
-                this.closeDialog('cancel');
+        Column(
+          {
+            gap: 10,
+            padding: 16,
+            width: 520,
+            name: 'kb.dlg.body',
+            // The mirror gives a modal layer's content root `role="dialog"`; the accessible name is the
+            // ordinary `label` option (see `ModalOptions`).
+            label: '手柄输入：对话框',
+          },
+          () => {
+            Text('手柄输入：对话框', { size: 'lg', name: 'kb.dlg.title' });
+            const field = TextField({
+              name: 'kb.dlg.field',
+              label: '角色名',
+              value: this.dialogValue,
+              placeholder: '用下面的键盘输入',
+              maxLength: 10,
+              width: 'fill',
+            });
+            this.dialogField = field;
+            const keyboard = VirtualKeyboard({
+              target: () => this.dialogField,
+              onSubmit: () => {
+                this.dialogSubmits += 1;
+                this.dialogNote.value = `提交：${this.dialogValue.value || '(空)'}`;
+                this.closeDialog('submit');
+              },
+              onChange: () => {
+                this.dialogNote.value = `已输入 ${this.dialogValue.value.length} 个字符`;
               },
             });
-          });
-        });
+            this.dialogKeyboard = keyboard;
+            Text(() => this.dialogNote.value, { tone: 'muted', name: 'kb.dlg.note' });
+            Row({ gap: 8 }, () => {
+              Button('取消', {
+                variant: 'ghost',
+                name: 'kb.dlg.cancel',
+                onClick: () => {
+                  this.closeDialog('cancel');
+                },
+              });
+            });
+          },
+        );
       },
       { name: 'kb.dlg' },
     );

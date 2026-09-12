@@ -298,6 +298,10 @@ export class ModalScene extends Phaser.Scene {
                   radius: 12,
                   width: 420,
                   name: 'confirm.panel',
+                  // The accessibility mirror gives a modal layer's content root `role="dialog"`, and the
+                  // accessible name is the ordinary `label` option — so the dialog is named here, on the
+                  // panel the reader is asked to answer, not through a modal-only option.
+                  label: '删除这一项？',
                 },
                 () => {
                   Text('删除这一项？', { size: 'lg', name: 'confirm.title' });
@@ -347,6 +351,7 @@ export class ModalScene extends Phaser.Scene {
                   variant: 'surface',
                   radius: 12,
                   width: 460,
+                  label: '重命名',
                 },
                 () => {
                   Text('重命名', { size: 'lg', name: 'form.title' });
@@ -394,6 +399,7 @@ export class ModalScene extends Phaser.Scene {
                   variant: 'surface',
                   radius: 12,
                   width: 400,
+                  label: '必须回答',
                 },
                 () => {
                   Text('必须回答', { size: 'lg', name: 'stubborn.title' });
@@ -427,6 +433,7 @@ export class ModalScene extends Phaser.Scene {
                   variant: 'surfaceAlt',
                   radius: 12,
                   width: 360,
+                  label: '没有遮罩',
                 },
                 () => {
                   Text('没有遮罩', { size: 'lg', name: 'bare.title' });
@@ -464,6 +471,7 @@ export class ModalScene extends Phaser.Scene {
                   variant: 'surface',
                   radius: 12,
                   width: 420,
+                  label: '第一层',
                 },
                 () => {
                   Text('第一层', { size: 'lg', name: 'nested.title' });
@@ -525,6 +533,7 @@ export class ModalScene extends Phaser.Scene {
               variant: 'surfaceAlt',
               radius: 12,
               width: 380,
+              label: '第二层',
             },
             () => {
               Text('第二层', { size: 'lg', name: 'second.title' });

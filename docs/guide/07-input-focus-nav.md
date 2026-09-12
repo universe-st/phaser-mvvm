@@ -522,10 +522,30 @@ this.mvvm.a11y.announce('已保存 3 项');
 
 **两个容易踩的点**（第 76 轮用浏览器算出的树实测出来的）：
 
-1. **文本框由自己的隐藏 `<input>` 承载**，镜像节点对它 `aria-hidden` 让位——否则同一个字段会在树里出现两次。要判断"某个控件到底在树里长什么样"，别只看 `[data-mvvm-a11y]` 的属性，去读浏览器的计算树（`scripts/visual-check.mjs` 的 `AX_EXPECTATIONS` 就是干这个的）。
+1. **文本框由自己的隐藏 `<input>` 承载**，镜像节点对它 `aria-hidden` 让位——否则同一个字段会在树里出现两次。要判断"某个控件到底在树里长什么样"，别只看 `[data-mvvm-a11y]` 的属性，去读浏览器的计算树（`scripts/visual-check.mjs` 的 `AX_EXPECTATIONS` 与 `AX_STRUCTURE_EXPECTATIONS` 就是干这个的）。这类元素由 `aria-owns` 挂进它**本该属于**的那个节点（第 103 轮起），所以对话框里的输入框在树里是对话框的子节点，尽管它的 `<input>` 在 DOM 里位于别处。
 2. **值域属性只写给支持它的角色**：`aria-valuenow` 属于 `slider`/`spinbutton`/`scrollbar`/`progressbar`/`meter`/`separator`，写在 `textbox` 上是无效 ARIA（阅读器忽略、校验器报错）。文本类角色的节点文本就是**值本身**，不是描述行。
 
-验收页 `#/a11y` 把每条都做成了可断言项（读真实 DOM），见 [`ACCEPTANCE-a11y.md`](../ACCEPTANCE-a11y.md)。
+**镜像是一棵树，不是一个清单**（第 103 轮）：每个镜像节点挂在"最近的、有镜像节点的祖先控件"之下，所以**包含关系**在计算树里是真的。这带来两件写代码时用得上的事：
+
+```ts
+// 给一组控件起个名字：容器带 `label` 就是具名 group，里面的控件在树里属于它
+Column({ label: '字段区域', gap: 8 }, () => {
+  TextField({ label: '名字', value: name });
+  TextArea({ label: '备注', value: notes });
+});
+
+// 对话框的名字就是内容根控件的 `label`（镜像给模态的 content 根 role="dialog" + aria-modal）
+this.mvvm.modal.open(() =>
+  Panel({ label: '删除这一项？', width: 420 }, () => {
+    Text('删除这一项？');
+    Button('删除', { onClick: () => this.mvvm.modal.remove() });
+  }),
+);
+```
+
+`ScrollView` 自己报 `role="region"`，所以它装的控件也在它里面；被盖住的内容（模态之外、栈里被盖住的那几页）一律 `aria-hidden`，**只有持有 DOM 焦点的控件及其祖先链例外**。
+
+验收页 `#/a11y` 把每条都做成了可断言项（读真实 DOM），见 [`ACCEPTANCE-a11y.md`](../ACCEPTANCE-a11y.md) §11。
 
 > **未验证**：真实屏幕阅读器（VoiceOver/NVDA/TalkBack）没有听过一遍——目前只断言"喂给屏幕阅读器的 DOM"。这是这套机制最关键的未验证项。
 

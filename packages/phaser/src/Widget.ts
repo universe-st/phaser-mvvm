@@ -295,18 +295,34 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
    * Accessible name for the mirror (`label` in the widget options).
    *
    * `null` means "derive it": a widget with visible text uses that text, anything else falls back to
-   * its debug `name`.
+   * its debug `name`. A widget that describes nothing else but **has** one is mirrored as a named
+   * `group` (see {@link Widget.describeA11y}) — which is how a container says "this cluster of controls
+   * is called X".
    */
   a11yLabel: string | null = null;
 
   /**
-   * The current description for the mirror; defaults to {@link Widget.a11y}.
+   * The current description for the mirror; defaults to {@link Widget.a11y}, then to a named group.
    *
-   * The bridge calls this when it rebuilds (structure change, focus change) or when asked to
-   * `sync()` a widget, so an override should be cheap and side-effect free.
+   * `null` means "not interactive, do not mirror it" — a `Label` is read through the control that owns
+   * it, not on its own. A widget sets {@link Widget.a11y} in its constructor; anything that changes over
+   * time (a field's text, a slider's value, a toggle's state) overrides `describeA11y()`.
+   *
+   * A widget that has no description of its own but **was given an accessible name** is mirrored as a
+   * `group` with that name, because the alternative is what used to happen: `label` is a base option
+   * every widget accepts and the option audit accepts it too, while a container dropped it on the floor
+   * (V74 — `tsc` rejected it, and a cast around the type produced a container that was simply unnamed).
+   * A `group` node is what a reader needs to hear "按钮区域, group" before its six buttons, and it is
+   * also what the mirror nests those buttons *inside* of.
+   *
+   * The bridge calls this when it rebuilds (structure change, focus change) or when asked to `sync()` a
+   * widget, so an override should be cheap and side-effect free.
    */
   describeA11y(): A11yDescriptor | null {
-    return this.a11y;
+    if (this.a11y) {
+      return this.a11y;
+    }
+    return this.a11yLabel === null ? null : { role: 'group', label: this.a11yLabel };
   }
 
   /**
