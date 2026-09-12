@@ -773,6 +773,16 @@ export class ScrollView extends Widget {
   }
 
   private clampToLimits(): void {
+    if (this.bounceEnabled) {
+      // With rubber-band enabled an out-of-range offset is *intended*: clamping it here erased the
+      // overscroll on the next layout pass. Every drag step re-arranges the holder, so `onRectChanged()`
+      // ran between the step and the next frame and pulled the content back — `bounce: true` never
+      // visibly overscrolled (measured: a 40 px pull past the top left the offset at exactly 0, with two
+      // `scroll` events per step: one out, one clamped back). `step()` eases an out-of-range offset home
+      // instead (`springBack()`), which is also what handles "the viewport grew while parked past the
+      // end" — the case this clamp existed for.
+      return;
+    }
     // Clamping can move the viewport (a resize or a shorter content), and a reader has to hear about it.
     this.commitOffset(
       clampOffset(this.currentX, this.limitX, false),

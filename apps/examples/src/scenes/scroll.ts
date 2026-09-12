@@ -46,6 +46,9 @@ const INNER_HEIGHT = 260;
 /** Focusable buttons inside the inner port (12 × 30px pitch = 360 > 260, so it scrolls). */
 const INNER_BUTTONS = 12;
 const STEP = 120;
+/** Rubber-band port: shorter than its content, so it can be dragged past both ends. */
+const BOUNCE_HEIGHT = 56;
+const BOUNCE_ROWS = 8;
 const PAGE_WIDTH = 980;
 const PAGE_PADDING = 16;
 const BODY_GAP = 12;
@@ -86,6 +89,9 @@ export class ScrollScene extends Phaser.Scene {
   private vScroll: ScrollView | null = null;
   private hScroll: ScrollView | null = null;
   private nestedScroll: ScrollView | null = null;
+  private bounceScroll: ScrollView | null = null;
+  /** Mirrors `bounceScroll.offset` through its `'scroll'` event, so the bounce path is observable. */
+  private readonly bounceOffset = ref(0);
   /** `scroll` events counted per port; see `window.scrollDemo.watchScroll()`. */
   private readonly scrollEvents = new Map<string, number>();
   private innerScroll: ScrollView | null = null;
@@ -126,6 +132,15 @@ export class ScrollScene extends Phaser.Scene {
       },
       get deleted(): number {
         return scene.deleted.value;
+      },
+      get bounce(): number {
+        return scene.bounceScroll?.offset ?? 0;
+      },
+      get bounceMax(): number {
+        return scene.bounceScroll?.maxOffset ?? 0;
+      },
+      get bounceState(): number {
+        return scene.bounceOffset.value;
       },
     });
 
@@ -401,6 +416,39 @@ export class ScrollScene extends Phaser.Scene {
       ],
     );
 
+    // A short port with rubber-band overscroll, laid out as one row: `bounce` is the one gesture path
+    // no demo exercised. It can be dragged past its end, has to spring back, and — since round 85 —
+    // every step of that has to be an announced offset change, so the ref written by the `'scroll'`
+    // event is published next to the widget's own reading and the two are compared.
+    const bounceContent = this.add.uiPanel(
+      { direction: 'vertical', gap: 4, width: 'fill', variant: 'plain' },
+      Array.from({ length: BOUNCE_ROWS }, (_unused, index) =>
+        this.add.uiLabel({ text: `bounce row ${index + 1}`, height: 24, tone: 'muted' }),
+      ),
+    );
+    const bounceScroll = this.add.uiScroll({
+      width: 200,
+      height: BOUNCE_HEIGHT,
+      direction: 'vertical',
+      bounce: true,
+      content: bounceContent,
+      name: 'scroll.bounce',
+    });
+    this.bounceScroll = bounceScroll;
+    // Written from the **event**, never read back per frame: if a bounce step went unannounced, this
+    // ref would fall behind the widget and `bounce.state` would disagree with `bounce.offset`.
+    bounceScroll.on('scroll', () => {
+      this.bounceOffset.value = bounceScroll.offset;
+    });
+    const bouncePanel = this.add.uiPanel(
+      { direction: 'horizontal', gap: 10, padding: 8, alignItems: 'center', variant: 'plain' },
+      [
+        this.add.uiLabel({ text: 'bounce 橡皮筋', tone: 'muted', width: 96 }),
+        bounceScroll,
+        this.statLabel('{{ bounce }} / {{ bounceMax }} · state {{ bounceState }}'),
+      ],
+    );
+
     const side = this.add.uiPanel(
       { direction: 'vertical', gap: 10, width: SIDE_WIDTH, variant: 'plain' },
       [
@@ -412,6 +460,8 @@ export class ScrollScene extends Phaser.Scene {
         nButtons,
         this.add.uiDivider({}),
         readout,
+        this.add.uiDivider({}),
+        bouncePanel,
       ],
     );
 
@@ -485,6 +535,9 @@ export class ScrollScene extends Phaser.Scene {
         hMax: this.hScroll?.maxOffset ?? 0,
         nested: this.nestedScroll?.offset ?? 0,
         nestedMax: this.nestedScroll?.maxOffset ?? 0,
+        bounce: Math.round(this.bounceScroll?.offset ?? 0),
+        bounceMax: Math.round(this.bounceScroll?.maxOffset ?? 0),
+        bounceState: Math.round(this.bounceOffset.value),
         inner: this.innerScroll?.offset ?? 0,
         innerMax: this.innerScroll?.maxOffset ?? 0,
         deleted: this.deleted.value,
@@ -497,10 +550,21 @@ export class ScrollScene extends Phaser.Scene {
        * guard in `onPointerDown`), which is V24: a single click inside the port used to disable
        * dragging it permanently. Publishing the owner makes that state assertable instead of a mystery.
        */
-      owners: (): { drag: number | null; bar: number | null } => ({
-        drag: (this.vScroll as unknown as { dragPointerId: number | null })?.dragPointerId ?? null,
-        bar: (this.vScroll as unknown as { barPointerId: number | null })?.barPointerId ?? null,
-      }),
+      owners: (
+        which: 'v' | 'h' | 'nested' | 'inner' | 'bounce' = 'v',
+      ): {
+        drag: number | null;
+        bar: number | null;
+      } => {
+        const view = this.portByName(which) as unknown as {
+          dragPointerId?: number | null;
+          barPointerId?: number | null;
+        } | null;
+        return {
+          drag: view?.dragPointerId ?? null,
+          bar: view?.barPointerId ?? null,
+        };
+      },
       /**
        * Counts the `scroll` events a port emits — the way to check that *every* offset change is
        * announced, not just the ones that went through `setOffset()` (round 85).
@@ -509,15 +573,8 @@ export class ScrollScene extends Phaser.Scene {
        * the counter has to move; before round 85 the zoom wrote `currentX/currentY` directly and nothing
        * was emitted at all.
        */
-      watchScroll: (which: 'v' | 'h' | 'nested' | 'inner' = 'nested'): number => {
-        const view =
-          which === 'v'
-            ? this.vScroll
-            : which === 'h'
-              ? this.hScroll
-              : which === 'nested'
-                ? this.nestedScroll
-                : this.innerScroll;
+      watchScroll: (which: 'v' | 'h' | 'nested' | 'inner' | 'bounce' = 'nested'): number => {
+        const view = this.portByName(which);
         if (!view) {
           return -1;
         }
@@ -527,7 +584,7 @@ export class ScrollScene extends Phaser.Scene {
         );
         return 0;
       },
-      scrollEvents: (which: 'v' | 'h' | 'nested' | 'inner' = 'nested'): number =>
+      scrollEvents: (which: 'v' | 'h' | 'nested' | 'inner' | 'bounce' = 'nested'): number =>
         this.scrollEvents.get(which) ?? -1,
       /** Scale of the nested view's pinch zoom (1 = natural size). */
       zoom: (): number => Math.round((this.nestedScroll?.zoom ?? 1) * 100) / 100,
@@ -540,8 +597,23 @@ export class ScrollScene extends Phaser.Scene {
         h: this.viewportInfo(this.hScroll),
         nested: this.viewportInfo(this.nestedScroll),
         inner: this.viewportInfo(this.innerScroll),
+        bounce: this.viewportInfo(this.bounceScroll),
       }),
     };
+  }
+
+  /** The port behind a `watchScroll()`/`scrollEvents()` key. */
+  private portByName(which: 'v' | 'h' | 'nested' | 'inner' | 'bounce'): ScrollView | null {
+    if (which === 'v') {
+      return this.vScroll;
+    }
+    if (which === 'h') {
+      return this.hScroll;
+    }
+    if (which === 'nested') {
+      return this.nestedScroll;
+    }
+    return which === 'inner' ? this.innerScroll : this.bounceScroll;
   }
 
   /** Viewport size *and* stage origin, so a check can aim a gesture at the middle of a view. */
@@ -635,6 +707,14 @@ export class ScrollScene extends Phaser.Scene {
     if (this.nestedOffset.value !== nested.offset) this.nestedOffset.value = nested.offset;
     if (this.nestedMax.value !== nested.maxOffset) this.nestedMax.value = nested.maxOffset;
 
+    const bounce = this.bounceScroll;
+    if (bounce) {
+      // Two readings of the same offset: the widget's, and the one the `'scroll'` event produced. A
+      // bounce that moves the viewport without announcing it shows up here as a mismatch.
+      this.publish('bounce.offset', Math.round(bounce.offset));
+      this.publish('bounce.maxOffset', Math.round(bounce.maxOffset));
+      this.publish('bounce.state', Math.round(this.bounceOffset.value));
+    }
     this.publish('v.offset', Math.round(vScroll.offset));
     this.publish('v.maxOffset', Math.round(vScroll.maxOffset));
     this.publish('v.rows', rendered);

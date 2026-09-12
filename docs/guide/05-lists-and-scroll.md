@@ -26,17 +26,17 @@ const scroll = Scroll({ width: 360, height: 240, direction: 'vertical', scrollba
 
 ## 2. 选项
 
-| 选项            | 类型                                   | 默认         | 说明                                                                    |
-| --------------- | -------------------------------------- | ------------ | ----------------------------------------------------------------------- |
-| `direction`     | `'vertical' \| 'horizontal' \| 'both'` | `'vertical'` | 滚动轴；交叉轴内容会被视口宽度/高度约束                                 |
-| `content`       | `Widget`                               | —            | 初始内容（等价于构造后调 `setContent`）                                 |
-| `scrollbar`     | `boolean \| 'auto'`                    | `'auto'`     | `'auto'` 只在内容溢出时画；`true` 常显；`false` 不画                    |
-| `zoom`          | `boolean \| { min?, max? }`            | `false`      | 双指捏合缩放（默认关闭）；缩放时内容 holder 直接 `setScale`，不触发布局 |
-| `scrollbarSize` | `number`                               | `8`          | 滚动条粗细（设计像素，最小 2；会被夹到短边的 1/3）                      |
-| `wheelSpeed`    | `number`                               | `1`          | 滚轮增量倍率                                                            |
-| `drag`          | `boolean`                              | `true`       | 是否允许拖拽滚动                                                        |
-| `inertia`       | `boolean`                              | `true`       | 松手后是否继续滑行（甩动）                                              |
-| `bounce`        | `boolean`                              | `false`      | 越界橡皮筋回弹（默认到边界就停）                                        |
+| 选项            | 类型                                   | 默认         | 说明                                                                                                            |
+| --------------- | -------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `direction`     | `'vertical' \| 'horizontal' \| 'both'` | `'vertical'` | 滚动轴；交叉轴内容会被视口宽度/高度约束                                                                         |
+| `content`       | `Widget`                               | —            | 初始内容（等价于构造后调 `setContent`）                                                                         |
+| `scrollbar`     | `boolean \| 'auto'`                    | `'auto'`     | `'auto'` 只在内容溢出时画；`true` 常显；`false` 不画                                                            |
+| `zoom`          | `boolean \| { min?, max? }`            | `false`      | 双指捏合缩放（默认关闭）；缩放时内容 holder 直接 `setScale`，不触发布局                                         |
+| `scrollbarSize` | `number`                               | `8`          | 滚动条粗细（设计像素，最小 2；会被夹到短边的 1/3）                                                              |
+| `wheelSpeed`    | `number`                               | `1`          | 滚轮增量倍率                                                                                                    |
+| `drag`          | `boolean`                              | `true`       | 是否允许拖拽滚动                                                                                                |
+| `inertia`       | `boolean`                              | `true`       | 松手后是否继续滑行（甩动）                                                                                      |
+| `bounce`        | `boolean`                              | `false`      | 越界橡皮筋回弹（默认到边界就停）：拖动/触摸/滚轮都会跟手越界一点并弹回，越界幅度随拉力变硬、上限 `BOUNCE_LIMIT` |
 
 内部常量（也导出，方便你写测试）：拖拽判定阈值 `SCROLL_DRAG_THRESHOLD = 10`、起甩最小速度 `FLING_MIN_VELOCITY = 0.08`、键盘行步长 `KEY_LINE_STEP = 40`、最小滑块长 `MIN_THUMB = 28`。
 

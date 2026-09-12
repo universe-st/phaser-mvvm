@@ -170,3 +170,10 @@
 ## 8.42 不要引入浏览器测试框架
 
 **不要引入浏览器测试框架**（仓库无 Playwright 依赖，验收走 `scripts/visual-check.mjs` 的 CDP）；任何新运行时依赖都需要 ADR。
+
+## 8.43 橡皮筋：越界位移不能被布局钳掉（第 86 轮 V55）
+
+`ScrollView.bounce: true` 让内容可以**越界**并弹回。任何"把偏移拉回合法范围"的代码都必须先问一句「这个越界是不是有意的」：
+
+- `clampToLimits()` **硬钳制**（`clampOffset(x, limit, false)`），它在 `onRectChanged()` 里被调用，而拖拽的每一步都会让 holder 重新排布 —— 修之前顺序是「拖出边界 → 布局 → 钳回边界」，于是 `bounce` 看起来完全没生效（实测：从顶端下拉 60px，偏移全程 0，每步两次 `scroll` 事件）。现在橡皮筋打开时它直接返回，回弹交给 `step()` 的 `springBack()`（每帧 30%，`!dragging && outOfRange()` 才跑），后者同时负责原本那个「视口变大/内容变短后停在范围外」的场景。
+- **给 `ScrollView` 加任何"纠正偏移"的逻辑之前**，先确认 `bounceEnabled` 下它不会被误伤；`packages/widgets/test/scroll-plan.test.ts` 的 `clampOffset` 用例钉住了曲线本身（饱和于 `BOUNCE_LIMIT`、随拉力变硬），但**控件级**的这条纪律只能靠 `#/scroll` 的橡皮筋口（`scroll.bounce`）验收。
