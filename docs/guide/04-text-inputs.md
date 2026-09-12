@@ -133,6 +133,8 @@ field.on(TEXT_INPUT_EVENTS.SUBMIT, (value: string) => {
 
 > ⚠️ **聚焦/失焦没有事件**。请用构造选项 `onFocus` / `onBlur` 回调（`field.on('blur', …)` 不会触发）。
 
+> ⚠️ **`submit` 要自己订阅**：`Enter`（单行）与 `Ctrl/Cmd+Enter`（`TextArea`）会 emit `TEXT_INPUT_EVENTS.SUBMIT`，框架只负责**发出**这个事件——不订阅它就只是"按了没反应"。`#/form` 的 placeholder 一度承诺了 `Ctrl/Cmd+Enter` 提交却没有订阅，正是这个坑（[`ACCEPTANCE-form.md`](../ACCEPTANCE-form.md) §3）。
+
 ### 快捷键矩阵
 
 | 按键                       | 行为                                                                                    |

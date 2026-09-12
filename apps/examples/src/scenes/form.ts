@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { bindText, bindValue } from '@phaser-mvvm/phaser';
-import type { TextField } from '@phaser-mvvm/widgets';
+import { bindText, bindValue, type Widget } from '@phaser-mvvm/phaser';
+import { TEXT_INPUT_EVENTS, type TextField } from '@phaser-mvvm/widgets';
 import { reportControl, setDemoState } from '../demo';
 import { appendStatus, reportCanvas, reportWidget } from '../status';
 
@@ -18,6 +18,9 @@ export class FormScene extends Phaser.Scene {
   private email = ref('');
   private notes = ref('');
   private submitted = ref('');
+
+  /** Widgets sampled per frame into `st.*`, so the state machine is observable from `#demo-state`. */
+  private fields: Partial<Record<'name' | 'email' | 'notes' | 'submit', Widget>> = {};
 
   private validEmail = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email.value));
   private status = computed(() =>
@@ -70,10 +73,7 @@ export class FormScene extends Phaser.Scene {
       text: 'Submit',
       variant: 'primary',
       name: 'submit',
-      onClick: () => {
-        this.submitted.value = `submitted: ${this.name.value} / ${this.email.value}`;
-        setDemoState('submitted', this.submitted.value);
-      },
+      onClick: () => this.submitFromNotes(),
     });
 
     const page = this.add.uiPanel(
@@ -92,6 +92,7 @@ export class FormScene extends Phaser.Scene {
     );
 
     this.mvvm.mount(page);
+    this.fields = { name: nameField, email: emailField, notes: notesArea, submit: submitButton };
 
     nameField.on('change', (value: string) => {
       this.name.value = value;
@@ -101,12 +102,19 @@ export class FormScene extends Phaser.Scene {
       this.notes.value = value;
       setDemoState('notes', value.replace(/\n/g, '\\n'));
     });
+    // The placeholder promises "Ctrl/Cmd+Enter submits"; that is a `submit` event, so the page has to
+    // subscribe to it - the demo used to advertise a gesture nothing handled.
+    notesArea.on(TEXT_INPUT_EVENTS.SUBMIT, () => this.submitFromNotes());
+    emailField.on(TEXT_INPUT_EVENTS.SUBMIT, () => this.submitFromNotes());
+    nameField.on(TEXT_INPUT_EVENTS.SUBMIT, () => this.submitFromNotes());
     emailField.on('change', (value: string) => {
       this.email.value = value;
       setDemoState('email', value);
       setDemoState('emailValid', this.validEmail.value);
     });
     emailField.on('blur', () => setDemoState('emailError', emailField.getError() ?? ''));
+    nameField.on('blur', () => setDemoState('nameError', nameField.getError() ?? ''));
+    notesArea.on('blur', () => setDemoState('notesError', notesArea.getError() ?? ''));
 
     for (const [key, widget] of [
       ['name', nameField],
@@ -130,5 +138,58 @@ export class FormScene extends Phaser.Scene {
     setDemoState('scene', 'form');
     setDemoState('name', '');
     setDemoState('email', '');
+    setDemoState('nameError', '');
+    setDemoState('emailError', '');
+    this.exposeGlobals();
+  }
+
+  /**
+   * Per-frame probe publish, the same shape `#/states` uses: `st.<name>` for each widget's
+   * `visualState` plus the derived form facts a check needs. Without it the page's state machine
+   * (validation, submit, focus, lengths) is not observable from outside.
+   */
+  override update(): void {
+    for (const [key, widget] of Object.entries(this.fields)) {
+      if (!widget || widget.isDestroyed) {
+        continue;
+      }
+      setDemoState(`st.${key}`, widget.visualState);
+    }
+    const name = this.fields.name as (Widget & { getValue?: () => string }) | undefined;
+    const notes = this.fields.notes as (Widget & { getValue?: () => string }) | undefined;
+    setDemoState('name.length', name?.getValue?.().length ?? 0);
+    setDemoState('notes.breaks', (notes?.getValue?.().match(/\n/g) ?? []).length);
+    setDemoState('email.valid', this.validEmail.value);
+    setDemoState('hint', this.status.value);
+  }
+
+  /** The same submission the Submit button performs, reachable from Enter in any field. */
+  private submitFromNotes(): void {
+    this.submitted.value = `submitted: ${this.name.value} / ${this.email.value}`;
+    setDemoState('submitted', this.submitted.value);
+  }
+
+  private exposeGlobals(): void {
+    (window as unknown as { form?: unknown }).form = {
+      values: () => ({
+        name: (this.fields.name as { getValue?: () => string })?.getValue?.() ?? '',
+        email: (this.fields.email as { getValue?: () => string })?.getValue?.() ?? '',
+        notes: (this.fields.notes as { getValue?: () => string })?.getValue?.() ?? '',
+      }),
+      errors: () => ({
+        name: (this.fields.name as { getError?: () => string | null })?.getError?.() ?? null,
+        email: (this.fields.email as { getError?: () => string | null })?.getError?.() ?? null,
+        notes: (this.fields.notes as { getError?: () => string | null })?.getError?.() ?? null,
+      }),
+      states: () =>
+        Object.fromEntries(
+          Object.entries(this.fields).map(([key, widget]) => [
+            key,
+            widget?.visualState ?? 'missing',
+          ]),
+        ),
+      focus: () => this.mvvm.focus.focusedWidget?.name || 'none',
+      submitted: () => this.submitted.value,
+    };
   }
 }
