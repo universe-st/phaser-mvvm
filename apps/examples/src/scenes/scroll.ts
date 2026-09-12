@@ -86,6 +86,8 @@ export class ScrollScene extends Phaser.Scene {
   private vScroll: ScrollView | null = null;
   private hScroll: ScrollView | null = null;
   private nestedScroll: ScrollView | null = null;
+  /** `scroll` events counted per port; see `window.scrollDemo.watchScroll()`. */
+  private readonly scrollEvents = new Map<string, number>();
   private innerScroll: ScrollView | null = null;
   private repeat: Repeat<ScrollRow> | null = null;
   private readonly reported = new Map<string, string>();
@@ -499,6 +501,34 @@ export class ScrollScene extends Phaser.Scene {
         drag: (this.vScroll as unknown as { dragPointerId: number | null })?.dragPointerId ?? null,
         bar: (this.vScroll as unknown as { barPointerId: number | null })?.barPointerId ?? null,
       }),
+      /**
+       * Counts the `scroll` events a port emits — the way to check that *every* offset change is
+       * announced, not just the ones that went through `setOffset()` (round 85).
+       *
+       * `window.scrollDemo.watchScroll('nested')` then `setZoom(1.6)`: a pinch changes the offset, so
+       * the counter has to move; before round 85 the zoom wrote `currentX/currentY` directly and nothing
+       * was emitted at all.
+       */
+      watchScroll: (which: 'v' | 'h' | 'nested' | 'inner' = 'nested'): number => {
+        const view =
+          which === 'v'
+            ? this.vScroll
+            : which === 'h'
+              ? this.hScroll
+              : which === 'nested'
+                ? this.nestedScroll
+                : this.innerScroll;
+        if (!view) {
+          return -1;
+        }
+        this.scrollEvents.set(which, 0);
+        view.on('scroll', () =>
+          this.scrollEvents.set(which, (this.scrollEvents.get(which) ?? 0) + 1),
+        );
+        return 0;
+      },
+      scrollEvents: (which: 'v' | 'h' | 'nested' | 'inner' = 'nested'): number =>
+        this.scrollEvents.get(which) ?? -1,
       /** Scale of the nested view's pinch zoom (1 = natural size). */
       zoom: (): number => Math.round((this.nestedScroll?.zoom ?? 1) * 100) / 100,
       setZoom: (scale: number): number => {

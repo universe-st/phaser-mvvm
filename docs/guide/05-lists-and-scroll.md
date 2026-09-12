@@ -319,3 +319,25 @@ Scroll({ width: 320, height: 300, zoom: { min: 0.5, max: 2.5 } }, () => {
 - 两者组合时，滚动只发生一次：holder 平移负责视觉，`setScrollOffset` 负责窗口。
 
 下一篇 [06 数据绑定与主题](./06-data-and-theme.md)：把这一章的列表、上一章的表单接到 `ref`/`computed` 上，并学会换肤。
+
+---
+
+## 滚动位置也是状态（第 85 轮）
+
+`Scroll` 的 `offset` 是一个数据槽，和 `value` 一样接受常量 / `ref` / getter：
+
+```ts
+const offset = ref(0);
+Scroll({ offset, height: 260, width: 'fill' }, () => {
+  /* 内容 */
+});
+
+offset.value = 0; // 回到顶部：这就是全部
+Text(() => `${Math.round(offset.value)}px`); // 读数就是状态本身
+```
+
+- **双向**（传 `ref`）：拖动、滚轮、甩动、捏合缩放、焦点滚进视野、内容替换、尺寸变化都会写回；写 `ref` 则移动视图，并且**先停掉惯性** —— 否则「回到顶部」会被上一次甩动带走。
+- **单向**（传 getter）：状态驱动视图，视图不写任何地方。
+- 想要「滚动到底部」这类**意图**，用 `ScrollView#scrollTo('bottom')`；状态槽表达的是**位置**。
+
+矩阵见 [`ACCEPTANCE-compose-dsl.md`](../ACCEPTANCE-compose-dsl.md) §3.3。

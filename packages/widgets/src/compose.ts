@@ -253,12 +253,26 @@ export function Rect(options: RectWidgetOptions & DslOptions = {}): RectWidget {
  * The content lambda builds exactly one widget, which becomes the scroll content. A `Scroll` whose
  * content is itself a `List` also gets virtualisation, because `ScrollView` finds the list it wraps.
  */
+/**
+ * Options of `Scroll`: the port's own bag with a reactive **`offset`**.
+ *
+ * `offset` is the scroll position as state — Compose's `rememberScrollState()`. With a `Ref` it is
+ * two-way: dragging, the wheel, a fling, a pinch zoom or a focus reveal writes the new position back,
+ * and writing the ref scrolls the view ("回到顶部" is `offset.value = 0`). A getter is one-way: the
+ * state drives the view, and the view never writes anywhere.
+ */
+export type ScrollDslOptions = Omit<ScrollViewOptions, 'content' | 'offset'> & {
+  /** Scroll position along the primary axis, in design pixels. */
+  offset?: ReactiveSource<number>;
+} & DslOptions;
+
 export function Scroll(
-  options?: (Omit<ScrollViewOptions, 'content'> & DslOptions) | (() => void),
+  options?: ScrollDslOptions | (() => void),
   content?: () => void,
 ): ScrollView {
   const args = normalizeContent(options, content);
-  const { visible, rest } = splitDsl(args.options);
+  const { visible, rest: bag } = splitDsl(args.options);
+  const { offset, ...rest } = bag;
   const scene = currentUiScene();
   const widget = new ScrollView(scene, rest);
   scene.add.existing(widget);
@@ -267,7 +281,29 @@ export function Scroll(
   if (args.content) {
     widget.setContent(buildUiSubtree(scene, args.content, 'Scroll()'));
   }
+  wireScrollOffset(widget, offset);
   return widget;
+}
+
+/**
+ * Wires the `offset` slot: state → view always, view → state when the source can be written.
+ *
+ * The listener is registered on the **`'scroll'` event**, which every offset change goes through now
+ * (drag, wheel, fling, `scrollTo`, a zoom, a content swap, the post-resize clamp) — a slot that only
+ * heard about `setOffset()` would keep a stale position after a pinch zoom. Writing the same value back
+ * is a no-op on both sides, so the two directions cannot echo each other.
+ */
+function wireScrollOffset(widget: ScrollView, offset: ReactiveSource<number> | undefined): void {
+  if (offset === undefined) {
+    return;
+  }
+  bindOption(widget, offset, (host, next) => host.setScrollOffset(next));
+  if (!isWritableSource(offset)) {
+    return;
+  }
+  const listener = (): void => writeReactive(offset, widget.offset);
+  widget.on('scroll', listener);
+  widget.scope.onScopeDispose(() => widget.off('scroll', listener));
 }
 
 /**

@@ -461,13 +461,11 @@ export class ScrollView extends Widget {
     const from = this.zoomScale;
     this.zoomScale = next;
     this.holder.setScale(next);
-    this.currentX = clampZoomOffset(pinchOffset(this.currentX, anchor.x, from, next), this.limitX);
-    this.currentY = clampZoomOffset(pinchOffset(this.currentY, anchor.y, from, next), this.limitY);
     this.measureContentExtent();
-    this.currentX = clampZoomOffset(this.currentX, this.limitX);
-    this.currentY = clampZoomOffset(this.currentY, this.limitY);
-    this.applyOffsets();
-    this.paintScrollbar();
+    this.commitOffset(
+      clampZoomOffset(pinchOffset(this.currentX, anchor.x, from, next), this.limitX),
+      clampZoomOffset(pinchOffset(this.currentY, anchor.y, from, next), this.limitY),
+    );
     this.emit('zoom', next);
     return this;
   }
@@ -507,17 +505,23 @@ export class ScrollView extends Widget {
       this.zoomScale = 1;
       this.holder.setScale(1);
     }
-    this.currentX = 0;
-    this.currentY = 0;
+    // New content starts at the origin, and leaving a scrolled view is a move the reader has to see.
+    this.commitOffset(0, 0);
     this.clampToLimits();
-    this.applyOffsets();
     this.emit('content', widget);
     this.sync();
     return this;
   }
 
-  /** Sets the offset (a number moves the primary axis). Values are clamped/bounced. */
+  /**
+   * Sets the offset (a number moves the primary axis). Values are clamped/bounced.
+   *
+   * An explicit position **cancels any fling first**: writing "go to the top" while the last drag is
+   * still coasting used to let the momentum carry the viewport on, so the request landed a few pixels
+   * (or a screen) away from where it asked to be — the state write `offset.value = 0` has to mean 0.
+   */
   setScrollOffset(value: number | { x?: number; y?: number }): this {
+    this.stopScroll();
     if (typeof value === 'number') {
       const axis = this.primaryAxis();
       return this.setOffset(
@@ -743,20 +747,37 @@ export class ScrollView extends Widget {
       // looks like from the outside (see DEFECT-BACKLOG V-… on re-clamping after a viewport change).
       devLog(`scroll: clamped (${Math.round(x)}, ${Math.round(y)}) -> (${nextX}, ${nextY})`);
     }
+    this.commitOffset(nextX, nextY);
+    return this;
+  }
+
+  /**
+   * The **single write path** for the offset.
+   *
+   * Every move — drag, wheel, fling, `scrollTo`, focus reveal, a zoom, a content swap — goes through
+   * here, so `'scroll'` is an honest answer to "where is the viewport now?". It used to be emitted from
+   * `setOffset()` alone, while pinch-zoom, `setContent()` and the post-resize clamp wrote
+   * `currentX`/`currentY` directly: an observer (the DSL's `offset` slot, a scrollbar of your own) would
+   * have kept a stale offset after a zoom. Returns `true` when the offset actually moved.
+   */
+  private commitOffset(nextX: number, nextY: number): boolean {
     if (nextX === this.currentX && nextY === this.currentY) {
-      return this;
+      return false;
     }
     this.currentX = nextX;
     this.currentY = nextY;
     this.applyOffsets();
     this.paintScrollbar();
     this.emit('scroll', { x: nextX, y: nextY, maxOffsetX: this.limitX, maxOffsetY: this.limitY });
-    return this;
+    return true;
   }
 
   private clampToLimits(): void {
-    this.currentX = clampOffset(this.currentX, this.limitX, false);
-    this.currentY = clampOffset(this.currentY, this.limitY, false);
+    // Clamping can move the viewport (a resize or a shorter content), and a reader has to hear about it.
+    this.commitOffset(
+      clampOffset(this.currentX, this.limitX, false),
+      clampOffset(this.currentY, this.limitY, false),
+    );
   }
 
   /**
@@ -1329,14 +1350,12 @@ export class ScrollView extends Widget {
     const from = this.zoomScale;
     this.zoomScale = next;
     this.holder.setScale(next);
-    this.currentX = pinchOffset(this.currentX, pinch.anchorX, from, next);
-    this.currentY = pinchOffset(this.currentY, pinch.anchorY, from, next);
     // The scrollable range follows the scale, so the limits have to be recomputed before clamping.
     this.measureContentExtent();
-    this.currentX = clampZoomOffset(this.currentX, this.limitX);
-    this.currentY = clampZoomOffset(this.currentY, this.limitY);
-    this.applyOffsets();
-    this.paintScrollbar();
+    this.commitOffset(
+      clampZoomOffset(pinchOffset(this.currentX, pinch.anchorX, from, next), this.limitX),
+      clampZoomOffset(pinchOffset(this.currentY, pinch.anchorY, from, next), this.limitY),
+    );
     this.emit('zoom', next);
   }
 

@@ -150,13 +150,28 @@ Slider({ value: volume, disabled: () => saving.value });
 Panel({ variant: () => (problem.value ? 'danger' : 'surface') }, () => Text('表单区域'));
 ```
 
-| 槽位       | 控件                                     | 说明                                                   |
-| ---------- | ---------------------------------------- | ------------------------------------------------------ |
-| `disabled` | `TextField`/`TextArea`/`Slider`/`Button` | 翻转即失效/恢复：不可聚焦、不可点、DOM 桥同步禁用      |
-| `error`    | `TextField`/`TextArea`                   | 传错误**文案**（显示在字段下方）或 `null`/`false` 清除 |
-| `variant`  | `Button`/`Panel`                         | 变体名就是主题令牌；换令牌会连带重绘面板的默认描边     |
-| `loading`  | `Button`                                 | 加载中：拒绝激活但**仍可聚焦**（不要把焦点丢掉）       |
-| `tone`     | `Text`                                   | 语义色                                                 |
+| 槽位       | 控件                                     | 说明                                                          |
+| ---------- | ---------------------------------------- | ------------------------------------------------------------- |
+| `disabled` | `TextField`/`TextArea`/`Slider`/`Button` | 翻转即失效/恢复：不可聚焦、不可点、DOM 桥同步禁用             |
+| `error`    | `TextField`/`TextArea`                   | 传错误**文案**（显示在字段下方）或 `null`/`false` 清除        |
+| `variant`  | `Button`/`Panel`                         | 变体名就是主题令牌；换令牌会连带重绘面板的默认描边            |
+| `loading`  | `Button`                                 | 加载中：拒绝激活但**仍可聚焦**（不要把焦点丢掉）              |
+| `tone`     | `Text`                                   | 语义色                                                        |
+| `offset`   | `Scroll`                                 | 滚动位置；传 `ref` 是**双向**（滚动写回状态，写状态滚动视图） |
+
+滚动位置也是状态 —— Compose 的 `rememberScrollState()`：
+
+```ts
+const offset = ref(0);
+Scroll({ offset, height: 260, width: 'fill' }, () => {
+  List({ items: () => rows.value, key: (row) => row.id }, (row) => Text(row.label));
+});
+
+Button('回到顶部', { onClick: () => (offset.value = 0) }); // 不用碰任何控件 API
+Text(() => `当前位置：${Math.round(offset.value)}px`);
+```
+
+拖动、滚轮、甩动惯性、捏合缩放、焦点滚进视野、内容替换与尺寸变化**都会写回**这个 `ref`（实现上每个偏移写入都走同一条 `commitOffset()`，`'scroll'` 事件因此是诚实的读数）；写 `ref` 则直接移动视图，并且**会先停掉进行中的惯性**（否则「回到顶部」会被上一次甩动带走，落点不在 0）。传 getter 时是单向：状态驱动视图，视图不写任何地方。
 
 `#/compose` 的 **State slots** 分区把这三个槽位摆在一起（锁定 / 标记错误 / 换变体三个按钮改的都是 `ref`），逐帧发布 `state.locked`/`state.error`/`state.variant` 与每个控件的 `st.state.*`；`window.compose.setState({…})` 与 `slots()` 是它的读写入口。矩阵见 [`ACCEPTANCE-compose-dsl.md`](../ACCEPTANCE-compose-dsl.md) §3.2。
 

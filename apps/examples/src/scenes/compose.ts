@@ -132,6 +132,8 @@ export class ComposeScene extends Phaser.Scene {
   private readonly stateVariant = ref<PanelVariant>('surface');
   private readonly stateName = ref('张三');
   private readonly stateVolume = ref(40);
+  /** The `Scroll` slot of the `list` section: the scroll position as state (two-way). */
+  private readonly listOffset = ref(0);
   /** Which branch the `Branch()` demo shows ('a' | 'b' | 'missing'). */
   private readonly branchKey = ref('a');
   private readonly branchClicks = ref(0);
@@ -246,7 +248,10 @@ export class ComposeScene extends Phaser.Scene {
       this.publish('rows.total', this.listWidget.totalCount);
     }
     if (this.scrollWidget) {
+      // Two readings of the same thing: the widget's own offset and the `ref` the slot writes. A check
+      // compares them, so "the state followed the view" is a fact rather than an assumption.
       this.publish('list.offset', Math.round(this.scrollWidget.offset));
+      this.publish('list.offsetState', Math.round(this.listOffset.value));
       this.publish('list.maxOffset', Math.round(this.scrollWidget.maxOffset));
     }
     // The geometry is reported here rather than at click time: a freshly added section is only
@@ -1037,6 +1042,18 @@ export class ComposeScene extends Phaser.Scene {
             },
           }),
         );
+        this.track(
+          'list.top',
+          Button('回到顶部', {
+            size: 'sm',
+            variant: 'secondary',
+            name: 'list.top',
+            // The whole of "scroll to the top" is a state write — no widget API in sight.
+            onClick: () => {
+              this.listOffset.value = 0;
+            },
+          }),
+        );
         Text(() => `共 ${this.rows.value.length} 行`, { tone: 'muted' });
       });
 
@@ -1044,7 +1061,14 @@ export class ComposeScene extends Phaser.Scene {
       // window to mount, so the list's own box is `fill` (exactly the port's viewport, which is what
       // makes the port's scroll range equal the list's real length).
       this.scrollWidget = Scroll(
-        { direction: 'vertical', height: 260, width: 'fill', name: 'listScroll' },
+        {
+          direction: 'vertical',
+          height: 260,
+          width: 'fill',
+          name: 'listScroll',
+          // Two-way: a drag/fling writes the new position into the ref, and writing the ref scrolls.
+          offset: this.listOffset,
+        },
         () => {
           this.listWidget = List(
             {
@@ -1371,6 +1395,12 @@ export class ComposeScene extends Phaser.Scene {
         pointerTargets: this.mvvm.input.widgets.length,
         a11yNodes: this.mvvm.a11y.count,
       }),
+      /** The `Scroll` offset slot: read it, or write it to scroll the list from state. */
+      listOffset: (): number => this.listOffset.value,
+      setListOffset: (value: number): number => {
+        this.listOffset.value = value;
+        return this.listOffset.value;
+      },
       /** Reactive state slots: flip them from a check and watch the widgets follow. */
       setState: (patch: {
         locked?: boolean;

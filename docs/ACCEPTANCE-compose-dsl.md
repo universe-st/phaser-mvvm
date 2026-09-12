@@ -147,6 +147,24 @@ this.mvvm.mount(page);
 
 **像素门禁**：`scripts/visual-check.mjs` 把 `#/compose` 收进常驻矩阵，`SCENE_SETUP` 先切到 `state` 分区、再把面板变体**在运行时**改成 `danger`，然后断言 `state.panel` 采样到 `#f85149`/`#cf222e`。面板是**以 `surface` 构造**的，所以这个颜色只可能来自一次真正的重绘 —— 一个"换了变体但没重绘"的静默缺陷（V38 家族）会在这里红掉。实测：`OK state.panel: #f85149 at (1176,230)`（暗）、`OK state.panel: #cf222e at (1176,230)`（亮）。
 
+### 3.3 第 85 轮追加：`Scroll` 的 `offset` 槽位（滚动位置即状态）
+
+`#/compose` 的 `list` 分区把 `Scroll` 的滚动位置绑到一个 `ref` 上（`window.compose.listOffset()` / `setListOffset(v)` 读写它），并逐帧发布两个读数：`list.offset`（控件自己的 `offset`）与 `list.offsetState`（那个 `ref`）。**两者必须一致**，这就是"状态跟着视图走"的证据；另加一个「回到顶部」按钮，它只写 `ref`。
+
+| #   | 断言                            | 实测                                                                                                                   |
+| --- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| O1  | 滚轮 → 状态跟着走               | 滚轮 220 → `list.offset=440`、`list.offsetState=440`、`listOffset()=440`                                               |
+| O2  | 鼠标拖动 → 状态跟着走           | 拖拽 120px → 662 / 662 / 662                                                                                           |
+| O3  | 甩动惯性 → 状态跟着走           | 快速上拖松手：`200 / 200 / 200`（松手瞬间就一致，惯性的每一帧都在写回）                                                |
+| O4  | 写状态 → 视图移动               | `setListOffset(0)` → 立刻 0；`setListOffset(150)` → 150                                                                |
+| O5  | 按钮只写 `ref` 就能回顶         | 点「回到顶部」→ 0 / 0 / 0                                                                                              |
+| O6  | **惯性不会带走一次显式写入**    | 甩动中 `setListOffset(0)`：修前落在 **5**（还在滑），修后立刻 0 并**停在 0**                                           |
+| O7  | 触摸拖动同权                    | CDP 触摸拖 120px → 120 / 120 / 120                                                                                     |
+| O8  | 缩放也写回（以前完全不上报）    | `#/scroll`：`watchScroll('nested')` 后 `setZoom(1.6)` → 偏移 0 → 90 且**触发 1 次 `'scroll'`**；缩回 1 → 2 次          |
+| O9  | 重构没有破坏焦点滚进视野（V33） | `#/scroll` 连按 60 次 `Tab`：60 个**不同**的控件，每一个都落在某个口的可见带内，且 v / nested / inner 三个口都真的滚过 |
+
+**同轮修掉的两个问题（V53）**：① `'scroll'` 事件只在 `setOffset()` 里发，而捏合缩放、`setContent()`、尺寸变化后的钳制都**直接写** `currentX/currentY` —— 一个观察者（`offset` 槽、自绘滚动条）在缩放后会停在旧值；现在**所有**偏移写入都走 `commitOffset()`（`grep 'this.currentX = '` 只剩它自己）。② 显式设置位置不打断惯性：`offset.value = 0` 会被上一次甩动继续带走，落点不是 0；现在 `setScrollOffset()` 先 `stopScroll()`。
+
 ## 4. 本轮修复的缺陷（均带回归测试）
 
 审计方式：两个只读子代理分别审查 `packages/{core,layout}` 与 `packages/{phaser,widgets}`，要求给出 `file:line`、可复现输入→错误输出、最小修复建议；子代理用临时 vitest 探针验证后删除，`git status` 无残留。
