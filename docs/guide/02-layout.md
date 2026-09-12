@@ -4,6 +4,8 @@
 
 > 布局引擎在 `@phaser-mvvm/layout`，它**零 Phaser 依赖**：算法只认 `LayoutNode` 接口（`measureContent` / `applyRect` / `layoutParams`），渲染是适配层的事（[ADR-0002](../adr/0002-two-pass-layout.md)、[ADR-0003](../adr/0003-layout-is-renderer-agnostic.md)）。所以布局行为可以在 Node 里单测，也可以被别的渲染后端复用。
 
+> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+
 ---
 
 ## 1. 两阶段模型：为什么值得先懂

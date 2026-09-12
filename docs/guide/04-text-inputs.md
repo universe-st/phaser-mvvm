@@ -5,6 +5,8 @@
 > 对应示例：[`apps/examples/src/scenes/form.ts`](../../apps/examples/src/scenes/form.ts)（`#/form`）。
 > 设计背景：Canvas 文本输入拿不到输入法候选框和移动端软键盘，所以框架用一层**隐藏 DOM 元素镜像**（[ADR-0004](../adr/0004-dom-input-bridge.md)）。光标与选区仍然画在 Canvas 里，保证视觉一致与 z-order 可控。
 
+> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+
 ---
 
 ## 1. 先做一个最小的输入框
