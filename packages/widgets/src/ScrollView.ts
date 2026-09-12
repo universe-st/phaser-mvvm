@@ -72,6 +72,7 @@ import {
   normalizeWheel,
   planScrollDrag,
   type ScrollKeyStep,
+  keyScrollAxis,
   planScrollKey,
   thumbGeometry,
   type ScrollRect,
@@ -1538,10 +1539,23 @@ export class ScrollView extends Widget {
     if (!this.handlesDirection(action)) {
       return false;
     }
-    return this.applyScrollStep(
-      planScrollKey(ARROW_KEY_OF_DIRECTION[action], this.viewport.height, KEY_LINE_STEP),
-    );
+    return this.applyKeyStep(ARROW_KEY_OF_DIRECTION[action]);
   };
+
+  /**
+   * Plans and applies one keyboard/action step for `key`.
+   *
+   * The page-size reference is the extent of the axis the key belongs to: a `direction: 'both'` port
+   * pages by a fraction of its **width** for `ArrowLeft`/`ArrowRight`, not of its height.
+   */
+  private applyKeyStep(key: string): boolean {
+    // `keyScrollAxis` is the pure rule (and the unit test's subject); the extent fed to the page step is
+    // the one belonging to that axis, so a two-axis port pages by a fraction of its width for the
+    // horizontal arrows and of its height for the vertical ones.
+    const axis = keyScrollAxis(this.direction, key);
+    const viewport = axis === 'x' ? this.viewport.width : this.viewport.height;
+    return this.applyScrollStep(planScrollKey(key, viewport, KEY_LINE_STEP), axis);
+  }
 
   /** Keys the port owns beyond navigation (`Home`/`End`/`PageUp`/`PageDown`). */
   private readonly scrollWithKey = (event: KeyboardEvent): boolean => {
@@ -1554,7 +1568,7 @@ export class ScrollView extends Widget {
     if (!EXTRA_SCROLL_KEYS.has(event.key)) {
       return false;
     }
-    return this.applyScrollStep(planScrollKey(event.key, this.viewport.height, KEY_LINE_STEP));
+    return this.applyKeyStep(event.key);
   };
 
   /**
@@ -1567,7 +1581,7 @@ export class ScrollView extends Widget {
    * port was a roach motel. A `ScrollView` under the pointer/wheel is unaffected: those paths call
    * `scrollBy()` directly.
    */
-  private applyScrollStep(step: ScrollKeyStep | null): boolean {
+  private applyScrollStep(step: ScrollKeyStep | null, axis: 'x' | 'y'): boolean {
     if (step === null) {
       return false;
     }
@@ -1578,7 +1592,7 @@ export class ScrollView extends Widget {
       this.scrollTo('top');
     } else if (step.jump === 'end') {
       this.scrollTo('bottom');
-    } else if (this.direction === 'horizontal') {
+    } else if (axis === 'x') {
       this.scrollBy(step.delta, 0);
     } else {
       this.scrollBy(0, step.delta);

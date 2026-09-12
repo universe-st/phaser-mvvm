@@ -79,7 +79,14 @@ const SCENE_SETUP = {
   // places its cards somewhere visible rather than off the stage.
   // `showAndReport` resolves after the new section has been laid out: a `reportWidget()` inside the
   // build lambda reads `appliedRect` before the first pass and publishes `0x0` (see the scene's own note).
-  showcase: 'window.showcase.showAndReport("sizing")',
+  showcase: 'await window.showcase.showAndReport("sizing")',
+  // The two-axis card: scroll the stage to it, pin the offsets (the bars are drawn as *thumbs*, so the
+  // sampled edge points must be inside the thumb) and report both ports' rects under two labels each.
+  // Both ports are pinned to a **middle** offset: the bars are drawn as thumbs, so the four sampled edge
+  // points have to land inside a thumb - and a thumb's position is a function of the offset, which the
+  // theme switch must not have to re-create.
+  options:
+    'await window.optionsDemo.prepare(); window.optionsDemo.setBoth(150, 120); window.optionsDemo.setControl(120)',
 };
 
 /**
@@ -388,6 +395,24 @@ const PIXEL_EXPECTATIONS = {
    * - `sizing.height.max.box` is the clamped box itself, sampled **above its label**: the box is 40 tall
    *   with one centred line of text, so `fy: 0.12` is fill and `fy: 0.5` would read a glyph edge.
    */
+  /**
+   * `#/options` with the two-axis card in view (`SCENE_SETUP.options`, offsets pinned to 150/120 so both
+   * thumbs are under the sampled points). Two ports with the same content and the same viewport, one
+   * `vertical` and one `both`, and the bars are always on (`scrollbar: true`):
+   * - `options.both` samples the 2-axis port's bottom band → the **horizontal** bar is there;
+   * - `options.bothx` samples its right band → the vertical bar is there too;
+   * - `options.bothControl` samples the vertical port's bottom band → **background**, i.e. a port that
+   *   does not scroll x must not paint an x scrollbar (the A/B half of the claim);
+   * - `options.bothControlx` samples its right band → the vertical bar.
+   *
+   * The bar colour is `textMuted` at 45 % over the port's `surface`, which is why the two themes differ.
+   */
+  options: {
+    'options.both': { rgb: 0x4a515a, fx: 0.5, fy: 0.976 },
+    'options.bothx': { rgb: 0x4a515a, fx: 0.987, fy: 0.5 },
+    'options.bothControl': { rgb: 0x161b22, fx: 0.5, fy: 0.976 },
+    'options.bothControlx': { rgb: 0x4a515a, fx: 0.987, fy: 0.5 },
+  },
   showcase: {
     'sizing.shrink.on': { rgb: 0x161b22, fx: 0.99, fy: 0.5 },
     'sizing.shrink.on.c': { rgb: 0x2f6feb, fx: 0.1, fy: 0.5 },
@@ -447,6 +472,17 @@ const LIGHT_EXPECTATIONS = {
    * change - they are `Rect({ color: 0x2f6feb })` literals, so "everything turned light" cannot pass
    * for a correct repaint either.
    */
+  /**
+   * The same four points in the light theme: the two backgrounds turn `#ffffff`, and the two bars are the
+   * light `textMuted` blended over it (`#b5b9be`, measured) — so "everything turned white" cannot pass for
+   * a repaint, and a port that lost its bar shows the background instead.
+   */
+  options: {
+    'options.both': { rgb: 0xb5b9be, fx: 0.5, fy: 0.976 },
+    'options.bothx': { rgb: 0xb5b9be, fx: 0.987, fy: 0.5 },
+    'options.bothControl': { rgb: 0xffffff, fx: 0.5, fy: 0.976 },
+    'options.bothControlx': { rgb: 0xb5b9be, fx: 0.987, fy: 0.5 },
+  },
   showcase: {
     'sizing.shrink.on': { rgb: 0xffffff, fx: 0.99, fy: 0.5 },
     'sizing.shrink.on.c': { rgb: 0x2f6feb, fx: 0.1, fy: 0.5 },
@@ -832,10 +868,10 @@ async function main() {
       // runs before the status read so the geometry and the pixels describe the same moment.
       const setup = SCENE_SETUP[scene];
       if (setup) {
-        // `awaitPromise` so a setup that has to wait for a frame (or an animation) can say so by
-        // returning a promise; a synchronous setup resolves immediately either way.
+        // The setup runs inside an **async** function and is awaited, so it may `await` (a frame, an
+        // animation, a scene API that returns a promise). A synchronous setup is unaffected.
         await session.send('Runtime.evaluate', {
-          expression: `(() => { ${setup}; return true; })()`,
+          expression: `(async () => { ${setup} })()`,
           awaitPromise: true,
         });
       }

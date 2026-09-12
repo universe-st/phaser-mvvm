@@ -229,6 +229,37 @@ export interface ScrollKeyStep {
   delta: number;
   /** `true` for keys that jump to an end of the content (Home/End). */
   jump: 'start' | 'end' | null;
+  /**
+   * Which axis the **key** belongs to: `'x'` for `ArrowLeft`/`ArrowRight`, `'y'` for everything else.
+   *
+   * The widget used to decide the axis from `direction` alone, which meant a `direction: 'both'` port
+   * sent `ArrowLeft`/`ArrowRight` into its y axis (V60: measured `ArrowRight` moving y 0 → 40 → 80 → 120
+   * while x stayed 0). The key knows; the port only overrules it when it scrolls on one axis anyway.
+   */
+  axis: 'x' | 'y';
+}
+
+/**
+ * The axis a key scrolls **this** port along.
+ *
+ * A one-axis port overrules the key — a horizontal strip paging with `PageUp`/`PageDown` is long-standing
+ * behaviour, and a vertical port never scrolls sideways. A `direction: 'both'` port has no "the" axis, so
+ * the key decides: `ArrowLeft`/`ArrowRight` move x, everything else moves y.
+ *
+ * This used to be decided from `direction` alone inside the widget, which sent the horizontal arrows of a
+ * two-axis port into its y axis (V60: measured `ArrowRight` moving y 0 → 40 → 80 → 120 while x stayed 0).
+ */
+export function keyScrollAxis(
+  direction: 'vertical' | 'horizontal' | 'both',
+  key: string,
+): 'x' | 'y' {
+  if (direction === 'horizontal') {
+    return 'x';
+  }
+  if (direction === 'vertical') {
+    return 'y';
+  }
+  return key === 'ArrowLeft' || key === 'ArrowRight' ? 'x' : 'y';
 }
 
 /**
@@ -245,19 +276,21 @@ export function planScrollKey(
   const page = Math.max(step, (Number.isFinite(viewport) ? viewport : 0) * pageFraction);
   switch (key) {
     case 'ArrowUp':
-    case 'ArrowLeft':
-      return { delta: -step, jump: null };
+      return { delta: -step, jump: null, axis: 'y' };
     case 'ArrowDown':
+      return { delta: step, jump: null, axis: 'y' };
+    case 'ArrowLeft':
+      return { delta: -step, jump: null, axis: 'x' };
     case 'ArrowRight':
-      return { delta: step, jump: null };
+      return { delta: step, jump: null, axis: 'x' };
     case 'PageUp':
-      return { delta: -page, jump: null };
+      return { delta: -page, jump: null, axis: 'y' };
     case 'PageDown':
-      return { delta: page, jump: null };
+      return { delta: page, jump: null, axis: 'y' };
     case 'Home':
-      return { delta: 0, jump: 'start' };
+      return { delta: 0, jump: 'start', axis: 'y' };
     case 'End':
-      return { delta: 0, jump: 'end' };
+      return { delta: 0, jump: 'end', axis: 'y' };
     default:
       return null;
   }

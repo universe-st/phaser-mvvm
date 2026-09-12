@@ -146,3 +146,68 @@ $ node scripts/visual-check.mjs
 ### 7.7 仍是代码级、没有 demo 的选项
 
 `Slider.knobRadius` / `trackThickness`（纯外观，验证需要像素采样）与 `Label.selectable`（只作为类型层面的"接受 `false`"，没有运行期行为）。前者留待需要像素门禁时补；后者不是行为选项。
+
+---
+
+## 8. `ScrollView.direction: 'both'`（第 90 轮）——本页第一次抓到**功能级**缺陷
+
+### 8.1 为什么加这一张卡
+
+第 89 轮把 `text-*` 键表反查过一遍之后，这一轮改成反查**选项的取值**：`direction: 'both'` 这个取值从 M7 起就存在、有完整的 x 轴实现（`limitX`/`maxOffsetX`/`setScrollOffset({x,y})`/`revealOffset` 的 x 分支/两条滚动条），但**没有任何页面构造过它**。于是"交叉轴"整条路径只有代码、没有屏幕。
+
+`#/options` 新增一卡（A/B）：两个 **内容完全相同**（700×420）、视口完全相同（300×170）的口并排，左边 `direction: 'vertical'` 作对照，右边 `direction: 'both'` 并挂一个 `offset` 槽位；两边内容里各有一对角落按钮（`options.both.nw` / `options.both.se`），供"聚焦要把它滚进视野"用。
+
+新探针：`bothInfo()`（两轴偏移、两个上限、内容/视口尺寸、`direction`、槽位读数、拖拽归属）、`setBoth(x, y)`、`setControl(y)`、`pointOf(name)`、`focus(name)`、`watchScroll(name)`/`scrollEvents(name)`、`prepare()`（异步：把卡滚进可见带 + 把两个口的 rect 写进 `#status`）；`#demo-state` 逐帧发布 `both.x`/`both.y`/`both.maxX`/`both.maxY`/`both.slot`/`both.controlY`。
+
+### 8.2 实测矩阵（全部真实输入 / 真实页面）
+
+| #   | 操作                                    | 期望                                          | 实测                                                                                                                                      |
+| --- | --------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 读上限                                  | `maxX = 内容宽 − 视口宽`、`maxY` 同理         | `400 / 250`（700−300、420−170）✓                                                                                                          |
+| 2   | 合成 `WheelEvent{deltaY:100}`           | y +100，x 不动                                | `y 100`、`x 0` ✓（且 `slotY 100`，槽位读到同一个值）                                                                                      |
+| 3   | 合成 `WheelEvent{deltaX:100}`           | x +100，y 不动                                | `x 100`、`y 0` ✓                                                                                                                          |
+| 4   | 合成 `WheelEvent{deltaX:40, deltaY:70}` | 两轴各走各的                                  | `x 40 / y 70` ✓                                                                                                                           |
+| 5   | `deltaMode: 1`（行）/`2`（页）          | 乘 `LINE_HEIGHT` / `LINE_HEIGHT × PAGE_LINES` | 3 行 → +48、1 页 → +48 ✓                                                                                                                  |
+| 6   | 沿 x 与 y 反复滚到两端                  | 各自钳在 [0, 上限]                            | `400/250`，反向回到 `0/0` ✓                                                                                                               |
+| 7   | 一次 `scroll` 事件 = 一次偏移变化       | 每步 1 个事件                                 | 单次滚轮 `events` 0 → 1 ✓（V53 的单写入口纪律）                                                                                           |
+| 8   | 斜向拖动 8 步                           | 两轴同时移动，松手后滑行                      | 拖动中 `x 96 y 64 dragging true` → 松手 `x 152 y 101 dragging false`、`dragPointer null` ✓                                                |
+| 9   | 只移动 x 后连等 30 帧                   | 槽位每帧写回 y，**不能**碰 x                  | `x 200 y 0` 稳定 ✓（V56 的纪律在交叉轴上成立）                                                                                            |
+| 10  | 聚焦右下角按钮                          | 两轴都要把它滚进视野                          | 之前 `se=(990,432)` 在视口 (336,100,300,170) 之外 → 聚焦后 `offset x 400 y 198`、`se=(590,234)` 落在视口内 ✓ **交叉轴的 reveal 真的存在** |
+| 11  | 切主题（切两次）                        | 偏移与槽位不变                                | `x 150 y 120` 前后一致 ✓                                                                                                                  |
+| 12  | 两条滚动条                              | 两口都画：双轴口有下边与右边，单轴口只有右边  | 见 §8.4 的像素 A/B ✓                                                                                                                      |
+
+### 8.3 本轮修掉的缺陷（V60，MED）：双轴口的左右键走进了 y 轴
+
+`applyScrollStep()` 决定轴的方式是「看 `direction`」：
+
+```ts
+} else if (this.direction === 'horizontal') {
+  this.scrollBy(step.delta, 0);
+} else {
+  this.scrollBy(0, step.delta);   // ← 'both' 落到这里
+}
+```
+
+于是 `direction: 'both'` 的口**四个方向键全部作用于 y**：聚焦口本身后连按 `ArrowRight`，实测 `y 0 → 40 → 80 → 120`，`x` 始终 0（焦点在手柄/键盘用户手里时，横向的意图完全丢失）。修法：`ScrollKeyStep` 增加 `axis` 字段（`ArrowLeft`/`ArrowRight` → `'x'`，其余 → `'y'`），判定抽成纯函数 `keyScrollAxis(direction, key)`（单轴口仍然"覆盖"按键：横向条用 `PageUp`/`PageDown` 翻页是既有行为），并在 `applyScrollStep` 里按这个轴分发。
+
+**同一处还发现第二个问题**：按键步进的"一页"用的是 `viewport.height`，即使这个口是横向的 —— 于是横向条 `PageDown` 只走 `0.9 × 76 ≈ 68`。现在按轴取尺寸，实测横向条 `PageDown` 走 **529.2**（`0.9 × 588` 宽，正是它该有的量）。修后双轴口：`ArrowRight` x+40、`ArrowDown` y+40、`ArrowLeft` x−40、`ArrowUp` y−40、`PageDown` y+153、`Home` 回 y=0 ✓；对照口（vertical）`ArrowRight` 不滚动而是把焦点交给焦点链 ✓。
+
+### 8.4 像素门禁：交叉轴真的有它自己的滚动条
+
+`#/options` 第一次进 `PIXEL_EXPECTATIONS`（明暗两套，四个点）：
+
+| 采样点                 | 位置         | 暗        | 亮        | 判据                                                |
+| ---------------------- | ------------ | --------- | --------- | --------------------------------------------------- |
+| `options.both`         | 双轴口下边带 | `#4a515a` | `#b5b9be` | **横向**滚动条（`textMuted` 45% 叠在 `surface` 上） |
+| `options.bothx`        | 双轴口右边带 | `#4a515a` | `#b5b9be` | 纵向滚动条                                          |
+| `options.bothControl`  | 对照口下边带 | `#161b22` | `#ffffff` | **背景**：不滚 x 的口不许画横向条                   |
+| `options.bothControlx` | 对照口右边带 | `#4a515a` | `#b5b9be` | 纵向滚动条                                          |
+
+两个口都开了 `scrollbar: true`（`auto` 只在"刚被使用过"时画，截图会与产生它的手势赛跑），并在 `SCENE_SETUP` 里把两口都钉到中间偏移（滚动条画的是**滑块**，采样点必须落在滑块里）。
+
+**正对照**：把双轴口临时改回 `direction: 'vertical'`，门禁当场转红 —— `options.both` 读到 `#161b22`/`#ffffff`（背景），而 `options.bothx`（纵向条）仍然通过，说明这条检查抓的正是交叉轴那一半。恢复后 8 项全绿。
+
+### 8.5 观测到的、**不是**本轮缺陷的两件事
+
+- **键盘要"口自己"持有焦点才会滚动**：`ScrollView.onAction` 的第一句是 `if (!this.focused) return false`，所以焦点在口**内部的按钮**上时，方向键既不让口滚动、也不会沿着内容走（口内的内容不是可聚焦链）。这是既有设计（V28/V35 的形状：口的动作是"认领方向"，走查靠焦点移动 + reveal），`#/scroll` 的验收也是这么写的；本轮只是把它记下来，没有改。
+- **CDP / Playwright 的滚轮增量在本机会翻倍**：`Input.dispatchMouseEvent{deltaY:100}` 到页面里变成 `deltaY: 200`（实测，`dpr = 1`），合成 `WheelEvent` 则原样送达。所以**量滚轮距离要用合成事件**，或者只比较两侧比值 —— 第 87 轮的 `wheelSpeed` A/B 正是比值，才没有踩到。已记入 [`PITFALLS.md`](./PITFALLS.md) §8.49。

@@ -228,3 +228,29 @@
 现象：新加的像素门禁报「`sizing.shrink.on`: expected `#161b22` got `#0d1117` at (0,0)」——读到的是画布角落。看起来像布局放错了位置，实际是读数早了一帧；同一族的坑见 §8.47（一次性探针过期）与 AGENTS §5（`reportControl` 是创建时采样一次）。
 
 **纪律**：任何"把 `appliedRect` 写进 DOM"的探针，都要在**至少一帧之后**调用。跨不出场景的函数就把它做成场景的方法并返回 Promise：`#/showcase` 的 `showAndReport(section)` = `show()` + 等两帧 + `reportGate()`，`scripts/visual-check.mjs` 的 `SCENE_SETUP` 用 `awaitPromise: true` 等它。另外 `reportWidget()` 是**追加**行，`parseRects()` 取同名最后一个 → 重复报告是安全的（不需要先清空 `#status`）。
+
+## 8.49 双轴口的"轴"由**键**决定，不由 `direction` 决定（第 90 轮 V60）
+
+`direction: 'both'` 的滚动口有四个方向键要认领，而"该往哪个轴走"曾经是从 `direction` 推出来的：
+
+```ts
+} else if (this.direction === 'horizontal') this.scrollBy(step.delta, 0);
+else this.scrollBy(0, step.delta);      // 'both' 会落到这里 → 左右键也走 y
+```
+
+实测（`#/options` 的双轴口，聚焦口本身）：`ArrowRight` 把 `y` 从 0 推到 40 → 80 → 120，`x` 一直是 0。修法：`planScrollKey()` 返回的每一步带上它自己的 `axis`，`keyScrollAxis(direction, key)` 是那条纯规则（单轴口**覆盖**按键——横向条用 `PageUp`/`PageDown` 翻页是既有行为），`applyScrollStep()` 按解析出来的轴分发。
+
+**同一处还有一半**：按键步进的"一页"参照的是 `viewport.height`。横向口因此只走 `0.9 × 高度`（实测横向条 `PageDown` 走 68 而不是它该有的 529）。**规律**：任何"按方向/按页"的动作，都要同时问「哪个轴」和「该轴的尺寸是多少」。
+
+**验收方式**：`#/options` 的 `ScrollView.direction: 'both'` 卡（两个口内容与视口完全相同，一个 vertical 作对照）+ `keyScrollAxis` 的三组单测（双轴按键盘走 / 横向按自己的轴 / 纵向永不横移）。
+
+## 8.50 自动化输入设备的滚轮增量可能与"请求值"不同（第 90 轮）
+
+用 CDP `Input.dispatchMouseEvent({ type: 'mouseWheel', deltaY: 100 })` 时，**页面收到的 `deltaY` 是 200**（实测：在 canvas 上加一个捕获阶段监听打印 `event.deltaY`，读到 200；`window.devicePixelRatio` 为 1，排除了 dpr 缩放）。Playwright 的 `page.mouse.wheel(0, 100)` 同样翻倍（它内部就是发 CDP 事件）。
+
+所以量"滚轮走了多远"时：
+
+- 要**绝对值**就用合成事件：`canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, clientX, clientY }))` —— 实测控件严格按 100 移动（`deltaMode: 1` 时 3 行 → 48 = 3 × `LINE_HEIGHT`）；
+- 要**比较两侧**就无所谓（比值不受影响），第 87 轮的 `wheelSpeed` A/B 就是这么做的。
+
+触摸与拖动没有这个问题（CDP 的坐标就是 CSS 像素）。

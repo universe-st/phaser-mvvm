@@ -20,6 +20,7 @@ import {
   extentOfRects,
   isScrollable,
   normalizeWheel,
+  keyScrollAxis,
   planScrollDrag,
   planScrollKey,
   thumbGeometry,
@@ -296,12 +297,44 @@ describe('extentOfRects', () => {
   });
 });
 
+/**
+ * Which axis a key moves: the rule a `direction: 'both'` port needs and the one that was missing (V60 —
+ * its `ArrowLeft`/`ArrowRight` went into the y axis).
+ */
+describe('keyScrollAxis', () => {
+  it('lets the key decide on a two-axis port', () => {
+    expect(keyScrollAxis('both', 'ArrowLeft')).toBe('x');
+    expect(keyScrollAxis('both', 'ArrowRight')).toBe('x');
+    expect(keyScrollAxis('both', 'ArrowUp')).toBe('y');
+    expect(keyScrollAxis('both', 'ArrowDown')).toBe('y');
+    expect(keyScrollAxis('both', 'PageDown')).toBe('y');
+    expect(keyScrollAxis('both', 'Home')).toBe('y');
+  });
+
+  it('overrules the key on a one-axis port', () => {
+    // A horizontal strip pages with PageUp/PageDown (its own axis), and a vertical port never moves x.
+    expect(keyScrollAxis('horizontal', 'ArrowLeft')).toBe('x');
+    expect(keyScrollAxis('horizontal', 'PageDown')).toBe('x');
+    expect(keyScrollAxis('vertical', 'ArrowRight')).toBe('y');
+    expect(keyScrollAxis('vertical', 'PageDown')).toBe('y');
+  });
+});
+
 describe('planScrollKey', () => {
-  it('steps one line for the arrows', () => {
-    expect(planScrollKey('ArrowDown', 400, 40)).toEqual({ delta: 40, jump: null });
-    expect(planScrollKey('ArrowUp', 400, 40)).toEqual({ delta: -40, jump: null });
-    expect(planScrollKey('ArrowLeft', 400, 40)).toEqual({ delta: -40, jump: null });
-    expect(planScrollKey('ArrowRight', 400, 40)).toEqual({ delta: 40, jump: null });
+  it('steps one line for the arrows, and says which axis each key is on', () => {
+    expect(planScrollKey('ArrowDown', 400, 40)).toEqual({ delta: 40, jump: null, axis: 'y' });
+    expect(planScrollKey('ArrowUp', 400, 40)).toEqual({ delta: -40, jump: null, axis: 'y' });
+    expect(planScrollKey('ArrowLeft', 400, 40)).toEqual({ delta: -40, jump: null, axis: 'x' });
+    expect(planScrollKey('ArrowRight', 400, 40)).toEqual({ delta: 40, jump: null, axis: 'x' });
+  });
+
+  it('keeps the axis on the keys that page and jump', () => {
+    // The widget resolves the axis from the key for a `direction: 'both'` port; a step that lost it
+    // would send every key into the primary axis (V60).
+    expect(planScrollKey('PageDown', 400)?.axis).toBe('y');
+    expect(planScrollKey('PageUp', 400)?.axis).toBe('y');
+    expect(planScrollKey('Home', 400)?.axis).toBe('y');
+    expect(planScrollKey('End', 400)?.axis).toBe('y');
   });
 
   it('pages by a fraction of the viewport', () => {
@@ -310,8 +343,8 @@ describe('planScrollKey', () => {
   });
 
   it('reports jumps for Home and End', () => {
-    expect(planScrollKey('Home', 400)).toEqual({ delta: 0, jump: 'start' });
-    expect(planScrollKey('End', 400)).toEqual({ delta: 0, jump: 'end' });
+    expect(planScrollKey('Home', 400)).toEqual({ delta: 0, jump: 'start', axis: 'y' });
+    expect(planScrollKey('End', 400)).toEqual({ delta: 0, jump: 'end', axis: 'y' });
   });
 
   it('ignores keys that are not scroll keys', () => {

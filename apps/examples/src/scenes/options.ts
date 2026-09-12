@@ -43,6 +43,12 @@ import type { ScrollView } from '@phaser-mvvm/widgets';
 import { setDemoState } from '../demo';
 import { appendStatus, pagePoint, reportCanvas, reportWidget, stagePosition } from '../status';
 
+/** Two-axis port: the content is wider *and* taller than the viewport, so both limits are real. */
+const BOTH_VIEW_WIDTH = 300;
+const BOTH_VIEW_HEIGHT = 170;
+const BOTH_CONTENT_WIDTH = 700;
+const BOTH_CONTENT_HEIGHT = 420;
+
 interface OptionRow {
   id: string;
   label: string;
@@ -77,10 +83,23 @@ export class OptionsScene extends Phaser.Scene {
   private readonly wheelPlainOffset = ref(0);
   private readonly wheelFastOffset = ref(0);
 
+  // --- ScrollView.direction: 'both' ------------------------------------------------------------
+  /**
+   * The reactive `offset` slot of the two-axis port. A scalar slot drives the **primary** axis (`y` for
+   * `direction: 'both'`), so it is also where "does the per-frame write-back fight the other axis?" is
+   * observable: the slot writes `y` every frame and `x` must be untouched by that (V56).
+   */
+  private readonly bothSlotY = ref(0);
+  private bothScroll: ScrollView | null = null;
+  private bothControl: ScrollView | null = null;
+  private readonly bothEvents = new Map<string, number>();
+
   /** The page's stage; the gesture cards live below the fold, so a check has to scroll to them. */
   private stage: ScrollView | null = null;
 
   private readonly tracked = new Map<string, Widget>();
+  /** Widgets the cards want tracked; drained right after the section is built (`track()` needs them). */
+  private readonly pendingTracked: Array<readonly [string, Widget]> = [];
   private readonly published = new Map<string, string>();
 
   constructor() {
@@ -114,7 +133,13 @@ export class OptionsScene extends Phaser.Scene {
                 this.updateCard();
                 this.submitCard();
                 this.inertiaCard();
+                this.directionCard();
                 this.gridCard();
+                // Registered after the cards are built: `track()` needs the widget the lambda returned.
+                for (const [key, widget] of this.pendingTracked) {
+                  this.track(key, widget);
+                }
+                this.pendingTracked.length = 0;
               });
             },
           );
@@ -346,6 +371,110 @@ export class OptionsScene extends Phaser.Scene {
     );
   }
 
+  /**
+   * `ScrollView.direction: 'both'` — the x half of the widget.
+   *
+   * The option has existed since M7 and no page had ever built a port with it, so the whole cross axis
+   * was unproven on screen: its own limit (`maxOffsetX`), its own scrollbar, wheel `deltaX`, a diagonal
+   * drag, and — the part that has bitten this widget before — whether a **focus reveal** and the
+   * **per-frame `offset` slot** respect the axis they do not own.
+   *
+   * A/B: two ports with the same 700×420 content and the same 300×170 viewport; the left one is
+   * `vertical` (the control, whose `x` must never leave 0), the right one is `both`.
+   */
+  private directionCard(): void {
+    this.card(
+      "ScrollView.direction: 'both'",
+      'the cross axis: own limit, own scrollbar, wheel deltaX, diagonal drag, focus reveal',
+      () => {
+        Row({ gap: 10, alignItems: 'start', width: 'fill' }, () => {
+          Column({ gap: 4 }, () => {
+            Text('vertical (control)', { tone: 'muted' });
+            const control = Scroll(
+              {
+                direction: 'vertical',
+                width: BOTH_VIEW_WIDTH,
+                height: BOTH_VIEW_HEIGHT,
+                // Always-on bars: `auto` paints them only while the port is being used, which would make a
+                // screenshot-based check race the gesture that produced it.
+                scrollbar: true,
+                name: 'options.bothControl',
+              },
+              () => this.bothBoard('options.bothControl'),
+            );
+            this.bothControl = control;
+            this.pendingTracked.push(['options.bothControl', control]);
+            Text(() => `y ${Math.round(this.bothControl?.offset ?? 0)}`, { tone: 'muted' });
+          });
+          Column({ gap: 4 }, () => {
+            Text("direction: 'both' (+ offset slot)", { tone: 'muted' });
+            const both = Scroll(
+              {
+                direction: 'both',
+                width: BOTH_VIEW_WIDTH,
+                height: BOTH_VIEW_HEIGHT,
+                offset: this.bothSlotY,
+                scrollbar: true,
+                name: 'options.both',
+              },
+              () => this.bothBoard('options.both'),
+            );
+            this.bothScroll = both;
+            this.pendingTracked.push(['options.both', both]);
+            Text(
+              () =>
+                `x ${Math.round(this.bothScroll?.offsetX ?? 0)} y ${Math.round(
+                  this.bothScroll?.offsetY ?? 0,
+                )} · slot ${Math.round(this.bothSlotY.value)}`,
+              { tone: 'muted' },
+            );
+          });
+        });
+      },
+    );
+  }
+
+  /** The 700×420 board both ports share: corner controls, so a focus reveal has somewhere to go. */
+  private bothBoard(tag: string): void {
+    Panel(
+      {
+        direction: 'vertical',
+        gap: 8,
+        padding: 8,
+        width: BOTH_CONTENT_WIDTH,
+        height: BOTH_CONTENT_HEIGHT,
+        variant: 'plain',
+      },
+      () => {
+        Row({ gap: 8, alignItems: 'center' }, () => {
+          const nw = Button('NW', {
+            name: `${tag}.nw`,
+            variant: 'primary',
+            size: 'sm',
+            focusOrder: -1,
+            onClick: () => undefined,
+          });
+          this.pendingTracked.push([`${tag}.nw`, nw]);
+          Text('content is 700 × 420, the port only 300 × 170', { tone: 'muted' });
+        });
+        for (let index = 0; index < 6; index += 1) {
+          Text(`both row ${index}`, { height: 40, tone: index % 3 === 0 ? 'default' : 'muted' });
+        }
+        Row({ gap: 8, alignItems: 'center', justifyContent: 'end', width: 'fill' }, () => {
+          Text('bottom-right', { tone: 'muted' });
+          const se = Button('SE', {
+            name: `${tag}.se`,
+            variant: 'danger',
+            size: 'sm',
+            focusOrder: -1,
+            onClick: () => undefined,
+          });
+          this.pendingTracked.push([`${tag}.se`, se]);
+        });
+      },
+    );
+  }
+
   /** `Grid.autoFlow`/`minRowHeight` and `Row({ wrap, alignContent })`. */
   private gridCard(): void {
     this.card(
@@ -464,6 +593,18 @@ export class OptionsScene extends Phaser.Scene {
     this.publish('ta.ctrlSubmits', this.ctrlSubmits);
     this.publish('ta.defaultBreaks', (this.defaultArea.value.match(/\n/g) ?? []).length);
     this.publish('ta.submitBreaks', (this.submitOnEnterArea.value.match(/\n/g) ?? []).length);
+    const both = this.bothScroll;
+    if (both) {
+      this.publish('both.x', Math.round(both.offsetX));
+      this.publish('both.y', Math.round(both.offsetY));
+      this.publish('both.maxX', Math.round(both.maxOffsetX));
+      this.publish('both.maxY', Math.round(both.maxOffsetY));
+      this.publish('both.slot', Math.round(this.bothSlotY.value));
+    }
+    const control = this.bothControl;
+    if (control) {
+      this.publish('both.controlY', Math.round(control.offsetY));
+    }
     this.publish('inertia.offset', Math.round(this.inertiaOffset.value));
     this.publish('wheel.plain', Math.round(this.wheelPlainOffset.value));
     this.publish('wheel.fast', Math.round(this.wheelFastOffset.value));
@@ -538,6 +679,31 @@ export class OptionsScene extends Phaser.Scene {
         wheelFast: this.wheelFastOffset.value,
         focus: this.mvvm.focus.focusedWidget?.name || 'none',
       }),
+      /**
+       * Brings the two-axis card into view and publishes both ports' rects into `#status`.
+       *
+       * Returns a promise so `scripts/visual-check.mjs` can await it (`awaitPromise`): a `reportWidget()`
+       * inside a build or before the next layout pass reads `appliedRect` as `0x0` (round 89).
+       */
+      prepare: async (): Promise<boolean> => {
+        this.stage?.setScrollOffset(900);
+        for (let frame = 0; frame < 2; frame += 1) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+        // Two labels per port: the sampler takes one point per status label, and this check needs two
+        // edges of the same box (the bottom band and the right band).
+        for (const [key, alias] of [
+          ['options.both', 'options.bothx'],
+          ['options.bothControl', 'options.bothControlx'],
+        ] as const) {
+          const widget = this.tracked.get(key);
+          if (widget) {
+            reportWidget(key, widget as never);
+            reportWidget(alias, widget as never);
+          }
+        }
+        return true;
+      },
       /** Scrolls the page's stage, so the gesture cards below the fold come into view. */
       scrollStage: (y: number): number => {
         this.stage?.setScrollOffset(y);
@@ -581,6 +747,98 @@ export class OptionsScene extends Phaser.Scene {
         }
         return info;
       },
+      /**
+       * The two-axis port (and its vertical control) as one object: both offsets, both limits, the box
+       * sizes and the `offset` slot's own reading.
+       *
+       * `x`/`y` come from the widget and `slot` from the ref the DSL writes, so "the cross axis was moved
+       * by the slot's per-frame write-back" is a comparison rather than a guess (V56).
+       */
+      bothInfo: (): Record<string, unknown> | null => {
+        const both = this.bothScroll as unknown as {
+          offsetX: number;
+          offsetY: number;
+          maxOffsetX: number;
+          maxOffsetY: number;
+          direction: string;
+          contentSize: { width: number; height: number };
+          viewport: { width: number; height: number };
+          isDragging?: boolean;
+        } | null;
+        if (!both) {
+          return null;
+        }
+        const control = this.bothControl as unknown as {
+          offsetY: number;
+          maxOffsetY: number;
+        } | null;
+        return {
+          direction: both.direction,
+          x: Math.round(both.offsetX),
+          y: Math.round(both.offsetY),
+          maxX: Math.round(both.maxOffsetX),
+          maxY: Math.round(both.maxOffsetY),
+          slotY: Math.round(this.bothSlotY.value),
+          dragging: both.isDragging,
+          // Ownership, not just "is a drag running": V24 was a port that kept its owner after the
+          // pointer was gone and then refused every later press.
+          dragPointer: (both as unknown as { dragPointerId?: number | null }).dragPointerId ?? null,
+          barPointer: (both as unknown as { barPointerId?: number | null }).barPointerId ?? null,
+          content: {
+            width: Math.round(both.contentSize.width),
+            height: Math.round(both.contentSize.height),
+          },
+          viewport: {
+            width: Math.round(both.viewport.width),
+            height: Math.round(both.viewport.height),
+          },
+          control: control
+            ? { y: Math.round(control.offsetY), maxY: Math.round(control.maxOffsetY) }
+            : null,
+        };
+      },
+      /** Scroll the vertical control of the same card, so both ports' bars can be compared. */
+      setControl: (y: number): void => {
+        this.bothControl?.setScrollOffset(y);
+      },
+      /** Jump the two-axis port; `null` leaves that axis alone. */
+      setBoth: (x: number | null, y: number | null): void => {
+        this.bothScroll?.setScrollOffset({
+          ...(x === null ? {} : { x }),
+          ...(y === null ? {} : { y }),
+        });
+      },
+      /** Page coordinates of a named widget (the corner buttons), for a click or a gesture. */
+      pointOf: (name: string): { x: number; y: number } | null => {
+        const widget = this.tracked.get(name);
+        if (!widget || widget.isDestroyed) {
+          return null;
+        }
+        const point = pagePoint(this.game, widget as never);
+        return { x: Math.round(point.x), y: Math.round(point.y) };
+      },
+      /** Focus a widget through the focus manager — the path that has to reveal it in its port. */
+      focus: (name: string): string => {
+        const widget = this.tracked.get(name);
+        if (!widget || widget.isDestroyed) {
+          return 'missing';
+        }
+        widget.focus();
+        return this.mvvm.focus.focusedWidget?.name ?? 'none';
+      },
+      /** Counts the `scroll` events of a port, so "every offset change is announced" is checkable. */
+      watchScroll: (name = 'options.both'): number => {
+        const widget = this.tracked.get(name) as unknown as { on?: Function } | undefined;
+        if (!widget?.on) {
+          return -1;
+        }
+        this.bothEvents.set(name, 0);
+        (widget.on as (event: string, handler: () => void) => void)('scroll', () =>
+          this.bothEvents.set(name, (this.bothEvents.get(name) ?? 0) + 1),
+        );
+        return 0;
+      },
+      scrollEvents: (name = 'options.both'): number => this.bothEvents.get(name) ?? -1,
       /** Resets the three gesture ports, so a wheel/drag measurement starts from a known place. */
       resetScroll: (): Record<string, number> => {
         this.inertiaOffset.value = 0;
