@@ -113,7 +113,10 @@
 
 ## 5. 未验证 / 边界
 
-1. **触摸**：全部扫描用鼠标事件（`mouse.move/down/up`）。触摸的 hover 抑制（`isHoverPointer`）、长按连发、移动端软键盘未在本轮复测。
+1. **触摸**：主扫描用鼠标事件（`mouse.move/down/up`）。额外用 CDP `Input.dispatchTouchEvent` 做了触摸探测，结果是**部分可验、部分不可验**：
+   - 可验：两次触摸 tap 都成功激活按钮（`clicks` 0 → 1 → 2），且过程中没有报错；
+   - 不可验（环境限制）：本机 Chromium 的 CDP 触摸事件会**同时移动鼠标指针**（实测 `manager.mousePointer = (70,174), wasTouch: false, moveTime: 2527`），因此「触摸后指针留在原地、由 `isHoverPointer` 抑制悬停」这条路径**无法在这里观察到**——观察到的 `hover` 属于合法状态（路由器看到的是真实鼠标指针停在按钮上）。该判定本身有纯函数单测（`input-order.test.ts › isHoverPointer`），如需端到端验证需要真机/移动模拟器。
+   - 未覆盖：触摸拖动滚动（本次 CDP 拖拽未产生位移，`stage.offset` 保持 0；`ScrollView` 的拖拽逻辑已有 `scroll.ts` 场景的鼠标拖拽覆盖）、长按连发、移动端软键盘。
 2. **手柄**：`pollGamepad` 需要真实手柄或注入 Gamepad API，本轮未覆盖。
 3. **`loading` 视觉**：只断言了「激活被忽略 + 按下有 pressed 反馈」，加载态皮肤（省略号标签）未做像素断言（`#/showcase` 有静态展示）。
 4. 探针坐标依赖每帧重算；若在 `reveal()` 之后立刻取坐标（不等一帧）可能拿到旧值——验收脚本里 `reveal()` 内部已等待一帧，但这是使用约束，已写进 AGENTS §6。
