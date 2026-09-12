@@ -46,7 +46,7 @@ import Phaser from 'phaser';
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import { ARROW_KEY_OF_DIRECTION, stageRectOf, Widget } from '@phaser-mvvm/phaser';
-import type { NavDirection, NavAction, Theme } from '@phaser-mvvm/phaser';
+import type { A11yDescriptor, NavDirection, NavAction, Theme } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import {
   clampZoomOffset,
@@ -103,6 +103,8 @@ export interface ScrollViewOptions extends LayoutParams {
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
+  /** Accessible name for the DOM mirror (see `Widget.a11yLabel`); defaults to the visible text. */
+  label?: string;
 }
 
 type ScrollWidgetOptions = Omit<ScrollViewOptions, keyof LayoutParams | 'name'>;
@@ -344,6 +346,9 @@ export class ScrollView extends Widget {
     // offset in `left`/`top`, which is what makes scrolling a pure arrange-time move.
     this.container = { type: 'scroll', options: { axis: this.scrollAxis() } };
     this.focusable = true;
+    // A scrollable area is a labelled region: it has no value of its own, but a screen-reader user has
+    // to know that what follows can be scrolled (and that the arrow keys scroll it).
+    this.a11y = { role: 'region', hint: `${this.direction} scrolling area` };
 
     // Cross axis `fill` (so the content sees the viewport width/height), scroll axis `auto` (so the
     // content can be longer than the viewport). No explicit size: the arranger resolves it.
@@ -1562,6 +1567,17 @@ export class ScrollView extends Widget {
 
   /** Which keys this view owns, given its direction. */
   /** Whether a navigation direction belongs to this port's own axis (plus both axes for `direction: 'both'`). */
+  /** Live description for the accessibility mirror (`a11y.ts`). */
+  override describeA11y(): A11yDescriptor | null {
+    return {
+      role: 'region',
+      label: this.a11yLabel ?? this.name ?? 'scroll area',
+      value: Math.round(this.offset),
+      hint: `${this.direction} scrolling area, ${Math.round(this.maxOffset)} px of travel`,
+      disabled: !this.enabled,
+    };
+  }
+
   private handlesDirection(direction: NavDirection): boolean {
     const vertical = direction === 'up' || direction === 'down';
     if (this.direction === 'vertical') {

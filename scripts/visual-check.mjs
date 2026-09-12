@@ -171,6 +171,18 @@ function chromePath() {
   throw new Error(`no Chrome/Chromium binary found (checked: ${CHROME_CANDIDATES.join(', ')})`);
 }
 
+/** Kills a detached child's whole process group (and falls back to the child itself). */
+function killGroup(child) {
+  if (!child || child.exitCode !== null || child.killed) {
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGTERM');
+  } catch {
+    child.kill('SIGTERM');
+  }
+}
+
 function run(command, commandArgs) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, commandArgs, { cwd: root, stdio: 'inherit' });
@@ -335,6 +347,11 @@ async function main() {
     await run('pnpm', ['--filter', '@phaser-mvvm/examples', 'exec', 'vite', 'build']);
   }
 
+  // `detached: true` makes the child a process-group leader, so the whole group can be killed below.
+  // Without it, `pnpm exec vite preview` leaves the *real* vite process behind when pnpm is signalled:
+  // the run "succeeds", the server keeps the port, and the next run's free-port probe hands out a port
+  // a zombie already holds ("timed out waiting for vite preview" — five strays had piled up before this
+  // was noticed).
   const preview = spawn(
     'pnpm',
     [
@@ -347,7 +364,7 @@ async function main() {
       String(port),
       '--strictPort',
     ],
-    { cwd: root, stdio: 'inherit' },
+    { cwd: root, stdio: 'inherit', detached: true },
   );
   preview.on('exit', (code) => {
     if (code !== null && code !== 0) {
@@ -357,7 +374,7 @@ async function main() {
 
   const cleanup = () => {
     chromeProcess?.kill('SIGTERM');
-    preview.kill('SIGTERM');
+    killGroup(preview);
   };
   process.once('SIGINT', () => {
     cleanup();
@@ -497,7 +514,7 @@ async function main() {
     await fetch(`${debugBase}/json/close/${target.id}`);
   } finally {
     chromeProcess?.kill('SIGTERM');
-    preview.kill('SIGTERM');
+    killGroup(preview);
   }
 
   if (failures > 0) {

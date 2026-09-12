@@ -39,6 +39,15 @@ export {
   type UiScopeResult,
 } from './uiscope';
 export { MVVMPlugin, type MVVMPluginConfig } from './plugin';
+export {
+  A11Y_ATTRIBUTE,
+  A11Y_LIVE_ATTRIBUTE,
+  A11yBridge,
+  describeA11yText,
+  type A11yDescription,
+  type A11yDescriptor,
+  type A11yOptions,
+} from './a11y';
 export { buildUiPage, type BuiltUi } from './ui-build';
 export { PageHost, type PageBackTarget, type PageHandle, type PageOptions } from './pages';
 export { planBack, type BackState } from './back-plan';

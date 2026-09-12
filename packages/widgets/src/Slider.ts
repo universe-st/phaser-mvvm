@@ -19,7 +19,7 @@
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import { ARROW_KEY_OF_DIRECTION, Widget, colorOf, pointerInWidgetSpace } from '@phaser-mvvm/phaser';
-import type { NavAction } from '@phaser-mvvm/phaser';
+import type { A11yDescriptor, NavAction } from '@phaser-mvvm/phaser';
 import { paintFocusRing } from './appearance';
 import {
   clampSliderValue,
@@ -48,6 +48,8 @@ export interface SliderOptions extends LayoutParams {
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
+  /** Accessible name for the DOM mirror (see `Widget.a11yLabel`); defaults to the visible text. */
+  label?: string;
 }
 
 type SliderWidgetOptions = Omit<SliderOptions, keyof LayoutParams | 'name'>;
@@ -119,6 +121,8 @@ export class Slider extends Widget {
     }
 
     this.focusable = true;
+    // A slider is a `slider` to a screen reader, with its range and current value read live.
+    this.a11y = { role: 'slider' };
     this.trackGraphics = new Phaser.GameObjects.Graphics(scene);
     this.add(this.trackGraphics);
 
@@ -153,6 +157,18 @@ export class Slider extends Widget {
 
   set value(next: number) {
     this.setValue(next);
+  }
+
+  /** Live description for the accessibility mirror (`a11y.ts`). */
+  override describeA11y(): A11yDescriptor | null {
+    return {
+      role: 'slider',
+      label: this.a11yLabel ?? this.name ?? 'slider',
+      value: Math.round(this.current * 100) / 100,
+      min: this.min,
+      max: this.max,
+      disabled: !this.enabled,
+    };
   }
 
   getValue(): number {

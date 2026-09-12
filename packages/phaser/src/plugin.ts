@@ -25,6 +25,7 @@ import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { flushFrame } from '@phaser-mvvm/core';
 import { FocusManager, type FocusManagerOptions } from './focus';
 import { InputRouter, type InputRouterOptions } from './input';
+import { A11yBridge, type A11yOptions } from './a11y';
 import { ModalHost } from './modal';
 import { planBack } from './back-plan';
 import { PageHost } from './pages';
@@ -53,6 +54,11 @@ export interface MVVMPluginConfig extends UIRootOptions {
   input?: Omit<InputRouterOptions, 'root'>;
   /** Keyboard/gamepad navigation. Defaults to `true`. */
   navigation?: boolean;
+  /**
+   * Hidden DOM mirror for screen readers. Defaults to `true`; `false` (or
+   * `this.mvvm.a11y.enabled = false`) keeps the layer out of the DOM entirely.
+   */
+  a11y?: A11yOptions | false;
   /** Callback for the `back` action (Escape / gamepad B) when no widget handles it. */
   onBack?: () => void;
   /**
@@ -84,6 +90,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private unsubscribeTheme: (() => void) | null = null;
   private modalHost: ModalHost | null = null;
   private pageHost: PageHost | null = null;
+  private a11yBridge: A11yBridge | null = null;
   /** Dev-only: whether the "something replaced the back router" warning was already printed. */
   private warnedBackOverride = false;
   /**
@@ -187,6 +194,20 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     return this.pageHost;
   }
 
+  /**
+   * The hidden DOM mirror of the interactive widgets (`a11y.ts`).
+   *
+   * Created on first use; `this.mvvm.a11y.enabled = false` removes it from the DOM and stops all
+   * updates, which is what a game that does not want the extra nodes should do.
+   */
+  get a11y(): A11yBridge {
+    if (!this.a11yBridge) {
+      const options = this.config.a11y === false ? { enabled: false } : (this.config.a11y ?? {});
+      this.a11yBridge = new A11yBridge(this, options);
+    }
+    return this.a11yBridge;
+  }
+
   /** Switches the theme used by every widget in every scene. */
   setTheme(theme: ThemeName | Theme): Theme {
     return setTheme(theme);
@@ -213,6 +234,13 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     // widget set for a modal overlay.
     this.router?.refresh();
     this.focusManager?.refresh();
+    // The mirror follows the interactive set, so it is rebuilt exactly when that set can change.
+    // `this.a11y` (not the field) on purpose: the layer is created on the first structural change, so a
+    // scene gets a mirror without anyone having to ask for it — `a11y: false` (config) or
+    // `enabled = false` (runtime) is how an app opts out.
+    if (this.config.a11y !== false) {
+      this.a11y.refresh();
+    }
   }
 
   /** Runs pending reactive updates, then a layout pass. Called automatically each frame. */
@@ -380,6 +408,8 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     if (focused !== this.lastFocused) {
       this.lastFocused = focused;
       devLog(`focus: ${focused ? focused.name || focused.constructor.name : 'none'}`);
+      // A screen reader has no way to see a focus ring on a canvas, so focus moves are announced.
+      this.a11yBridge?.announceFocus(focused);
     }
 
     // Re-collect only when the tree actually changed: visibility or state changes do not need it, and
@@ -446,6 +476,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.unsubscribeTheme = null;
     this.router?.detach();
     this.router = null;
+    // Before the UI root goes away: the mirror holds references to widgets.
+    this.a11yBridge?.destroy();
+    this.a11yBridge = null;
     // Before the focus manager, so the app's `onClose`/`onDispose` callbacks run while the scopes
     // still exist. Overlays first (they sit above the pages), then the pages themselves.
     this.modalHost?.dispose();

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { isDevMode, setDevMode } from '@phaser-mvvm/core';
 import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
 import { installWidgetFactories } from '@phaser-mvvm/widgets';
+import { A11yScene } from './scenes/a11y';
 import { BindingsScene } from './scenes/bindings';
 import { ComposeScene } from './scenes/compose';
 import { DashboardScene } from './scenes/dashboard';
@@ -44,6 +45,7 @@ setStatus('boot');
 
 const SCENES = {
   m0: M0Scene,
+  a11y: A11yScene,
   modal: ModalScene,
   pages: PagesScene,
   probe: ProbeScene,

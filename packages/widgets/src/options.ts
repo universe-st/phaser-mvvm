@@ -34,9 +34,10 @@ export function baseWidgetOptions(options: object): {
   name?: string;
   visible?: boolean;
   focusOrder?: number;
+  label?: string;
 } {
   const bag = optionBag(options);
-  const picked: { name?: string; visible?: boolean; focusOrder?: number } = {};
+  const picked: { name?: string; visible?: boolean; focusOrder?: number; label?: string } = {};
   if (typeof bag.name === 'string') {
     picked.name = bag.name;
   }
@@ -45,6 +46,9 @@ export function baseWidgetOptions(options: object): {
   }
   if (typeof bag.focusOrder === 'number' && Number.isFinite(bag.focusOrder)) {
     picked.focusOrder = bag.focusOrder;
+  }
+  if (typeof bag.label === 'string') {
+    picked.label = bag.label;
   }
   return picked;
 }

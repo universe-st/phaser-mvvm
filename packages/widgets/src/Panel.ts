@@ -15,6 +15,7 @@ import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import type { Theme } from '@phaser-mvvm/phaser';
 import { ProceduralSkin, Widget } from '@phaser-mvvm/phaser';
+import type { A11yDescriptor } from '@phaser-mvvm/phaser';
 import { paintElevation, paintFocusRing, panelSkinStyles } from './appearance';
 import {
   BOX_CONTAINER_KEYS,
@@ -62,6 +63,8 @@ export interface PanelOptions extends LayoutParams {
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
+  /** Accessible name for the DOM mirror (see `Widget.a11yLabel`); defaults to the visible text. */
+  label?: string;
 }
 
 type PanelWidgetOptions = Omit<PanelOptions, keyof LayoutParams | 'name'>;
@@ -123,6 +126,9 @@ export class Panel extends Widget {
 
     if (this.interactive) {
       this.focusable = true;
+      // A clickable card acts like a button to a screen reader; a plain panel is decoration and gets
+      // no mirror node at all (`Widget.a11y` stays `null`).
+      this.a11y = { role: 'button' };
     }
     if (this.interactive || this.blockPointer) {
       this.enablePointerInput();
@@ -133,6 +139,18 @@ export class Panel extends Widget {
     }
 
     this.refreshAppearance();
+  }
+
+  /** Live description for the accessibility mirror: a clickable card without text needs a label. */
+  override describeA11y(): A11yDescriptor | null {
+    if (!this.interactive) {
+      return null;
+    }
+    return {
+      role: 'button',
+      label: this.a11yLabel ?? this.name ?? 'card',
+      disabled: !this.enabled,
+    };
   }
 
   /** An empty panel has no intrinsic size: its box comes from `width`/`height` and its padding. */

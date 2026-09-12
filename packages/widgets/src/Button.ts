@@ -10,7 +10,7 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import type { Theme, WidgetState } from '@phaser-mvvm/phaser';
+import type { A11yDescriptor, Theme, WidgetState } from '@phaser-mvvm/phaser';
 import { ProceduralSkin, Widget } from '@phaser-mvvm/phaser';
 import { buttonSkinStyles, buttonTextColor, paintFocusRing } from './appearance';
 import { buttonLabel, resolveButtonActivation, resolveButtonState } from './button-state';
@@ -44,6 +44,8 @@ export interface ButtonOptions extends LayoutParams {
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
+  /** Accessible name for the DOM mirror (see `Widget.a11yLabel`); defaults to the visible text. */
+  label?: string;
 }
 
 type ButtonWidgetOptions = Omit<ButtonOptions, keyof LayoutParams | 'name'>;
@@ -123,6 +125,9 @@ export class Button extends Widget {
     }
 
     this.focusable = true;
+    // A toggle button is a checkbox to a screen reader, an ordinary button otherwise. The label and
+    // the toggle state are read live through `describeA11y()`.
+    this.a11y = { role: this.toggle ? 'checkbox' : 'button' };
     this.onActivate = () => {
       this.handleActivation();
     };
@@ -182,6 +187,18 @@ export class Button extends Widget {
     this.applyThemeStyle();
     this.markDirty();
     return this;
+  }
+
+  /** Live description for the accessibility mirror (`a11y.ts`). */
+  override describeA11y(): A11yDescriptor | null {
+    const text = this.a11yLabel ?? this.labelText;
+    const label = this.loading ? `${text} (loading)` : text;
+    return {
+      role: this.toggle ? 'checkbox' : 'button',
+      label,
+      ...(this.toggle ? { checked: this.value } : {}),
+      disabled: !this.enabled,
+    };
   }
 
   getText(): string {

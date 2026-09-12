@@ -57,6 +57,8 @@ export interface LabelOptions extends LayoutParams {
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
+  /** Accessible name for the DOM mirror (see `Widget.a11yLabel`); defaults to the visible text. */
+  label?: string;
 }
 
 type LabelWidgetOptions = Omit<LabelOptions, keyof LayoutParams | 'name'>;

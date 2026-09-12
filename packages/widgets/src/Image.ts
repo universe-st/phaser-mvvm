@@ -29,6 +29,8 @@ export interface ImageOptions extends LayoutParams {
   name?: string;
   /** Tab order hint for the focus manager (lower first). */
   focusOrder?: number;
+  /** Accessible name for the DOM mirror (see `Widget.a11yLabel`); defaults to the visible text. */
+  label?: string;
 }
 
 type ImageWidgetOptions = Omit<ImageOptions, keyof LayoutParams | 'name'>;

@@ -31,6 +31,7 @@ import type { NavAction } from './nav';
 import { devLog, isDevMode } from '@phaser-mvvm/core';
 import { inFlowOf } from '@phaser-mvvm/layout';
 import { resolveWidgetState, type WidgetState } from './widget-state';
+import type { A11yDescriptor } from './a11y';
 
 export interface WidgetOptions {
   /** Declarative sizing/placement parameters, see `LayoutParams`. */
@@ -46,6 +47,14 @@ export interface WidgetOptions {
    * any other key that never reaches a setter.
    */
   focusOrder?: number;
+  /**
+   * Accessible name for the DOM mirror (`a11y.ts`).
+   *
+   * A control that draws its own text (a button, a field with a placeholder) already has a name; one
+   * that does not (a slider, a scroll area, a clickable card) needs this, or a screen reader would read
+   * the widget's debug `name` — an internal id nobody should hear.
+   */
+  label?: string;
 }
 
 export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
@@ -91,6 +100,9 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
     if (options.focusOrder !== undefined && Number.isFinite(options.focusOrder)) {
       this.focusOrder = options.focusOrder;
+    }
+    if (options.label !== undefined) {
+      this.a11yLabel = options.label;
     }
 
     this.setSize(0, 0);
@@ -238,6 +250,33 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
     this._pressed = value;
     this.appearanceChanged();
+  }
+
+  /**
+   * What this widget is, for the DOM accessibility mirror (`a11y.ts`).
+   *
+   * `null` (the default) means "not interactive, do not mirror it" — a `Label` is read through the
+   * control that owns it, not on its own. A widget sets this in its constructor; anything that changes
+   * over time (a field's text, a slider's value, a toggle's state) overrides `describeA11y()`.
+   */
+  a11y: A11yDescriptor | null = null;
+
+  /**
+   * Accessible name for the mirror (`label` in the widget options).
+   *
+   * `null` means "derive it": a widget with visible text uses that text, anything else falls back to
+   * its debug `name`.
+   */
+  a11yLabel: string | null = null;
+
+  /**
+   * The current description for the mirror; defaults to {@link Widget.a11y}.
+   *
+   * The bridge calls this when it rebuilds (structure change, focus change) or when asked to
+   * `sync()` a widget, so an override should be cheap and side-effect free.
+   */
+  describeA11y(): A11yDescriptor | null {
+    return this.a11y;
   }
 
   /** Moves keyboard/gamepad focus to this widget. */

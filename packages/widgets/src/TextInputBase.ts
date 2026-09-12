@@ -23,6 +23,7 @@ import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import type { Theme } from '@phaser-mvvm/phaser';
 import { ProceduralSkin, stageRectOf, Widget } from '@phaser-mvvm/phaser';
+import type { A11yDescriptor } from '@phaser-mvvm/phaser';
 import { paintFocusRing, textInputSkinStyles } from './appearance';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
@@ -326,6 +327,9 @@ export abstract class TextInputBase extends Widget {
     this.anchor = this.value.length;
 
     this.focusable = true;
+    // A text box to a screen reader; the text, the placeholder-as-label and the validation state are
+    // read live through `describeA11y()`.
+    this.a11y = { role: 'textbox' };
     this.onActivate = () => {
       this.focus();
     };
@@ -418,6 +422,23 @@ export abstract class TextInputBase extends Widget {
   // ------------------------------------------------------------------ public API
 
   /** Current value. */
+  /** Live description for the accessibility mirror (`a11y.ts`). */
+  override describeA11y(): A11yDescriptor | null {
+    // The field's own `label` option wins (it exists since M5 as the bridge's accessible name), then
+    // the placeholder, then the debug name as a last resort.
+    const own = this.a11yLabel ?? (this.label.length > 0 ? this.label : this.placeholder);
+    const label = own.length > 0 ? own : this.name || 'text field';
+    const error = this.getError();
+    return {
+      role: 'textbox',
+      label,
+      value: this.value,
+      disabled: !this.enabled,
+      invalid: error !== null,
+      ...(error !== null ? { hint: error } : {}),
+    };
+  }
+
   getValue(): string {
     return this.value;
   }
