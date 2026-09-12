@@ -265,6 +265,7 @@ phaser-mvvm/
 | [`docs/ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)           | 验收记录：`render()` 入口、控制流演示、DSL 优先的快速开始与文档对齐                                                                                          |
 | [`docs/ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)                 | 验收记录：命令绑定的指针可达性（V4 复现+修复）与 `#/showcase` 迁移到 DSL 的等价性核对                                                                        |
 | [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                       | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
+| [`docs/HANDOVER.md`](./docs/HANDOVER.md)                                   | 交接说明：当前状态、已修复清单的证据位置、下一步计划（按建议顺序）与工作约定速记                                                                             |
 | [`docs/adr/`](./docs/adr/README.md)                                        | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
 | `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                             | 生成的 API 参考                                                                                                                                              |
 | `docs/widget-spec/`（**M10**，尚未创建）                                   | 控件规格文档；落地前以 [`docs/guide/`](./docs/guide/README.md) 的控件章节为现行参考                                                                          |
