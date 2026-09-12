@@ -209,7 +209,7 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 5.3 已知的小缺口
 
-- **文本框的聚焦/失焦没有事件**：只有 `onFocus`/`onBlur` 构造选项（04 §4）。
+- **文本框的聚焦/失焦只有构造选项、没有事件**：`TextField`/`TextArea` 接受 `onFocus`/`onBlur` 选项（[04 §4](./04-text-inputs.md)），但不会 `emit` 对应事件；同理也没有 `text:focus` 之类的常量。今天若要「在任何地方观察焦点变化」，用两个现成的东西：`this.mvvm.focus.onFocusChange = (widget) => …`（框架级焦点变化，覆盖全部可聚焦控件），或轮询 `this.mvvm.focus.focusedWidget`。开发模式下框架本身也会打印 `focus: <name>` 轨迹（见下文「调试期会打印什么」）。
 - **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，需要运行期自行设置（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
 - **`UIRoot` 不设置 `scrollFactor`**：源码里没有任何 `setScrollFactor(0)`，主相机一旦滚动整棵 UI 会跟着动。要固定在屏幕上请自己调 `this.mvvm.root.setScrollFactor(0)`。
 - **`hideMode` 尚未生效（`'keep'` 目前等同 `'collapse'`）**：`LayoutParams.hideMode` 会被解析保存，但引擎与 `Widget` 都没有读取它；真正决定「是否退出流」的是 `inFlow`（`Widget.inFlow === visible`）。**想在隐藏时保留占位**，今天可行的做法是外面套一个固定尺寸的容器，只切换里面那个节点的 `visible`：
