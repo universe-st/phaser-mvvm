@@ -22,6 +22,7 @@ import {
   type Rect,
   type ResolvedParams,
   type Size,
+  mergeParams,
   normalizeParams,
 } from '@phaser-mvvm/layout';
 import { effectScope, type EffectScope } from '@phaser-mvvm/core';
@@ -404,9 +405,15 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
   }
 
-  /** Applies a partial params patch (normalised) and marks the widget dirty. */
+  /**
+   * Applies a partial params patch and marks the widget dirty.
+   *
+   * Only the keys the patch mentions are rewritten (`mergeParams`), so an incremental update cannot
+   * silently reset the fields it left out — patching `height` keeps a `position: 'absolute'` or a
+   * `width: 'fill'` the widget was configured with.
+   */
   setLayoutParams(patch: LayoutParams): this {
-    Object.assign(this.layoutParams, normalizeParams(patch));
+    Object.assign(this.layoutParams, mergeParams(this.layoutParams, patch));
     this.markDirty();
     return this;
   }

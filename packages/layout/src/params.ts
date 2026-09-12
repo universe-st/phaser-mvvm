@@ -277,6 +277,65 @@ export function normalizeParams(params?: LayoutParams): ResolvedParams {
   };
 }
 
+/**
+ * Applies a *partial* params patch on top of an already-resolved params object.
+ *
+ * Only the fields the patch actually mentions are recomputed; everything else keeps its current
+ * value. This is what makes an incremental update safe: `normalizeParams(patch)` alone returns a
+ * complete object with defaults filled in, so assigning it would silently reset every field the
+ * caller left out — `setLayoutParams({ height: 100 })` would drop a `position: 'absolute'` or a
+ * `width: 'fill'` the node was configured with.
+ *
+ * A key present with the value `undefined` counts as "not mentioned". The shorthand keys that fan
+ * out into several resolved fields are handled together: `width`/`height` also refresh their
+ * matching `…Min`/`…Max` clamps, and `margin`/`padding` are expanded (and copied, so the result
+ * never shares an insets object with the caller).
+ */
+export function mergeParams(current: ResolvedParams, patch?: LayoutParams): ResolvedParams {
+  const next = cloneResolvedParams(current);
+  if (!patch) {
+    return next;
+  }
+  const resolved = normalizeParams(patch);
+  const mentions = (key: keyof LayoutParams): boolean =>
+    (patch as Record<string, unknown>)[key as string] !== undefined;
+
+  if (mentions('width')) {
+    next.width = resolved.width;
+    next.widthMin = resolved.widthMin;
+    next.widthMax = resolved.widthMax;
+  }
+  if (mentions('height')) {
+    next.height = resolved.height;
+    next.heightMin = resolved.heightMin;
+    next.heightMax = resolved.heightMax;
+  }
+  if (mentions('minWidth')) next.minWidth = resolved.minWidth;
+  if (mentions('maxWidth')) next.maxWidth = resolved.maxWidth;
+  if (mentions('minHeight')) next.minHeight = resolved.minHeight;
+  if (mentions('maxHeight')) next.maxHeight = resolved.maxHeight;
+  if (mentions('grow')) next.grow = resolved.grow;
+  if (mentions('shrink')) next.shrink = resolved.shrink;
+  if (mentions('basis')) next.basis = resolved.basis;
+  if (mentions('margin')) next.margin = { ...resolved.margin };
+  if (mentions('padding')) next.padding = { ...resolved.padding };
+  if (mentions('alignSelf')) next.alignSelf = resolved.alignSelf;
+  if (mentions('aspectRatio')) next.aspectRatio = resolved.aspectRatio;
+  if (mentions('position')) next.position = resolved.position;
+  if (mentions('left')) next.left = resolved.left;
+  if (mentions('top')) next.top = resolved.top;
+  if (mentions('right')) next.right = resolved.right;
+  if (mentions('bottom')) next.bottom = resolved.bottom;
+  if (mentions('order')) next.order = resolved.order;
+  if (mentions('hideMode')) next.hideMode = resolved.hideMode;
+  if (mentions('gridColumn')) next.gridColumn = resolved.gridColumn;
+  if (mentions('gridRow')) next.gridRow = resolved.gridRow;
+  if (mentions('gridColumnSpan')) next.gridColumnSpan = resolved.gridColumnSpan;
+  if (mentions('gridRowSpan')) next.gridRowSpan = resolved.gridRowSpan;
+
+  return next;
+}
+
 export function cloneResolvedParams(params: ResolvedParams): ResolvedParams {
   return {
     ...params,

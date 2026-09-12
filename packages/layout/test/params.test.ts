@@ -9,6 +9,7 @@ import {
   DEFAULT_LAYOUT_PARAMS,
   alignSelfOf,
   cloneResolvedParams,
+  mergeParams,
   crossAxisOf,
   crossSizeOf,
   isDefiniteUnit,
@@ -280,5 +281,114 @@ describe('params: helpers', () => {
     expect(alignSelfOf('auto', 'stretch')).toBe('stretch');
     expect(alignSelfOf('auto', 'auto')).toBe('start');
     expect(alignSelfOf('auto', undefined)).toBe('start');
+  });
+});
+
+describe('params: mergeParams (partial patch)', () => {
+  it('keeps every field the patch does not mention', () => {
+    const current = normalizeParams({ width: 'fill', height: 120, position: 'absolute', top: 10 });
+    const next = mergeParams(current, { height: 200 });
+
+    expect(next.height).toBe(200);
+    expect(next.width).toBe('fill');
+    expect(next.position).toBe('absolute');
+    expect(next.top).toBe(10);
+  });
+
+  it('does not reset a position to flow when only a size changes', () => {
+    const current = normalizeParams({ position: 'absolute', left: 4 });
+    const next = mergeParams(current, { width: 80 });
+
+    expect(next.position).toBe('absolute');
+    expect(next.left).toBe(4);
+    expect(next.width).toBe(80);
+  });
+
+  it('refreshes the length clamps only when the length itself is patched', () => {
+    const current = normalizeParams({ width: { value: 100, min: 20, max: 300 } });
+    expect(current.widthMin).toBe(20);
+
+    const untouched = mergeParams(current, { height: 50 });
+    expect(untouched.widthMin).toBe(20);
+
+    const replaced = mergeParams(current, { width: 60 });
+    expect(replaced.width).toBe(60);
+    expect(replaced.widthMin).toBe(0);
+    expect(replaced.widthMax).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('expands insets shorthands and keeps the other axis', () => {
+    const current = normalizeParams({ padding: 8, margin: [1, 2] });
+    const next = mergeParams(current, { padding: { left: 20 } });
+
+    expect(next.padding).toEqual({ top: 0, right: 0, bottom: 0, left: 20 });
+    expect(next.margin).toEqual({ top: 1, right: 2, bottom: 1, left: 2 });
+  });
+
+  it('never shares insets objects with the input', () => {
+    const current = normalizeParams({ padding: 4 });
+    const next = mergeParams(current, { padding: 4 });
+
+    next.padding.left = 99;
+    expect(current.padding.left).toBe(4);
+    expect(DEFAULT_LAYOUT_PARAMS.padding.left).toBe(0);
+  });
+
+  it('treats an explicitly undefined value as "not mentioned"', () => {
+    const current = normalizeParams({ grow: 3, height: 40 });
+    const next = mergeParams(current, { grow: undefined, height: 50 });
+
+    expect(next.grow).toBe(3);
+    expect(next.height).toBe(50);
+  });
+
+  it('returns a copy for an empty patch', () => {
+    const current = normalizeParams({ width: 10 });
+    const next = mergeParams(current, {});
+    const bare = mergeParams(current);
+
+    expect(next).not.toBe(current);
+    expect(next).toEqual(current);
+    expect(bare).toEqual(current);
+  });
+
+  it('applies the small value params one by one', () => {
+    const current = normalizeParams({});
+    const next = mergeParams(current, {
+      grow: 2,
+      shrink: 1,
+      order: 5,
+      alignSelf: 'center',
+      aspectRatio: 2,
+      hideMode: 'keep',
+      gridColumn: 3,
+      gridRowSpan: 2,
+    });
+
+    expect(next.grow).toBe(2);
+    expect(next.shrink).toBe(1);
+    expect(next.order).toBe(5);
+    expect(next.alignSelf).toBe('center');
+    expect(next.aspectRatio).toBe(2);
+    expect(next.hideMode).toBe('keep');
+    expect(next.gridColumn).toBe(3);
+    expect(next.gridRowSpan).toBe(2);
+    // Untouched defaults survive.
+    expect(next.width).toBe('auto');
+    expect(next.position).toBe('flow');
+    expect(next.padding).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+  });
+
+  it('drops an invalid aspect ratio to null only when it is patched', () => {
+    const current = normalizeParams({ aspectRatio: 2 });
+    expect(mergeParams(current, { width: 10 }).aspectRatio).toBe(2);
+    expect(mergeParams(current, { aspectRatio: 0 }).aspectRatio).toBeNull();
+  });
+
+  it('patches the four absolute offsets independently', () => {
+    const current = normalizeParams({ position: 'absolute', left: 1, top: 2, right: 3, bottom: 4 });
+    const next = mergeParams(current, { top: 20 });
+
+    expect(next).toMatchObject({ left: 1, top: 20, right: 3, bottom: 4, position: 'absolute' });
   });
 });

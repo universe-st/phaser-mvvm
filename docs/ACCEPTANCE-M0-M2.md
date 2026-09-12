@@ -217,14 +217,14 @@ OK       backdrop / card / badge / footer
 
 - `packages/widgets/src/ScrollView.ts`：滚轮（按 `deltaMode` 归一化）、指针拖拽（带位移阈值，避免与点击冲突）、惯性衰减、可选边界回弹、`auto` 滚动条（thumb 夹取与最小长度）、键盘滚动、`setScrollOffset/scrollBy/scrollTo` 与 `offset/maxOffset/viewport`。
 - `packages/widgets/src/scroll-plan.ts`：纯函数 `clampOffset`/`normalizeWheel`/`applyInertia`/`thumbGeometry`/`isScrollable`/`planScrollDrag`/重新夹取，**46 个单测**。
-- **裁剪**：按 PLAN §2 的结论（Phaser 4 中 `GeometryMask` 仅 Canvas 可用）走 WebGL `Components.Filters#addMask` 的滤镜遮罩路径（内部 `__WHITE` 遮罩，framebuffer = 控件尺寸即裁剪区）。
+- **裁剪**：按 PLAN §2 的结论走双路径——WebGL 用 `Components.Filters#addMask` 的滤镜遮罩（内部 `__WHITE` 遮罩，framebuffer = 控件尺寸即裁剪区），Canvas 用 `GeometryMask`（v4 中它只在 Canvas 可用）。
 - **踩到的真缺陷**：Phaser 自带的 `filtersAutoFocus` 对**嵌套在容器里**的控件会把内容放偏 —— framebuffer 尺寸正确，但内容只画进左上约 53%×53%（实测 v 视口 300×155 / 588×356，h 视口 310×40 / 588×76）；换成 `addColorMatrix`、开 `filtersForceComposite`、手动 `centerOn` 都无效，说明问题在 focus 而不在滤镜。修复：`filtersAutoFocus = false`，每次布局自己瞄相机（`setSize(视口)` + `setOrigin(0,0)` + `setZoom(1,1)` + `setScroll(this.x, this.y)`）。
 - **像素级证据**：视口外 3px 采样带内 24 个点，在"隐藏内容"前后**完全不变**（v/h/nested 三个视图）；关闭裁剪（`renderFilters = false`）后同一批点分别有 **24 / 20 / 6** 个像素发生变化（证明内容确实会画到那里）；视口内侧同位置在隐藏内容时有 **10 / 22 / 7** 个像素变化（证明内容确实画在视口内）；裁剪开启时外侧带恒为 **1 种颜色**；offset 1200 / 1240 / 1280 / 3000 时边界像素完全一致（无 1px 抖动或渗漏）。
 - `#/scroll` demo：垂直 `ScrollView` 内嵌虚拟化 `Repeat`（200+ 行）、水平 chip 条、以及**固定尺寸 Panel 内的 ScrollView**（同时回归 dirtyPath 修复）。
 
 ## 门禁
 
-`pnpm -r typecheck` 5/5；`pnpm -r test` **883 passed**（layout 260 / core 262 / phaser 98 / widgets 263）；`build` 与 `prettier --check .` 通过。
+`pnpm -r typecheck` 5/5；`pnpm -r test` **883 passed**（layout 260 / core 262 / phaser 98 / widgets 263；残留项处理后再回到 **893 passed**，layout 270）；`build` 与 `prettier --check .` 通过。
 
 ## Playwright 实测（真实 WebGL + 真实滚轮）
 
@@ -241,13 +241,18 @@ OK       backdrop / card / badge / footer
 
 `#/scroll` 中"固定尺寸 Panel 内的 ScrollView"可正常滚动，且独立测试 `packages/layout/test/engine-dirty-path.test.ts`（9 例，其中 5 例在修复前失败）持续为绿。
 
-## M7 残留项（下一轮处理）
+## M7 残留项处理结果（本轮全部处理完）
 
-1. **Canvas 降级不裁剪**：滤镜是 WebGL-only，Canvas 下仍可滚动但不裁剪（dev 模式 warn 一次）。
-2. **滚动条 thumb 不可拖拽**：目前只做指示（几何由纯函数 `thumbGeometry` 计算并有测试）。
-3. **嵌套 ScrollView 无"最内层优先"滚轮仲裁**：两个嵌套视图会同时消费 wheel 事件（demo 中三个视图互不嵌套，未触发）。
-4. **`Widget.setLayoutParams(patch)` 是整包归一化而非部分补丁**（框架缺陷，`packages/phaser/src/Widget.ts`）：`setLayoutParams({ height })` 会把未提及的 `width/position/...` 重置为默认值 —— ScrollView 就因此把 holder 的 `position:'absolute'` 冲掉、内容整体不位移。建议改成"只覆盖传入的键"（并注意 `width/height` 需要同时更新其 `widthMin/widthMax` 等派生字段），补一组回归测试。
-5. **M6 `#/list` demo 的滚轮只换挂载窗口、不位移容器**（视觉上"行不上移"）：应改用 M7 的 `ScrollView`（容器位移交给视图），并把 `pt.rowdelete` 从"首个挂载键"改为"首个可见行"。
+| #   | 残留                                                   | 处理                                                                                                                                                                                                                                                                                                    | 实测证据                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Canvas 降级不裁剪                                      | **已消除**：Canvas 分支改用 `GeometryMask`（白矩形 stage mask，随布局/每帧重绘，销毁释放）；渲染器决定路径并各 warn 一次                                                                                                                                                                                | Canvas 模式 5/5：带内 1 色、隐藏内容前后逐像素相同、视口内 13 点变化（见上一节）                                                                                                                           |
+| 2   | 滚动条 thumb 不可拖拽                                  | **已实现**：`barHit()` 用 `thumbGeometry` 判定按在 thumb 还是 track；thumb 拖拽按比例映射（尊重抓取偏移），track 按下则让 thumb 居中；拖拽期间不启动内容拖拽                                                                                                                                            | 抓住 thumb 下拖 120px → `offset 0 → 3115`（按 travel=324 / maxOffset=8140 推算期望 3015，误差 3%）、`isDragging=false`（未误触发内容拖拽）、点 track 末段 → `offset=8140`（到底）                          |
+| 3   | 嵌套 ScrollView 无"最内层优先"仲裁                     | **已实现**：每场景维护活动视图注册表（`WeakMap<Scene, Set<ScrollView>>`），wheel 时比较包含指针的视图的嵌套深度，只让最内层消费                                                                                                                                                                         | 运行时把 240×140 的 ScrollView 塞进垂直视图内容：指针在内层滚 300 → `inner=300 / outer=0`；指针移出内层再滚 → `outer=300` 且 `inner` 不变 ⇒ 无双重滚动                                                     |
+| 4   | `Widget.setLayoutParams(patch)` 整包归一化（框架缺陷） | **已修**：新增纯函数 `LayoutEngine` 无关的 `packages/layout/src/params.ts#mergeParams(current, patch)`（只覆盖 patch 提及的键；`width`/`height` 连带刷新 `…Min/…Max`，`margin`/`padding` 展开且不共享 insets 对象），`Widget.setLayoutParams` 改用它；ScrollView 恢复使用 `setLayoutParams` 更新 holder | `packages/layout/test/params.test.ts` 新增 **10 例**（保留未提及字段、position 不被重置、clamp 只在长度被 patch 时刷新、insets 不共享、`undefined` 视为未提及、空 patch 返回副本等）；M6/M7 浏览器断言全绿 |
+| 5   | M6 `#/list` demo 滚轮只换窗口不位移容器（视觉 bug）    | **已修**：列表内容包进 `uiScroll`（Repeat 仍按内容坐标摆行并用 filler 占位，位移与裁剪交给视图），删除场景级 wheel 处理器，`pt.rowdelete` 改为"首个**可见**行"                                                                                                                                          | 4/4：滚轮后 `scroll.offset=900` 且 `repeat.offset=900`（视图驱动虚拟窗口）、视口内 20 点中 **8 点**像素变化（行确实上屏移动）、视口外带恒 1 色（裁剪生效）、无 pageError；M6 原有 14 项断言仍全绿          |
+
+**门禁（本轮之后）**：`pnpm -r typecheck` 5/5；`pnpm -r test` **893 passed**（layout **270**（+10）/ core 262 / phaser 98 / widgets 263）；`build` 12 条成功 + examples；`prettier --check .` 通过。
+**浏览器总览**：M7 主套件 **14/14**、M6 list **14/14**、全场景扫 **9/9**、Canvas 降级 **5/5**、残留三项（嵌套 wheel / thumb 拖拽 / list 滚动）**3+4 全绿**。
 
 ## M7 追加验证（一轮浏览器会话，`199b9f4` 之后）
 
@@ -260,14 +265,14 @@ PASS bindings (2)  PASS form (5)    PASS list (6)   PASS scroll (5)    ⇒ ALL 9
 
 ⇒ M7 新增的导出与 `uiScroll` 注册对既有场景零影响。
 
-**Canvas 降级的已知限制实测**（用 `--disable-3d-apis --disable-gpu` 逼 `Phaser.AUTO` 落到 Canvas，5/5 PASS）：
+**Canvas 降级：改用 `GeometryMask` 裁剪（原“Canvas 不裁剪”限制已消除）**（用 `--disable-3d-apis --disable-gpu` 逼 `Phaser.AUTO` 落到 Canvas，5/5 PASS）：
 
-| 断言       | 实测                                                                                                                                              |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 渲染器     | `renderer=canvas`、`size=1280x800 dpr=1`                                                                                                          |
-| 一次性警告 | 每个 ScrollView 各 warn 一次，共 3 条：`[phaser-mvvm] ScrollView needs the WebGL renderer to clip its content (Phaser 4 filters are WebGL-only).` |
-| 仍可滚动   | 滚轮 `v.offset 0 → 400`，按钮再 → 520（`maxOffset=8000` 不变）                                                                                    |
-| 不裁剪     | 视口下方 3px 带 24 点出现 **2 种颜色**（面板 `#161b22` + 行内 Delete `#f85149`）⇒ 内容确实画到视口外，与"Canvas 降级只滚不裁"的声明一致           |
-| 无错误     | `pageErrors=[]`、`#status` 无 ERROR/REJECTION                                                                                                     |
+| 断言         | 实测                                                                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 渲染器       | `renderer=canvas`、`size=1280x800 dpr=1`                                                                                                                               |
+| 一次性警告   | 每个 ScrollView 各 warn 一次，共 3 条：`[phaser-mvvm] ScrollView is clipping with a GeometryMask because the renderer is not WebGL (Phaser 4 filters are WebGL-only).` |
+| 仍可滚动     | 滚轮 `v.offset 0 → 400`，按钮再 → 520（`maxOffset=8000` 不变）                                                                                                         |
+| **确实裁剪** | 视口下方 3px 带 24 点为 **1 种颜色**（面板 `#161b22`）；隐藏内容前后该带**逐像素完全相同**；同位置视口内 24 点有 **13 个**像素变化 ⇒ 内容画在视口内、没有画到视口外    |
+| 无错误       | `pageErrors=[]`、`#status` 无 ERROR/REJECTION                                                                                                                          |
 
-两条限制（裁剪为 WebGL-only、Canvas 下不裁剪）至此都有可复现的实测依据，不再是推断。
+实现：滤镜是 WebGL-only，因此 Canvas 分支改用 `GeometryMask`（Phaser 4 的 `GeometryMask` 恰好只在 Canvas 可用，PLAN §2）——一个 stage 空间的白矩形 mask，在每次布局与每帧重绘以跟随视口，销毁时释放。渲染器决定走哪条路径并各 warn 一次。

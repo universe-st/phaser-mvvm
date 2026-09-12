@@ -23,7 +23,7 @@ import {
   bindTemplateText,
 } from '@phaser-mvvm/phaser';
 import type { Widget } from '@phaser-mvvm/phaser';
-import type { Button, Label, Panel, Repeat } from '@phaser-mvvm/widgets';
+import type { Button, Label, Panel, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import { reportControl, setDemoState } from '../demo';
 import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
 
@@ -91,6 +91,7 @@ export class ListScene extends Phaser.Scene {
 
   private pageContext: BindingContext | null = null;
   private repeat: Repeat<RowItem> | null = null;
+  private listScroll: ScrollView | null = null;
   private page: Panel | null = null;
   private readonly reported = new Map<string, string>();
 
@@ -207,6 +208,23 @@ export class ListScene extends Phaser.Scene {
     });
     this.repeat = list;
 
+    // The list content: a plain box the scroll view owns. The Repeat keeps positioning its rows in
+    // content coordinates (index x itemExtent, padded by fillers); the scroll view translates this
+    // holder by the offset and clips it, which is what actually moves the rows on screen.
+    const listContent = this.add.uiPanel(
+      { direction: 'vertical', width: 'fill', height: 'fill', variant: 'plain' },
+      [list],
+    );
+    const listScroll = this.add.uiScroll({
+      width: 'fill',
+      height: 'fill',
+      direction: 'vertical',
+      scrollbar: 'auto',
+      content: listContent,
+      name: 'list.scroll',
+    });
+    this.listScroll = listScroll;
+
     const listPanel = this.add.uiPanel(
       {
         direction: 'vertical',
@@ -216,7 +234,7 @@ export class ListScene extends Phaser.Scene {
         variant: 'surface',
         radius: 10,
       },
-      [list],
+      [listScroll],
     );
 
     // Side panel: the same numbers as `#demo-state`, bound through `{{ … }}` templates -------------
@@ -308,15 +326,6 @@ export class ListScene extends Phaser.Scene {
 
     this.mvvm.mount(this.page);
 
-    // Wheel scrolling drives the virtual window directly: only the rows that enter the viewport are
-    // mounted, the fillers keep the rest of the list's height (M6 ships no `ScrollView` yet).
-    this.input.on(
-      Phaser.Input.Events.POINTER_WHEEL,
-      (_pointer: unknown, _objects: unknown, _dx: number, dy: number) => {
-        list.setScrollOffset(list.offset + dy);
-      },
-    );
-
     const page = this.page;
     for (const [key, widget] of [
       ['add', addButton],
@@ -334,6 +343,7 @@ export class ListScene extends Phaser.Scene {
     reportWidget('page', page);
     reportWidget('toolbar', toolbar);
     reportWidget('list', listPanel);
+    reportWidget('listScroll', listScroll);
     reportWidget('repeat', list as never);
     reportWidget('side', sidePanel);
     reportCanvas(this.game);
@@ -520,27 +530,37 @@ export class ListScene extends Phaser.Scene {
   /** Page coordinates of the first visible row's Delete button. */
   private deletePoint(): { x: number; y: number } | null {
     const repeat = this.repeat;
-    if (!repeat) {
+    const scroll = this.listScroll;
+    if (!repeat || !scroll) {
       return null;
     }
-    const key = repeat.getRenderedKeys()[0];
-    if (key === undefined) {
-      return null;
+    // The first *mounted* row is not the first *visible* one: a virtualised list also mounts
+    // `overscan` rows above the viewport, and those sit outside the scroll view's clip.
+    const viewport = stagePosition(scroll);
+    const viewportBottom = viewport.y + scroll.appliedRect.height;
+
+    for (const key of repeat.getRenderedKeys()) {
+      const row = repeat.getWidgetForKey(key);
+      if (row === null) {
+        continue;
+      }
+      const centre = stagePosition(row).y + row.appliedRect.height / 2;
+      if (centre < viewport.y || centre > viewportBottom) {
+        continue;
+      }
+      const button = row
+        .getWidgetChildren()
+        .find((child) => child.name.startsWith('row.delete.')) as Button | undefined;
+      if (button === undefined || button.appliedRect.width <= 0) {
+        continue;
+      }
+      const canvas = this.game.canvas.getBoundingClientRect();
+      const origin = stagePosition(button);
+      return {
+        x: Math.round(canvas.left + origin.x + button.appliedRect.width / 2),
+        y: Math.round(canvas.top + origin.y + button.appliedRect.height / 2),
+      };
     }
-    const row = repeat.getWidgetForKey(key);
-    if (row === null) {
-      return null;
-    }
-    const button = row.getWidgetChildren().find((child) => child.name.startsWith('row.delete.')) as
-      Button | undefined;
-    if (button === undefined || button.appliedRect.width <= 0) {
-      return null;
-    }
-    const canvas = this.game.canvas.getBoundingClientRect();
-    const origin = stagePosition(button);
-    return {
-      x: Math.round(canvas.left + origin.x + button.appliedRect.width / 2),
-      y: Math.round(canvas.top + origin.y + button.appliedRect.height / 2),
-    };
+    return null;
   }
 }

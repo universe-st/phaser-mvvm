@@ -20,8 +20,10 @@
  *   offset and lands the object's content off-centre inside the framebuffer, so a nested scroll view
  *   painted only its top-left ~half ("measured" in `.tmp/m7`: content cut at 53% × 53% of the
  *   viewport with auto focus, full viewport with the manual focus below).
- * - Filters are WebGL-only. Under the Canvas fallback the view scrolls but does not clip; the scene
- *   logs one development warning.
+ * - Filters are WebGL-only, so under the Canvas fallback the view clips with a `GeometryMask`
+ *   instead — Phaser 4's `GeometryMask` is Canvas-only (PLAN §2), i.e. exactly the mirror image of
+ *   the filter path. The mask is a white rectangle in stage space, repainted on every layout and
+ *   frame so it follows the viewport; one development warning says which path is in use.
  *
  * Because the clip follows the ScrollView's own rect, the *viewport* must not move while scrolling —
  * which is exactly why the content is offset instead (see below).
@@ -123,6 +125,37 @@ function isVirtualScrollTarget(value: unknown): value is VirtualScrollTarget {
   );
 }
 
+/**
+ * Live scroll views per scene.
+ *
+ * The wheel is dispatched to every listener that could handle it, so two *nested* views would both
+ * scroll from one gesture. The registry lets a view check whether a deeper view also contains the
+ * pointer and, if so, leave the event to it: the innermost scrollable area wins, which is what a
+ * user expects from a list inside a page.
+ */
+const sceneScrollViews = new WeakMap<Phaser.Scene, Set<ScrollView>>();
+
+function registerScrollView(view: ScrollView): void {
+  const scene = view.scene;
+  if (!scene) {
+    return;
+  }
+  let set = sceneScrollViews.get(scene);
+  if (set === undefined) {
+    set = new Set();
+    sceneScrollViews.set(scene, set);
+  }
+  set.add(view);
+}
+
+function unregisterScrollView(view: ScrollView): void {
+  const scene = view.scene;
+  if (!scene) {
+    return;
+  }
+  sceneScrollViews.get(scene)?.delete(view);
+}
+
 /** Depth-first search for the virtualised list inside a content subtree. */
 function findVirtualTarget(root: Widget): VirtualScrollTarget | null {
   if (isVirtualScrollTarget(root)) {
@@ -184,6 +217,11 @@ export class ScrollView extends Widget {
   private contentWidth = 0;
   private contentHeight = 0;
 
+  /** Canvas-only clip shape (see `enableClip`). */
+  private canvasMask: Phaser.GameObjects.Graphics | null = null;
+  /** `thumb` while the scrollbar thumb is being dragged, `track` for a jump-to-position press. */
+  private barDrag: 'thumb' | 'track' | null = null;
+  private barGrab = 0;
   private dragStart: { x: number; y: number } | null = null;
   private dragLast = { x: 0, y: 0, time: 0 };
   private dragVelocity = { x: 0, y: 0 };
@@ -358,16 +396,11 @@ export class ScrollView extends Widget {
     }
     // The holder *is* the scrollport content box: giving it the viewport size is what lets the
     // content ask for `width: 'fill'`/`height: 'fill'` (an auto-sized box would collapse a fill
-    // child to nothing), while anything longer simply overflows it.
-    //
-    // The params are written directly rather than through `setLayoutParams()`: that helper normalises
-    // a *whole* params object, so a partial patch would reset every field it omits — including the
-    // `position: 'absolute'` this holder needs.
+    // child to nothing), while anything longer simply overflows it. `setLayoutParams` patches only
+    // the keys it is given, so the holder keeps its `position: 'absolute'`.
     const holderParams = this.holder.layoutParams;
     if (holderParams.width !== rect.width || holderParams.height !== rect.height) {
-      holderParams.width = rect.width;
-      holderParams.height = rect.height;
-      this.holder.markDirty();
+      this.holder.setLayoutParams({ width: rect.width, height: rect.height });
     }
     this.enableClip();
     if (this.clipReady) {
@@ -387,13 +420,22 @@ export class ScrollView extends Widget {
     }
     const renderer = this.scene?.renderer as { gl?: unknown } | undefined;
     if (!renderer?.gl) {
+      // No WebGL: filters cannot clip, but a `GeometryMask` can — in Phaser 4 it works on the Canvas
+      // renderer only (the mirror image of the WebGL-only filter path, PLAN §2). The mask is a
+      // Graphics rectangle in *stage* space, repainted with the viewport on every layout and frame.
+      if (this.canvasMask === null && this.scene) {
+        const shape = this.scene.make.graphics({ x: 0, y: 0 }, false);
+        this.canvasMask = shape;
+        this.setMask(shape.createGeometryMask());
+      }
       if (!this.warnedNoWebgl) {
         this.warnedNoWebgl = true;
         // eslint-disable-next-line no-console
         console.warn(
-          '[phaser-mvvm] ScrollView needs the WebGL renderer to clip its content (Phaser 4 filters are WebGL-only).',
+          '[phaser-mvvm] ScrollView is clipping with a GeometryMask because the renderer is not WebGL (Phaser 4 filters are WebGL-only).',
         );
       }
+      this.paintCanvasMask();
       this.clipReady = true;
       return;
     }
@@ -479,9 +521,7 @@ export class ScrollView extends Widget {
     const top = -this.currentY;
     const params = this.holder.layoutParams;
     if (params.left !== left || params.top !== top) {
-      params.left = left;
-      params.top = top;
-      this.holder.markDirty();
+      this.holder.setLayoutParams({ left, top });
     }
     const target = this.virtualTarget;
     if (target !== null && this.scrollsY() && target.offset !== this.currentY) {
@@ -498,6 +538,12 @@ export class ScrollView extends Widget {
     const now = this.scene.time?.now ?? 0;
     const deltaMs = this.lastTick === 0 ? 16 : Math.min(64, Math.max(0, now - this.lastTick));
     this.lastTick = now;
+
+    if (this.canvasMask !== null) {
+      // The mask lives in stage space, so it follows the viewport even if an ancestor moved without
+      // re-arranging this widget.
+      this.paintCanvasMask();
+    }
 
     this.measureContentExtent();
 
@@ -583,6 +629,18 @@ export class ScrollView extends Widget {
 
   // ------------------------------------------------------------------ scrollbar
 
+  /** Repaints the Canvas clip rectangle in stage coordinates. */
+  private paintCanvasMask(): void {
+    const shape = this.canvasMask;
+    if (shape === null) {
+      return;
+    }
+    const stage = stageRectOf(this);
+    shape.clear();
+    shape.fillStyle(0xffffff, 1);
+    shape.fillRect(stage.x, stage.y, Math.max(0, this.rect.width), Math.max(0, this.rect.height));
+  }
+
   private paintScrollbar(): void {
     const graphics = this.scrollbarGraphics;
     graphics.clear();
@@ -660,6 +718,7 @@ export class ScrollView extends Widget {
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this.onKeyDown, true);
     }
+    registerScrollView(this);
     this.scope.onScopeDispose(() => this.removeListeners());
   }
 
@@ -682,6 +741,12 @@ export class ScrollView extends Widget {
 
   override destroy(fromScene?: boolean): void {
     this.removeListeners();
+    unregisterScrollView(this);
+    if (this.canvasMask !== null) {
+      this.clearMask(true);
+      this.canvasMask.destroy();
+      this.canvasMask = null;
+    }
     super.destroy(fromScene);
   }
 
@@ -714,6 +779,10 @@ export class ScrollView extends Widget {
     if (!this.containsPoint(point.x, point.y)) {
       return;
     }
+    // A deeper scroll view under the same pointer owns the gesture (no double scrolling).
+    if (this.innermostAt(point.x, point.y) !== this) {
+      return;
+    }
     const dx = normalizeWheel(event.deltaX ?? 0, event.deltaMode ?? 0, this.wheelSpeed);
     const dy = normalizeWheel(event.deltaY ?? 0, event.deltaMode ?? 0, this.wheelSpeed);
     if (dx === 0 && dy === 0) {
@@ -733,12 +802,40 @@ export class ScrollView extends Widget {
       return;
     }
     this.stopScroll();
+
+    // A press on the scrollbar drives the thumb and must not also start a content drag.
+    const bar = this.barHit(pointer.worldX, pointer.worldY);
+    if (bar !== null) {
+      this.barDrag = bar.mode;
+      this.barGrab = bar.grab;
+      this.dragBarTo(bar, { x: pointer.worldX, y: pointer.worldY });
+      this.dragStart = null;
+      return;
+    }
+
     this.dragStart = { x: pointer.worldX, y: pointer.worldY };
     this.dragLast = { x: pointer.worldX, y: pointer.worldY, time: this.scene?.time?.now ?? 0 };
     this.dragVelocity = { x: 0, y: 0 };
   };
 
   private readonly onPointerMove = (pointer: Phaser.Input.Pointer): void => {
+    if (this.barDrag !== null) {
+      if (!pointer.isDown) {
+        this.endBarDrag();
+        return;
+      }
+      const hit = this.barHit(pointer.worldX, pointer.worldY);
+      this.dragBarTo(
+        {
+          axis: hit?.axis ?? (this.scrollsY() ? 'y' : 'x'),
+          mode: this.barDrag,
+          grab: this.barGrab,
+        },
+        { x: pointer.worldX, y: pointer.worldY },
+      );
+      return;
+    }
+
     const start = this.dragStart;
     if (start === null || this.isDestroyed) {
       return;
@@ -770,10 +867,19 @@ export class ScrollView extends Widget {
   };
 
   private readonly onPointerUp = (): void => {
+    if (this.barDrag !== null) {
+      this.endBarDrag();
+      return;
+    }
     if (this.dragStart !== null) {
       this.endDrag();
     }
   };
+
+  private endBarDrag(): void {
+    this.barDrag = null;
+    this.barGrab = 0;
+  }
 
   private endDrag(): void {
     const wasDragging = this.dragging;
@@ -829,6 +935,164 @@ export class ScrollView extends Widget {
     }
     this.scrollBy(0, step.delta);
   };
+
+  /** How many scroll views enclose this one (0 for a top-level view). */
+  private scrollDepth(): number {
+    let depth = 0;
+    let node = this.parentContainer;
+    while (node) {
+      if (node instanceof ScrollView) {
+        depth += 1;
+      }
+      node = node.parentContainer;
+    }
+    return depth;
+  }
+
+  /** The innermost live scroll view under a point, or `null`. */
+  private innermostAt(x: number, y: number): ScrollView | null {
+    const scene = this.scene;
+    if (!scene) {
+      return null;
+    }
+    let best: ScrollView | null = null;
+    let bestDepth = -1;
+    for (const view of sceneScrollViews.get(scene) ?? []) {
+      if (view.isDestroyed || !view.containsPoint(x, y)) {
+        continue;
+      }
+      const depth = view.scrollDepth();
+      if (depth > bestDepth) {
+        best = view;
+        bestDepth = depth;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Where a press landed inside the scrollbar, if anywhere.
+   *
+   * `'thumb'` starts a proportional drag of the thumb (its own length is respected, so grabbing an
+   * edge does not jump), `'track'` jumps so the thumb centres on the pointer — the behaviour of a
+   * native scrollbar. Both are computed from `thumbGeometry`, i.e. from the same pure function the
+   * painter uses.
+   */
+  private barHit(
+    x: number,
+    y: number,
+  ): { axis: 'x' | 'y'; mode: 'thumb' | 'track'; grab: number } | null {
+    const local = { x: x - (this.x + this.stageOffsetX()), y: y - (this.y + this.stageOffsetY()) };
+    const margin = 2;
+    const thickness = Math.min(
+      this.scrollbarSize,
+      Math.max(2, Math.min(this.rect.width, this.rect.height) / 3),
+    );
+
+    if (
+      this.scrollsY() &&
+      this.scrollbarMode !== false &&
+      local.x >= this.rect.width - margin - thickness
+    ) {
+      const thumb = thumbGeometry(
+        this.currentY,
+        this.rect.height,
+        this.contentHeight,
+        Math.max(0, this.rect.height - 2 * margin),
+        MIN_THUMB,
+      );
+      const trackStart = margin;
+      const withinThumb =
+        local.y >= trackStart + thumb.position &&
+        local.y <= trackStart + thumb.position + thumb.length;
+      return {
+        axis: 'y',
+        mode: withinThumb ? 'thumb' : 'track',
+        grab: local.y - (trackStart + thumb.position),
+      };
+    }
+    if (
+      this.scrollsX() &&
+      this.scrollbarMode !== false &&
+      local.y >= this.rect.height - margin - thickness
+    ) {
+      const thumb = thumbGeometry(
+        this.currentX,
+        this.rect.width,
+        this.contentWidth,
+        Math.max(0, this.rect.width - 2 * margin),
+        MIN_THUMB,
+      );
+      const trackStart = margin;
+      const withinThumb =
+        local.x >= trackStart + thumb.position &&
+        local.x <= trackStart + thumb.position + thumb.length;
+      return {
+        axis: 'x',
+        mode: withinThumb ? 'thumb' : 'track',
+        grab: local.x - (trackStart + thumb.position),
+      };
+    }
+    return null;
+  }
+
+  /** Stage position of the enclosing container chain (the widget's own x/y are parent-local). */
+  private stageOffsetX(): number {
+    let x = 0;
+    let node = this.parentContainer;
+    while (node) {
+      x += node.x;
+      node = node.parentContainer;
+    }
+    return x;
+  }
+
+  private stageOffsetY(): number {
+    let y = 0;
+    let node = this.parentContainer;
+    while (node) {
+      y += node.y;
+      node = node.parentContainer;
+    }
+    return y;
+  }
+
+  /** Moves the offset so the scrollbar thumb's centre sits under the pointer. */
+  private dragBarTo(
+    hit: { axis: 'x' | 'y'; mode: 'thumb' | 'track'; grab: number },
+    pointer: { x: number; y: number },
+  ): void {
+    const margin = 2;
+    if (hit.axis === 'y') {
+      const track = Math.max(0, this.rect.height - 2 * margin);
+      const thumb = thumbGeometry(
+        this.currentY,
+        this.rect.height,
+        this.contentHeight,
+        track,
+        MIN_THUMB,
+      );
+      const travel = Math.max(1, track - thumb.length);
+      const local = pointer.y - (this.y + this.stageOffsetY()) - margin;
+      const position = hit.mode === 'thumb' ? local - hit.grab : local - thumb.length / 2;
+      const progress = Math.min(1, Math.max(0, position / travel));
+      this.setOffset(this.currentX, progress * this.limitY);
+      return;
+    }
+    const track = Math.max(0, this.rect.width - 2 * margin);
+    const thumb = thumbGeometry(
+      this.currentX,
+      this.rect.width,
+      this.contentWidth,
+      track,
+      MIN_THUMB,
+    );
+    const travel = Math.max(1, track - thumb.length);
+    const local = pointer.x - (this.x + this.stageOffsetX()) - margin;
+    const position = hit.mode === 'thumb' ? local - hit.grab : local - thumb.length / 2;
+    const progress = Math.min(1, Math.max(0, position / travel));
+    this.setOffset(progress * this.limitX, this.currentY);
+  }
 
   /** Which keys this view owns, given its direction. */
   private handlesKey(key: string): boolean {
