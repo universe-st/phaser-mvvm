@@ -15,9 +15,8 @@
  * `focusName()` / `focusables()` / `state()` / `counts()`.
  */
 
-import Phaser from 'phaser';
 import { ref } from '@phaser-mvvm/core';
-import { A11Y_ATTRIBUTE, A11Y_LIVE_ATTRIBUTE, type Widget } from '@phaser-mvvm/phaser';
+import { A11Y_ATTRIBUTE, A11Y_LIVE_ATTRIBUTE, UIScene, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
   Divider,
@@ -27,7 +26,6 @@ import {
   Text,
   TextArea,
   TextField,
-  ui,
 } from '@phaser-mvvm/widgets/compose';
 import { setDemoState } from '../demo';
 import { appendStatus, reportCanvas, reportWidget } from '../status';
@@ -44,12 +42,11 @@ interface MirrorNode {
   text: string;
 }
 
-export class A11yScene extends Phaser.Scene {
+export class A11yScene extends UIScene {
   private readonly volume = ref(40);
   private readonly notify = ref(true);
   private readonly name = ref('');
 
-  private page: Widget | null = null;
   private readonly tracked = new Map<string, Widget>();
   private readonly published = new Map<string, string>();
 
@@ -57,8 +54,10 @@ export class A11yScene extends Phaser.Scene {
     super('a11y');
   }
 
-  create(): void {
-    this.buildPage();
+  override create(): void {
+    // `super.create()` builds and mounts `content()` — the two lines this scene used to write by hand
+    // (`ui(this, …)` then `this.mvvm.mount(page)`).
+    super.create();
     this.exposeApi();
 
     setDemoState('scene', 'a11y');
@@ -70,139 +69,130 @@ export class A11yScene extends Phaser.Scene {
     this.mvvm.a11y.refresh();
   }
 
-  private buildPage(): void {
-    // The DSL needs an open scope (`ui()`), exactly like every other scene: the widgets are built
-    // inside the lambda, never at the top level.
-    const page = ui(this, () => {
-      Panel(
-        {
-          direction: 'vertical',
-          gap: 12,
-          padding: 20,
-          variant: 'surface',
-          radius: 12,
-          width: 620,
-          name: 'a11y.page',
-        },
-        () => {
-          this.track('title', Text('无障碍镜像 · A11yBridge', { size: 'lg', name: 'a11y.title' }));
-          this.track(
-            'hint',
-            Text('屏幕阅读器看不到画布：每个可交互控件在这里有一个隐藏的 DOM 镜像节点。', {
-              tone: 'muted',
-              name: 'a11y.hint',
-              maxLines: 2,
-            }),
-          );
-          Divider({});
+  /** The whole page. `UIScene` runs it in a UI scope and mounts whatever it produces. */
+  override content(): void {
+    Panel(
+      {
+        direction: 'vertical',
+        gap: 12,
+        padding: 20,
+        variant: 'surface',
+        radius: 12,
+        width: 620,
+        name: 'a11y.page',
+      },
+      () => {
+        this.track('title', Text('无障碍镜像 · A11yBridge', { size: 'lg', name: 'a11y.title' }));
+        this.track(
+          'hint',
+          Text('屏幕阅读器看不到画布：每个可交互控件在这里有一个隐藏的 DOM 镜像节点。', {
+            tone: 'muted',
+            name: 'a11y.hint',
+            maxLines: 2,
+          }),
+        );
+        Divider({});
 
-          this.track(
-            'plain',
-            Button('普通按钮', {
-              variant: 'primary',
-              name: 'a11y.plain',
-              onClick: () => this.announce('已点击'),
-            }),
-          );
-          this.track(
-            'toggle',
-            Button('接收通知', {
-              name: 'a11y.toggle',
-              label: '接收通知',
-              toggle: true,
-              value: this.notify,
-              variant: 'secondary',
-            }),
-          );
-          this.track(
-            'disabled',
-            Button('不可用按钮', { name: 'a11y.disabled', variant: 'ghost', disabled: true }),
-          );
+        this.track(
+          'plain',
+          Button('普通按钮', {
+            variant: 'primary',
+            name: 'a11y.plain',
+            onClick: () => this.announce('已点击'),
+          }),
+        );
+        this.track(
+          'toggle',
+          Button('接收通知', {
+            name: 'a11y.toggle',
+            label: '接收通知',
+            toggle: true,
+            value: this.notify,
+            variant: 'secondary',
+          }),
+        );
+        this.track(
+          'disabled',
+          Button('不可用按钮', { name: 'a11y.disabled', variant: 'ghost', disabled: true }),
+        );
 
-          this.track(
-            'slider',
-            Slider({
-              name: 'a11y.volume',
-              label: '音量',
-              value: this.volume,
-              min: 0,
-              max: 100,
-              step: 5,
-              width: 240,
-            }),
-          );
+        this.track(
+          'slider',
+          Slider({
+            name: 'a11y.volume',
+            label: '音量',
+            value: this.volume,
+            min: 0,
+            max: 100,
+            step: 5,
+            width: 240,
+          }),
+        );
 
-          this.track(
-            'field',
-            TextField({
-              name: 'a11y.field',
-              label: '名字',
-              value: this.name,
-              placeholder: '名字（必填）',
-              validate: (value: string) => (value.trim().length === 0 ? '名字不能为空' : null),
-            }),
-          );
-          this.track(
-            'notes',
-            TextArea({
-              name: 'a11y.notes',
-              label: '备注',
-              placeholder: '备注',
-              height: 56,
-              maxLength: 80,
-            }),
-          );
+        this.track(
+          'field',
+          TextField({
+            name: 'a11y.field',
+            label: '名字',
+            value: this.name,
+            placeholder: '名字（必填）',
+            validate: (value: string) => (value.trim().length === 0 ? '名字不能为空' : null),
+          }),
+        );
+        this.track(
+          'notes',
+          TextArea({
+            name: 'a11y.notes',
+            label: '备注',
+            placeholder: '备注',
+            height: 56,
+            maxLength: 80,
+          }),
+        );
 
-          this.track(
-            'card',
-            Panel(
-              {
-                direction: 'vertical',
-                gap: 6,
-                padding: 10,
-                variant: 'surfaceAlt',
-                radius: 8,
-                interactive: true,
-                name: 'a11y.card',
-                label: '可点击的卡片',
-              },
-              () => {
-                this.track('cardText', Text('可点击的卡片', { tone: 'muted' }));
-              },
-            ),
-          );
+        this.track(
+          'card',
+          Panel(
+            {
+              direction: 'vertical',
+              gap: 6,
+              padding: 10,
+              variant: 'surfaceAlt',
+              radius: 8,
+              interactive: true,
+              name: 'a11y.card',
+              label: '可点击的卡片',
+            },
+            () => {
+              this.track('cardText', Text('可点击的卡片', { tone: 'muted' }));
+            },
+          ),
+        );
 
-          this.track(
-            'region',
-            Scroll(
-              { height: 72, name: 'a11y.region', label: '按钮区域', scrollbar: 'auto' },
-              () => {
-                Panel({ direction: 'vertical', gap: 6, width: 'fill' }, () => {
-                  for (let index = 1; index <= 6; index++) {
-                    this.track(
-                      `region.${index}`,
-                      Button(`区域内的按钮 ${index}`, {
-                        name: `a11y.region.button${index}`,
-                        variant: 'ghost',
-                        size: 'sm',
-                      }),
-                    );
-                  }
-                });
-              },
-            ),
-          );
+        this.track(
+          'region',
+          Scroll({ height: 72, name: 'a11y.region', label: '按钮区域', scrollbar: 'auto' }, () => {
+            Panel({ direction: 'vertical', gap: 6, width: 'fill' }, () => {
+              for (let index = 1; index <= 6; index++) {
+                this.track(
+                  `region.${index}`,
+                  Button(`区域内的按钮 ${index}`, {
+                    name: `a11y.region.button${index}`,
+                    variant: 'ghost',
+                    size: 'sm',
+                  }),
+                );
+              }
+            });
+          }),
+        );
 
-          this.track(
-            'tail',
-            Text('这段文字不是控件，因此没有镜像节点。', { tone: 'muted', name: 'a11y.tail' }),
-          );
-        },
-      );
-    });
-
-    this.page = page;
-    this.mvvm.mount(page);
+        this.track(
+          'tail',
+          Text('这段文字不是控件，因此没有镜像节点。', { tone: 'muted', name: 'a11y.tail' }),
+        );
+      },
+    );
   }
 
   /** Announces through the live region — what an app does for "saved", "3 of 12", an error, … */

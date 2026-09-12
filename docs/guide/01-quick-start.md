@@ -67,18 +67,18 @@ new Phaser.Game({
 
 ## 3. 第一个页面
 
-在场景的 `create()` 里搭树、挂载。**视图就是代码**：容器函数收一个内容 lambda，里面创建的控件自动成为它的子节点——这是 [09 章](./09-compose-dsl.md) 的 Compose 风格 DSL，也是本指南推荐的第一写法。
+最省事的入口是继承 **`UIScene`**：它替你建树并挂载，你只写视图。
 
 ```ts
-import Phaser from 'phaser';
-import { render, Panel, Row, Text, Button, Divider } from '@phaser-mvvm/widgets/compose';
+import { UIScene } from '@phaser-mvvm/phaser';
+import { Panel, Row, Text, Button, Divider } from '@phaser-mvvm/widgets/compose';
 
-export class HelloScene extends Phaser.Scene {
+export class HelloScene extends UIScene {
   constructor() {
     super('hello');
   }
 
-  create(): void {
+  content(): void {
     const theme = this.mvvm.theme; // 当前主题（默认 dark）
 
     // 一个返回控件的普通函数就是「一个组件」
@@ -88,28 +88,52 @@ export class HelloScene extends Phaser.Scene {
         Text(body, { tone: 'muted', maxLines: 3, ellipsis: true });
       });
 
+    Panel({ gap: 12, padding: 20, variant: 'surface', radius: 12, width: 520 }, () => {
+      Text('Hello phaser-mvvm', { style: { fontSize: `${theme.fontSize.xl}px` } });
+      Text('一条声明式的 UI 树，引擎负责测量与排布', { tone: 'muted' });
+
+      Row({ gap: 12, alignItems: 'stretch', width: 'fill' }, () => {
+        card('布局', '两阶段 measure/arrange，自动处理百分比、填充与伸缩');
+        card('控件', '主题驱动的外观，零美术资源也能跑通');
+      });
+
+      Divider({});
+
+      Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
+        Button('取消', { variant: 'ghost' });
+        Button('确定', { variant: 'primary', onClick: () => console.log('clicked') });
+      });
+    });
+  }
+}
+```
+
+UI 只是场景工作的一部分时（钉在世界上的 HUD、两棵互不相干的根、要交给对话框的子树），照常写 `Phaser.Scene` 并在 `create()` 里 `render()`：
+
+```ts
+import Phaser from 'phaser';
+import { render, Panel, Row, Text, Button } from '@phaser-mvvm/widgets/compose';
+
+export class HudOverlayScene extends Phaser.Scene {
+  constructor() {
+    super('hud');
+  }
+
+  create(): void {
     // render() = 建树 + this.mvvm.mount()，一次调用搞定整页
     render(this.mvvm, () => {
       Panel({ gap: 12, padding: 20, variant: 'surface', radius: 12, width: 520 }, () => {
-        Text('Hello phaser-mvvm', { style: { fontSize: `${theme.fontSize.xl}px` } });
-        Text('一条声明式的 UI 树，引擎负责测量与排布', { tone: 'muted' });
-
-        Row({ gap: 12, alignItems: 'stretch', width: 'fill' }, () => {
-          card('布局', '两阶段 measure/arrange，自动处理百分比、填充与伸缩');
-          card('控件', '主题驱动的外观，零美术资源也能跑通');
-        });
-
-        Divider({});
-
+        Text('Hello phaser-mvvm', { style: { fontSize: '22px' } });
         Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
-          Button('取消', { variant: 'ghost' });
-          Button('确定', { variant: 'primary', onClick: () => console.log('clicked') });
+          Button('确定', { variant: 'primary' });
         });
       });
     });
   }
 }
 ```
+
+> **两种入口怎么选**：场景**就是**那一页 → `UIScene`；UI 是场景的一部分 → `Phaser.Scene` + `render()`。`UIScene` 另外还提供 `setContent()`（整页替换）、`onBack()`（`Esc`/手柄 B 的先否决权）、`page`/`contentInfo`（当前根与建树结果），完整能力与实测读数见 [`ACCEPTANCE-uiscene.md`](../ACCEPTANCE-uiscene.md)。
 
 然后照常注册场景：
 
@@ -118,8 +142,13 @@ new Phaser.Game({ /* … */ scene: [HelloScene] });
 ```
 
 > **用 DSL 就不必调用 `installFactories()` / `installWidgetFactories()`**：那两个函数只注册 `this.add.uiButton(...)` 这类工厂方法，而 DSL 直接构造控件类。只有当你（或旧代码）要写 `this.add.*` 时才需要它们。
+>
+> ⚠️ 反过来说：**`UIScene.content()` 里不能拿工厂方法当根**。`this.add.vbox(...)`/`this.add.uiLabel(...)` 直接进显示列表、**不进 UI 作用域**，于是"内容 lambda 一个根都没建"会直接报错。`content()` 与 `ui()`/`render()` 的 lambda 是同一种东西：里面写 DSL composable，或显式用 `withUiParent()` 把工厂产物交进去。
 
 ### 这段代码在发生什么
+
+- 每个 composable（`Panel`/`Row`/`Text`/…）都 **`scene.add.existing()`** 了一个控件，所以它已经在显示列表里；但**还没参与布局**。内容 lambda 里创建的控件会在创建时挂到当前容器上（[09 §7](./09-compose-dsl.md) 讲这套作用域机制）。
+- `UIScene` 的 `create()`（或手写的 `render(this.mvvm, () => { … })`）是关键一步，等价于 `const page = ui(this, () => { … }); this.mvvm.mount(page);`：
 
 - 每个 composable（`Panel`/`Row`/`Text`/…）都 **`scene.add.existing()`** 了一个控件，所以它已经在显示列表里；但**还没参与布局**。内容 lambda 里创建的控件会在创建时挂到当前容器上（[09 §7](./09-compose-dsl.md) 讲这套作用域机制）。
 - `render(this.mvvm, () => { … })` 是关键一步，等价于 `const page = ui(this, () => { … }); this.mvvm.mount(page);`：

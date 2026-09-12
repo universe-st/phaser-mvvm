@@ -49,6 +49,8 @@ export {
   type A11yOptions,
 } from './a11y';
 export { buildUiPage, type BuiltUi } from './ui-build';
+export { UIScene, type UISceneBackHook } from './UIScene';
+export { requireMVVMPlugin } from './require-plugin';
 export {
   DEFAULT_REVEAL_MARGIN,
   DEFAULT_REVEAL_PASSES,

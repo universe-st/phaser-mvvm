@@ -41,6 +41,7 @@ import {
 } from './nav';
 import { getTheme, onThemeChange, setTheme, type Theme, type ThemeName } from './theme';
 import { UIRoot, type UIRootOptions } from './UIRoot';
+import type { UISceneBackHook } from './UIScene';
 import { Widget, type ActivationSource } from './Widget';
 
 type GamepadLike = Parameters<typeof gamepadActionsOf>[0];
@@ -445,7 +446,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    * `back` action routing (Escape / gamepad B).
    *
    * The order lives in `planBack()` (a pure function with Node tests): a modal owns the action first,
-   * then the page stack, and only an app with nowhere left to go sees its own `onBack`.
+   * then the page stack. After that the *scene* gets first refusal (`UIScene.onBack`, when the scene
+   * opted in with its `backHook` marker), and only an app with nowhere left to go sees its own
+   * `onBack` — so a scene can intercept Escape without taking the app-level handler away.
    */
   private handleBack(): void {
     const target = planBack({
@@ -459,6 +462,10 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       return;
     }
     if (target === 'page' && this.pageHost?.handleBack() === true) {
+      return;
+    }
+    const scene = this.scene as (Phaser.Scene & UISceneBackHook) | null;
+    if (scene?.backHook === true && scene.onBack?.() === true) {
       return;
     }
     // `config.onBack` can never arrive (Phaser instantiates scene plugins with three arguments), so

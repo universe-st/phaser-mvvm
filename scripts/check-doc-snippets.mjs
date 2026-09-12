@@ -146,6 +146,13 @@ function checkFile(file, known) {
     )) {
       locals.add(m[1]);
     }
+    // Class members declared **without** a modifier, which is how a `UIScene` subclass writes its view
+    // (`content(): void {`, `onBack(): boolean {`). A line that starts with a name, a parameter list and
+    // a *return type* is a declaration and not a call, but the pass above needs a modifier to see it —
+    // so without this the member's own name is reported as a missing export.
+    for (const m of code.matchAll(/^\s*(\w+)\s*\([^)]*\)\s*:(?!:)/gm)) {
+      locals.add(m[1]);
+    }
     // Arrow parameters are locals too: `const row = (label, control) => control()`.
     for (const m of code.matchAll(/\(([\s\S]*?)\)\s*=>/g)) {
       for (const param of m[1].split(',')) {

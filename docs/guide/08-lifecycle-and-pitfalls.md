@@ -8,8 +8,8 @@
 
 ```
 场景 create()
-  ├─ 用工厂搭出控件树（此时控件已在显示列表，但还没布局）
-  ├─ this.mvvm.mount(page)
+  ├─ 用 DSL/工厂搭出控件树（此时控件已在显示列表，但还没布局）
+  ├─ this.mvvm.mount(page)        ← 继承 UIScene 时这一步由基类做（content() 建树 + 自动挂载）
   │     ├─ root.addWidget(page)   → 立刻布局一次（引擎 measure + arrange）
   │     └─ refreshInteraction()   → 收集指针目标与焦点集合
   └─ 之后每个 PRE_UPDATE：
@@ -50,10 +50,46 @@
 
 | 需求              | 做法                                                                                                                                   |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 挂整个页面        | `this.mvvm.mount(page)`                                                                                                                |
+| 挂整个页面        | `this.mvvm.mount(page)`，或继承 `UIScene` 只写 `content()`                                                                             |
 | 之后往页面里加/删 | `parent.addWidget(child)` / `parent.removeWidget(child, true)`，引擎会自动重算；新控件会在下一帧被纳入输入路由（结构版本变化触发刷新） |
-| 清空并重建        | `parent.removeAllWidgets(true)` 后重新挂                                                                                               |
+| 清空并重建        | `parent.removeAllWidgets(true)` 后重新挂，或（`UIScene`）`this.setContent(() => …)`                                                    |
 | 整棵 UI 树销毁    | `this.mvvm.root.destroy(true)`（通常只在场景关闭时由插件做）                                                                           |
+
+### 「整页换掉」用 `setContent()`，值变化用 `ref` 槽
+
+`UIScene.setContent()` 的语义是**销毁整页再建一页**：旧树的控件、绑定、订阅、文字纹理全部释放，新树重新建、重新布局、重新收集焦点/指针/无障碍镜像。
+
+```ts
+export class ShellScene extends UIScene {
+  private readonly tab = ref<'profile' | 'settings'>('profile');
+
+  content(): void {
+    // 顶栏与切换按钮（每次换页都会重建，所以状态放在场景字段/ref 上）
+    Row({ gap: 8 }, () => {
+      Button('资料', { name: 'tab.profile', onClick: () => this.switchTo('profile') });
+      Button('设置', { name: 'tab.settings', onClick: () => this.switchTo('settings') });
+    });
+    if (this.tab.value === 'profile') {
+      this.profileView();
+    } else {
+      this.settingsView();
+    }
+  }
+
+  private switchTo(tab: 'profile' | 'settings'): void {
+    this.tab.value = tab;
+    this.setContent(() => this.content());
+  }
+}
+```
+
+三条纪律：
+
+1. **状态放场景（或 ViewModel）上，不要放在视图闭包里**——视图每次都会被重建，闭包里的局部变量随之消失。
+2. **值变化不要用 `setContent()`**：`Text(() => …)`、`visible: () => …` 这类 `ref` 槽在原地更新，代价是零重建（重建还会丢掉输入框里的光标位置、滚动偏移和焦点）。
+3. **反复替换要不泄漏**：`#/uiscene` 的 `swap(n)` 就是这条的门禁——`themeListeners`/`displayList`/`focusables`/`pointerTargets`/`a11yNodes` 在 20 次替换前后必须逐项相同（实测见 [`ACCEPTANCE-uiscene.md`](../ACCEPTANCE-uiscene.md)）。
+
+> 换页时**谁都不需要手动清**：`Widget.destroy()` 会 `scope.stop()`、退订主题、注销输入，`mount()` 会重收集交互集合，而焦点管理器会把已经不存在的那一个**释放掉**（`FocusManager.collect()`），不会留悬空引用。
 
 ### 手动加控件后为什么还能点
 

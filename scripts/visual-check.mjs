@@ -42,7 +42,7 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack', 'hud', 'modal'];
+const scenes = ['m0', 'probe', 'stack', 'hud', 'modal', 'uiscene'];
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.
@@ -143,6 +143,15 @@ const PIXEL_EXPECTATIONS = {
     'hud.center': 0xd29922,
     'hud.right': 0xa371f7,
     bar: 0x2f6feb,
+  },
+  /**
+   * `#/uiscene` — a page built by `UIScene` (the base class that mounts `content()` for you), in its
+   * default state. `show.a` is the button of the view that is *currently* shown, so it is painted
+   * `primary`. Including this scene is the point: the pixel gate is the only automated check that would
+   * notice a `UIScene` that builds the right tree and then never mounts it.
+   */
+  uiscene: {
+    'show.a': { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
   },
   stack: {
     // The card covers the centre of the backdrop, so the backdrop is sampled near its own corner.

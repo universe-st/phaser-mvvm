@@ -335,16 +335,30 @@ private openDetail(row: Row): void {
 
 ### `back` 的归属顺序
 
-按 `Esc`（或手柄 `B`/`○`）时，框架按固定顺序问三层，规则写在 `planBack()` 里并有 Node 单测：
+按 `Esc`（或手柄 `B`/`○`）时，框架按固定顺序问四层，前两层写在 `planBack()` 里（纯函数 + Node 单测）：
 
 1. **模态栈**：有对话框就归它——`dismissible: false` 的对话框会**吞掉**这个键（下层不能替它做决定）；
 2. **页面栈**：还有上一页可回时 `pop()` 一层；只剩顶层那一页时**不弹**（弹空会留下白屏）；
-3. **应用**：`this.mvvm.onBack`（这才是放应用级处理的地方）。
+3. **场景**：继承 `UIScene` 时，`onBack()` 在这里被调用——返回 `true` 表示这一页自己处理了；
+4. **应用**：`this.mvvm.onBack`（这才是放应用级处理的地方）。
 
 ```ts
-// 应用级返回：只有模态与页面都不要这个键时才会走到这里
+// 1) 页面自己的返回（UIScene）：返回 true 就不往下走了
+export class SettingsScene extends UIScene {
+  protected override onBack(): boolean {
+    if (!this.dirty.value) {
+      return false; // 交回给应用层
+    }
+    this.confirmDiscard(); // 有未保存的改动，先问一句
+    return true;
+  }
+}
+
+// 2) 应用级返回：只有模态、页面、场景都不要这个键时才会走到这里
 this.mvvm.onBack = () => this.togglePause();
 ```
+
+第 3 层是为"这一页想自己决定怎么退"准备的，而它**不会**把应用级处理抢掉——只有返回 `true` 才拦。判定用一个显式标记（`UIScene` 上的 `backHook`），所以普通 `Phaser.Scene` 上恰好同名的 `onBack()` 方法不会被框架误调。
 
 ### 与模态框的层序
 

@@ -18,6 +18,7 @@ import { PagesScene } from './scenes/pages';
 import { ProbeScene } from './scenes/probe';
 import { ScrollScene } from './scenes/scroll';
 import { StatesScene } from './scenes/states';
+import { UiSceneScene } from './scenes/uiscene';
 import { ShowcaseScene } from './scenes/showcase';
 import { StackScene } from './scenes/stack';
 import { installFakePad } from './fake-pad';
@@ -62,6 +63,7 @@ const SCENES = {
   compose: ComposeScene,
   lifecycle: LifecycleScene,
   states: StatesScene,
+  uiscene: UiSceneScene,
   hud: HudScene,
 } as const;
 
