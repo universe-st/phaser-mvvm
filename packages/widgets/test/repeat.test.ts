@@ -256,6 +256,63 @@ describe('planVirtualWindow', () => {
     ).toEqual({ start: 10, end: 20, leading: 100, trailing: 800 });
   });
 
+  it('keeps the window the same size at 220, 5 000 and a million items', () => {
+    // PLAN §M7 claims "5000 items at a stable 60 fps". The part of that claim a unit test can pin is
+    // *why* it holds: the mounted window is a function of the viewport and the row extent, never of the
+    // item count — so the layout work per frame is O(window), not O(n). The wall-clock half of the
+    // claim is measured on `#/list` (`listDemo.perf()`, see ACCEPTANCE-list.md §6).
+    const windowSize = (count: number, offset: number): number => {
+      const range = computeVisibleRange(offset, 408, 38, count, 3);
+      return range.end - range.start;
+    };
+    // At the very top the leading pad is clamped away (14 rows: 11 visible + 3 overscan); anywhere in
+    // the middle both pads apply (17). Either way the number does not depend on the item count.
+    expect(windowSize(220, 0)).toBe(14);
+    expect(windowSize(5000, 0)).toBe(14);
+    expect(windowSize(1_000_000, 0)).toBe(14);
+    expect(windowSize(220, 3800)).toBe(17);
+    expect(windowSize(5000, 100_000)).toBe(17);
+    expect(windowSize(1_000_000, 500_000)).toBe(17);
+  });
+
+  it('stays exact at a large count (no float drift in the filler heights)', () => {
+    // 5000 rows × 38 px is 190 000 px — the numbers the demo really uses, checked against the closed
+    // form rather than against a recomputation.
+    const count = 5000;
+    const extent = 38;
+    const gap = 4;
+    const total = contentExtentOf(count, extent, gap);
+    expect(total).toBe(count * extent - gap);
+
+    const middle = planVirtualWindow({
+      offset: 100_000,
+      viewport: 408,
+      itemExtent: extent,
+      count,
+      gap,
+      overscan: 3,
+    });
+    expect(middle.leading).toBe(middle.start * extent - gap);
+    expect(middle.trailing).toBe((count - middle.end) * extent - gap);
+    // The three pieces have to add up to the real content height, which is what keeps the scroll bar
+    // and the row positions honest at the far end of a long list.
+    expect(middle.leading + (middle.end - middle.start) * extent + middle.trailing).toBe(
+      total - gap,
+    );
+
+    const end = planVirtualWindow({
+      offset: total - 408,
+      viewport: 408,
+      itemExtent: extent,
+      count,
+      gap,
+      overscan: 3,
+    });
+    expect(end.end).toBe(count);
+    expect(end.trailing).toBe(0);
+    expect(end.leading + (end.end - end.start) * extent).toBe(total);
+  });
+
   it('maps rows to items for a multi-item row', () => {
     expect(
       planVirtualWindow({

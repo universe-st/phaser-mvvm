@@ -75,7 +75,7 @@ churn(20) before { widgets: 89, themeListeners: 92, pointerTargets: 25, focusabl
 - **5000 行 / 帧率**：PLAN M7 的 "5000 项稳定 60 fps" 需要真实帧率测量；本轮只断言挂载数与构建数（`#/lifecycle` 与 `visual-check` 覆盖泄漏与几何）。用 Playwright MCP 测帧率必须 `bringToFront()`，否则 rAF 被节流（见 `ACCEPTANCE-touch.md` §4）。
 - **`Repeat` 的 `update` 回调路径**（`repeateOptions.update` 原地更新而不重建）：`#/list` 没有用它，只有 Node 单测覆盖。
 - **重复 key 的降级**：`planRepeatUpdate.duplicates` 只由 Node 单测覆盖。
-- **触摸滚动这个列表**：本轮用鼠标；虚拟化 + 触摸拖动在 `#/pages` 已验收（`ACCEPTANCE-touch.md` §3.7）。
+- ~~**触摸滚动这个列表**~~：第 77 轮已补（§6 有真实触摸拖动的帧预算数字）。
 - **`focusables` 的逐帧发布**：`#/list` 目前只有 `listDemo.focusables()`（按需），没有逐帧 `st.*`/`focusables` 行——需要时再补。
 
 ---
@@ -85,3 +85,33 @@ churn(20) before { widgets: 89, themeListeners: 92, pointerTargets: 25, focusabl
 **V26 · `#/list` 把键控复用的适用条件写错了。** 页面头部与侧栏都写着「Shuffle keeps every mounted row (keyed reuse)」，实测一次 `shuffle()` 会**构建 15 行**（窗口里 17 行）。原因不是 `Repeat` 有毛病：shuffle 重排的是**整个数据源**，于是索引窗口里换成了**另一批 key**，这些行当然必须新建——这正是虚拟化的正确行为。真正的键控复用出现在"窗口内 key 集合不变、只是顺序变了"的时候（`swapVisible()`：`created` 增量 0）。所以本轮改的是**说明文字**，并把两种情形都变成可断言的数字（`created`），另加 `swapVisible()` 作为复用的正面用例。
 
 同类教训（供以后写 demo 参考）：一句"看起来更快"的注释如果没法测量，就不该写成结论；`created()` 这类计数器是把宣传变成断言的最省事的办法。
+
+---
+
+## 6. 5000 行 60 fps（PLAN §M7 的验收标准，第 77 轮实测）
+
+PLAN 的 M7 行写着「滚动 + 虚拟化在 5000 项下稳定 60 fps」，而 `#/list` 一直是 220 行——这条标准此前**从没被量过**。第 77 轮补上：演示页新增 `listDemo.setTotal(n)`（把数据源换成 n 行）与 `listDemo.perf({ frames, step })`。
+
+**怎么量的**：`perf()` 在页面里用 `requestAnimationFrame` 驱动——每一帧把滚动位置推进一行（或指定行数），因此采样到的是**帧间隔**，也就是框架自己的开销（布局 + 虚拟化 + 渲染），而不是 CDP 派发输入的速度。（一个 `while` 循环里调 `performance.now()` 只会量出 `scrollTo()` 返回得多快，那不是这个问题。）测量前先 `bringToFront()`（否则 rAF 被节流到 1 fps，见 AGENTS §8）。
+
+| 场景（5000 项，1280×720，无头 Chrome）        | 帧数 | median  | p95  | max  | fps      | 本轮新建行数        |
+| --------------------------------------------- | ---- | ------- | ---- | ---- | -------- | ------------------- |
+| 脚本驱动，1 行/帧                             | 180  | 16.7 ms | 17.8 | 18.6 | **59.9** | 181（正好 1 行/帧） |
+| 脚本驱动，4 行/帧（快速甩动）                 | 180  | 16.7    | 18.0 | 18.6 | **59.9** | 724                 |
+| **真实滚轮**输入（每 3 帧 3 个 wheel tick）   | 180  | 16.7    | 18.2 | 18.8 | 59.9     | —                   |
+| **真实触摸拖动**（40 次 touchMove，25 ms/次） | 200  | 16.7    | 18.3 | 18.6 | **59.9** | 219                 |
+
+对照与旁证：
+
+- **220 行**的同一测量也是 median 16.7 / max 18.3 —— 帧预算与**项目数无关**，17 行常驻（窗口顶部 14 行，因为前导 overscan 被夹掉）。
+- 布局计数器（1 行/帧那次）：`layoutPasses=180`（每帧正好一趟）、`measureCalls=6416`（≈36/帧：挂载的 17 行 + 被内容高度变化弄脏的祖先链，**不是 5000 行**）、`cacheHits=16591`；4 行/帧时 `measureCalls=10655`（≈59/帧，多出来的 23 次与新建的 543 行同阶，约 7.8 次/行）。按 PLAN §8 的预算（1000 节点全量测量 0.06 ms）算，即便页面再大十倍，这也不是帧预算里的量级——所以 5000 项与 220 项的帧时间实测完全相同。
+- `Repeat.created()` 的增长证明滚动真的在换窗口（1 行/帧 → +181；4 行/帧 → +724），而不是"什么都没做所以很快"。
+- 触摸那次如果按 **CDP 突发**（40 个 touchMove 背靠背派发）max 会到 33.8 ms；改成真实手指速度（25 ms/次）后 max 降到 18.6 ms —— 那个尖峰来自压测方式，不是框架。
+
+**同轮修掉的门禁缺陷（V45）**：`churn(n)` 的 `before` 快照原来取自"页面当前所在的偏移"、`after` 取自上滚回顶部的状态，而挂载行数取决于偏移（顶部 14 行、中间 17 行）——先跑 `perf()` 再跑门禁就会看到 `102 → 89`，像漏了 13 个控件。现在 `churn()` 先把偏移归零再取快照，冷启动 / 5000 行 `perf()` 之后（offset 2318）/ 滚到 45600 之后再调，三者都是 `before == after` 的 `{widgets: 89, themeListeners: 92, pointerTargets: 25, focusables: 19}`。顺带复核：一行一行地滚时 `created` 每步**正好 +1**（44→45→46→47→48→49），5000 行跑完后再跑泄漏门禁仍然全平。
+
+**这条标准的可复现方式**：`#/list` → `window.listDemo.setTotal(5000)` → `await window.listDemo.perf({ frames: 180 })`（返回 `{frames, median, p95, max, fps, created, rendered, measureCalls, arrangeCalls, layoutPasses, cacheHits}`）。
+
+**Node 侧钉住"为什么"**：`packages/widgets/test/repeat.test.ts` 新增两条用例——窗口行数在 220 / 5000 / 1 000 000 项下**完全相同**（顶部 14、中间 17），以及 5000 行（190 000 px）时填充块高度与闭合式 `count × itemExtent − gap` 逐像素相等、三段相加回到内容总高。墙钟数字会随机器变，这三条不变式不会。
+
+**未做**：真实设备（手机）上的帧率与 `Scale.FIT`（画布被缩放）下的帧率；GPU 是软件渲染的无头 Chrome，所以这里量的是"框架跟得上显示器"，不是绝对吞吐。

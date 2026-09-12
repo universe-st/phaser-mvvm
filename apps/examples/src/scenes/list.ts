@@ -482,6 +482,74 @@ export class ListScene extends Phaser.Scene {
         this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
       counts: (): ListCounts => this.counts(),
       /** Scrolls through `n` windows and back, so a leak in row recycling shows up as a counter drift. */
+      /**
+       * Replaces the list with `n` items (PLAN §M7's "5000 items at 60 fps" claim needs a way to get
+       * there). The window is recomputed and only the visible rows are built, however large `n` is.
+       */
+      setTotal: (n: number): number => {
+        this.nextId = n;
+        this.allItems.value = createItems(n);
+        this.publishState();
+        return this.filtered.value.length;
+      },
+      /**
+       * Measures the frame budget **while the list is being scrolled**, which is what PLAN §M7's
+       * "5000 items at 60 fps" claim is about.
+       *
+       * The driver advances the offset by one row from inside `requestAnimationFrame`, so what is
+       * sampled is the *interval between frames* — i.e. the framework's own cost (layout +
+       * virtualisation + render). A `while` loop calling `performance.now()` would only measure how
+       * fast `scrollTo()` returns, which is not the question.
+       *
+       * Async, and it resolves with the frame intervals plus what the renderer had to do during the run.
+       */
+      perf: (options: { frames?: number; step?: number } = {}): Promise<Record<string, number>> => {
+        const scroll = this.listScroll;
+        if (!scroll) {
+          return Promise.resolve({ frames: 0 });
+        }
+        const frames = Math.max(10, Math.floor(options.frames ?? 180));
+        const step = options.step ?? ITEM_EXTENT;
+        const createdBefore = this.rowsCreated;
+        const engine = this.mvvm.root.layoutEngine;
+        const statsBefore = { ...engine.stats };
+        const samples: number[] = [];
+        let offset = scroll.offset;
+        return new Promise((resolve) => {
+          let previous = 0;
+          const tick = (now: number): void => {
+            if (previous > 0) {
+              samples.push(now - previous);
+            }
+            previous = now;
+            offset = (offset + step) % Math.max(1, scroll.maxOffset);
+            scroll.scrollTo(offset);
+            if (samples.length < frames) {
+              requestAnimationFrame(tick);
+              return;
+            }
+            const sorted = [...samples].sort((a, b) => a - b);
+            const at = (fraction: number): number =>
+              sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ?? 0;
+            resolve({
+              frames: sorted.length,
+              median: Number(at(0.5).toFixed(2)),
+              p95: Number(at(0.95).toFixed(2)),
+              max: Number((sorted[sorted.length - 1] ?? 0).toFixed(2)),
+              fps: Number((1000 / (at(0.5) || 16.67)).toFixed(1)),
+              created: this.rowsCreated - createdBefore,
+              rendered: this.repeat?.renderedCount ?? 0,
+              // The layout side of the claim: a virtualised list must not re-measure 5000 rows per
+              // frame, so these counters are part of the measurement, not decoration.
+              measureCalls: engine.stats.measureCalls - statsBefore.measureCalls,
+              arrangeCalls: engine.stats.arrangeCalls - statsBefore.arrangeCalls,
+              layoutPasses: engine.stats.passes - statsBefore.passes,
+              cacheHits: engine.stats.cacheHits - statsBefore.cacheHits,
+            });
+          };
+          requestAnimationFrame(tick);
+        });
+      },
       churn: (
         n: number,
       ): {
@@ -489,17 +557,26 @@ export class ListScene extends Phaser.Scene {
         after: ListCounts;
         created: number;
       } => {
+        // Both snapshots have to describe the **same window**, and the window depends on the offset: at
+        // the very top the leading overscan is clamped away (14 rows), in the middle both pads apply
+        // (17). Taking `before` wherever the page happened to be and `after` back at the top compared
+        // 17 mounted rows against 14 and read like a leak of ~13 widgets that did not exist (found in
+        // round 77 by calling `perf()` first, which leaves the list scrolled). Normalising the offset
+        // first makes the gate independent of whatever ran before it.
+        this.listScroll?.scrollTo(0);
+        // The router re-collects its target list on the next frame after a structural change, so a
+        // synchronous reading here would catch it mid-update (measured: 19 targets instead of 25).
+        // Asking for the refresh makes the leak gate deterministic instead of frame-timing dependent.
+        this.mvvm.refreshInteraction();
         const before = this.counts();
         const createdBefore = this.rowsCreated;
         for (let i = 0; i < n; i++) {
           this.listScroll?.scrollTo(((i + 1) % 10) * ITEM_EXTENT);
         }
         this.listScroll?.scrollTo(0);
-        // The router re-collects its target list on the next frame after a structural change, so a
-        // synchronous reading here would catch it mid-update (measured: 19 targets instead of 25).
-        // Asking for the refresh makes the leak gate deterministic instead of frame-timing dependent.
         this.mvvm.refreshInteraction();
-        return { before, after: this.counts(), created: this.rowsCreated - createdBefore };
+        const after = this.counts();
+        return { before, after, created: this.rowsCreated - createdBefore };
       },
       state: (): Record<string, unknown> => {
         const keys = this.repeat?.getRenderedKeys() ?? [];
