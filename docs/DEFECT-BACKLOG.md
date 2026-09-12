@@ -221,7 +221,7 @@ M7 起滚轮就会**向上链式传递**（内层到头 → 剩下的增量交�
 
 ---
 
-## 3.23 第 81 轮新增（虚拟键盘：键挂错了父节点、第二条构建路径从未走过、程序化写值不与模型同步）
+## 3.23 第 81 轮新增（虚拟键盘：键挂错了父节点、第二条构建路径从未走过、程序化写值不与模型同步；第 82 轮补 V50）
 
 做 PLAN M9 最后一项「纯手柄完成文本输入」（`VirtualKeyboard`）时抓到的三个。它们的共同点是**表面全绿**：按键可点、可聚焦、计数为零、截图好看——V47 只有读几何才发现，V48 只在"第二条路径"上发生，V49 的两个真相在屏幕上完全看不出来。
 
@@ -230,6 +230,8 @@ M7 起滚轮就会**向上链式传递**（内层到头 → 剩下的增量交�
 | V47 | 已修复 | MED    | `widgets/src/compose.ts`（`VirtualKeyboard()`）       | **键盘从不认领自己的行，键挂到了外层容器上**。DSL 的容器协议是"先 `emitWidget(parent)`，再用 `withUiParent()` 把子节点交给它"；`VirtualKeyboard()` 只做了前半段——先 `emitWidget(widget)`、之后才逐行 `Row(...)`，于是那些行被当前作用域（页面的 `Panel`）收养，键盘本体成了一个**空盒子**。实测：`kb.keyboard=@380,442 520x20`（520×20，且落在按键下方），而按键坐标在 y=281..431；`counts.widgets` 却完全正常（49），因为控件一个不少——**只是它们的爹错了**。这类"结构错、行为对"的缺陷只有几何（或 `getWidgetChildren()`）能抓 | 改用 `withUiParent(widget, () => { …行与键… })`（与 `Panel`/`Row`/`Column` 完全同一套协议），并删掉多余的 `emitWidget`；修复后 `kb.keyboard=@380,297 520x150` 正好包住四行按键，`#status` 的几何成为这条的常驻门禁                                                                                                 |
 | V48 | 已修复 | LOW    | `apps/examples/src/scenes/keyboard.ts`                | **示例页的第二条构建路径从未被验收过**：换键盘发生在点击回调里，那里**没有构建作用域**，而 DSL 入口第一行就是 `currentUiScene()` → 抛 `scopeError`（`packages/phaser/test/uiscope.test.ts` 一直钉着这个行为）。同时重建键盘时漏传了 `onSubmit`，于是"切到数字键盘之后 `Enter` 不再提交"。两条都只在真的点那个按钮时才出现——而它此前从未被点过                                                                                                                                                                                    | 懒构建走**文档里本来就有**的入口 `buildUiSubtree(scene, () => VirtualKeyboard(...), '…')`（它开一个隔离作用域、返回它建的那一个根）；两条路径共用 `keyboardOptions(kind)` 一个工厂。实测：`Enter` 在换键盘前 1 → 换后 2 → 再换后 3 都会提交                                                                        |
 | V49 | 已修复 | MED    | `widgets/src/TextInputBase.ts`（`setValue`/`commit`） | **程序化写值不与模型同步：字段和 `ref` 变成两个真相**。`setValue()` 走 `commit(..., { silent: true })`，把 `change` 事件与 `onChange` 一起吞掉；而 DSL 的双向绑定（`value: ref`）正是靠 `change` 写回模型。于是 `field.setValue('')` 之后**字段空了、`ref` 还是旧文本**——实测 `caret=0` 而 `kb.value="QwQW"` 一直挂在 `#demo-state` 上；更糟的是绑定下一帧会把它再写回控件，"清空"看起来时灵时不灵。表单里这类不一致迟早变成"提交了旧内容"，而屏幕上永远看不出来（用户看到的是对的）                                             | `commit()` 的开关从「是否发声」拆成「是否**用户编辑**」：任何一次提交都发 `change`（模型绑定与 DSL 的 `onValueChange` 跟得上），只有用户编辑才调 `onChange` 选项。修后 `setValue('')` → `kb.value=""`；`#/form` 的 `bindValue(…, w => w.setValue(v))` 回归通过，`bindModel` 里"值相同就不写回"的守卫继续保证不成环 |
+
+| V50 | 已修复 | LOW | `widgets/src/VirtualKeyboard.ts`（页码切换） | **计划说"符号页没有 `⇧`"，控件却只重新贴标签**：`keyboardRows('text', 'symbols')` 会滤掉 `case` 键，Node 单测也钉着这一条，但控件切页时只调 `relabel()`——屏上的 `⇧` 还在、还能按（按了只是翻转一个本页无效的大小写状态），可访问名也还是"Shift"。**单测断言的是计划，浏览器看到的是控件，两边从来没有对上过**，而两边各自都"通过"了。第 82 轮把切页改成换键集（重建）之后，屏上真的没有 `⇧`（键 33 → 32，`st.kb.shift=gone`），计划与控件重新一致 | 切页与换 `kind` 走同一条重建路径（`drawKeys()`），重建后按"同名键优先、否则第一个键"恢复焦点；顺带把页码键的可访问名改成跟着**去向**走（符号页上是 `Letters`），因为"Numbers and symbols"描述的是当前状态而不是手指下这个按钮 |
 
 **同轮补的门禁**：① 键盘的键表与大小写状态机抽成纯逻辑 `keyboard-plan.ts`（零 Phaser），配 15 个 Node 单测——33 键 × 2 页 × 3 种大小写状态的组合此前没有任何断言；② `#/keyboard` 新增 `swapChurn(n)`（换键盘 n 次 + 每轮等一帧）与 `counts.displayList`——换键盘是"加一棵子树、销毁另一棵"，正是 V27（只脱离不销毁会把游离节点留在显示列表里）的形状；③ `scripts/visual-check.mjs` 的 `AX_EXPECTATIONS` 收下整把键盘（37 个控制节点逐条断言名字与角色），因为对屏幕阅读器用户来说**键名就是全部**。矩阵见 [`ACCEPTANCE-keyboard.md`](./ACCEPTANCE-keyboard.md)。
 

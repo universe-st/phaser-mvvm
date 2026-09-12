@@ -664,6 +664,15 @@ export interface FocusTarget {
   focus(widget: Widget): void;
   blur(widget: Widget): void;
   /**
+   * Re-collects the focusable widgets of the scope in play (optional; `FocusManager` implements it).
+   *
+   * A widget that replaces its own descendants — an on-screen keyboard switching its key set — has to
+   * call this before it can hand focus to one of the new widgets: `focus()` only accepts a widget of the
+   * scope's *collection*, which still describes the nodes that were just destroyed, so the call would be
+   * silently ignored and the player would be left with nothing focused.
+   */
+  refresh?(): void;
+  /**
    * Dispatches a navigation action (optional; `FocusManager` implements it).
    *
    * It exists for widgets that have to drive traversal *themselves*: a text field whose hidden DOM

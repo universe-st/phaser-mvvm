@@ -56,7 +56,9 @@ churn(20) before { widgets: 89, themeListeners: 92, pointerTargets: 25, focusabl
           after  { widgets: 89, themeListeners: 92, pointerTargets: 25, focusables: 19 }
 ```
 
-> 采样注意：`pointerTargets` 由插件在结构变化后的**下一帧**重收集，而 `churn()` 是同步返回的——所以 `churn()` 末尾显式调一次 `refreshInteraction()`，把读数钉在收敛后的值上（不然会读到 19 这种中间态）。
+> 采样注意①：`pointerTargets` 由插件在结构变化后的**下一帧**重收集，而 `churn()` 是同步返回的——所以 `churn()` 末尾显式调一次 `refreshInteraction()`，把读数钉在收敛后的值上（不然会读到 19 这种中间态）。
+>
+> 采样注意②（第 82 轮补）：`churn()` 在取 `before` 之前先做一次**热身滚动**（滚到第 6 行再回 0）。页面**第一次**滚动会做一次性工作——窗口越过被钳掉的 leading overscan、滚动条出现——实测 `themeListeners` 会在那一步从 91 走到 92（就是上面那条「预期偏移」）。不热身的话，在一个**还没滚过的**页面上取 `before`，快照之间就跨过了这个台阶，读数看起来像 +1 泄漏（第 82 轮的 21 场景走查正好撞到：同一轮里有时报平、有时报 +1）。热身之后连跑 4 次（含「加载后 180 ms 就量」）都是 92 → 92 恒定。
 
 ---
 

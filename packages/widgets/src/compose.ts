@@ -75,8 +75,11 @@ import { ScrollView, type ScrollViewOptions } from './ScrollView';
 import { withListFlow, type ListFlowShorthands } from './list-flow';
 import { Slider as SliderWidget, SLIDER_EVENTS, type SliderOptions } from './Slider';
 import { Spacer as SpacerWidget, type SpacerOptions } from './Spacer';
-import { VirtualKeyboardWidget, type VirtualKeyboardOptions } from './VirtualKeyboard';
-import { keyWidth } from './keyboard-plan';
+import {
+  VirtualKeyboardWidget,
+  type VirtualKeyboardKind,
+  type VirtualKeyboardOptions,
+} from './VirtualKeyboard';
 import { TextArea as TextAreaWidget, type TextAreaOptions } from './TextArea';
 import { TextField as TextFieldWidget, type TextFieldOptions } from './TextField';
 import { TEXT_INPUT_EVENTS } from './TextInputBase';
@@ -375,6 +378,16 @@ function bindOption<T, W extends Widget>(
   bindValue(widget, sourceGetter(value), (next, host) => apply(host as W, next));
 }
 
+/**
+ * `VirtualKeyboard` options with the DSL's reactive slots.
+ *
+ * `kind` accepts a literal or a reactive source: a `ref`/getter rebuilds the keys when it changes.
+ */
+export type VirtualKeyboardDslOptions = Omit<VirtualKeyboardOptions, 'kind'> & {
+  /** Which key set to show; a `Ref`/getter switches it (the widget rebuilds its keys). */
+  kind?: ReactiveSource<VirtualKeyboardKind>;
+} & DslOptions;
+
 /** Options of `Text`: the label's own bag, plus the DSL's reactive slots. */
 export type TextOptions = Omit<LabelOptions, 'tone'> & {
   /** Semantic colour; a `Ref`/getter repaints the label when it flips. */
@@ -480,7 +493,6 @@ export function Spacer(options: SpacerOptions & DslOptions = {}): SpacerWidget {
   return emitWidget(widget);
 }
 
-/** A hairline rule along the cross axis of its parent. */
 /**
  * An on-screen keyboard for players with no keyboard (PLAN M9's 手柄文本输入).
  *
@@ -493,40 +505,29 @@ export function Spacer(options: SpacerOptions & DslOptions = {}): SpacerWidget {
  * const name = TextField({ label: '玩家名', width: 240 });
  * VirtualKeyboard({ target: () => name, onSubmit: () => this.submit() });
  * ```
+ *
+ * `kind` is a data slot like any other: a literal, a `ref`, or a getter. When it changes the keyboard
+ * rebuilds its own keys, so switching between the letters keyboard and the numpad is one line of state
+ * — no swapping widgets by hand, and no way to lose `onSubmit` on the way (round 81, V48):
+ *
+ * ```ts
+ * const pin = ref(false);
+ * VirtualKeyboard({ target: () => field, kind: () => (pin.value ? 'numeric' : 'text') });
+ * ```
  */
-export function VirtualKeyboard(
-  options: VirtualKeyboardOptions & DslOptions,
-): VirtualKeyboardWidget {
-  const { visible, rest } = splitDsl(options);
+export function VirtualKeyboard(options: VirtualKeyboardDslOptions): VirtualKeyboardWidget {
+  const { visible, kind, ...rest } = options;
   const scene = currentUiScene();
-  const widget = new VirtualKeyboardWidget(scene, rest);
+  const widget = new VirtualKeyboardWidget(scene, {
+    ...rest,
+    ...(kind === undefined ? {} : { kind: readReactive(kind) }),
+  });
   scene.add.existing(widget);
   applyDslOptions(widget, { visible });
-  // `withUiParent` — rather than emitting the panel and then looping the rows — because the rows are the
-  // keyboard's **children**: emitting first would attach them to whatever container happened to be
-  // current, leaving the keyboard an empty box standing next to its own keys. The keys stay clickable
-  // and focusable either way, which is exactly why that went unnoticed (round 81, V47).
-  return withUiParent(widget, () => {
-    for (const row of widget.slots()) {
-      Row({ gap: 6, justifyContent: 'center' }, () => {
-        for (const slot of row) {
-          const key = widget.describeKey(slot);
-          // A key is a `Button`, so its width comes from the plan's key geometry: one unit per letter
-          // key plus the gaps (`keyWidth()`), which is also what the row's own gap matches.
-          const width = keyWidth(key.weight);
-          const button = Button(key.label, {
-            name: `${widget.name}.${slot.id}`,
-            size: 'sm',
-            variant: key.primary ? 'primary' : 'secondary',
-            width,
-            ...(key.a11yLabel ? { label: key.a11yLabel } : {}),
-            onClick: () => widget.activateSlot(slot),
-          });
-          widget.registerKey(slot, button);
-        }
-      });
-    }
+  bindOption(widget, kind, (host, next) => {
+    host.setKind(next);
   });
+  return withUiParent(widget);
 }
 
 export function Divider(options: DividerOptions & DslOptions = {}): DividerWidget {

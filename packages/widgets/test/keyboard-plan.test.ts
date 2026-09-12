@@ -108,6 +108,23 @@ describe('key labels', () => {
     expect(labelFor(pageKey('symbols'), 'symbols', false)).toBe('ABC');
   });
 
+  it('names the page key after where it goes, and keeps the fixed names for the rest', () => {
+    // A reader that announces "Numbers and symbols" while the player is already on that page is
+    // describing the state, not the button: the name follows the destination.
+    expect(describeSlot(pageKey('letters'), 'letters', false).a11yLabel).toBe(
+      'Numbers and symbols',
+    );
+    expect(describeSlot(pageKey('symbols'), 'symbols', false).a11yLabel).toBe('Letters');
+    expect(describeSlot(shiftKey(), 'letters', false).a11yLabel).toBe('Shift');
+    expect(describeSlot(slotOf('text', 'letters', 'backspace'), 'letters', false).a11yLabel).toBe(
+      'Delete',
+    );
+    // A letter key has no label of its own — its glyph is its name.
+    expect(
+      describeSlot(slotOf('text', 'letters', 'q'), 'letters', false).a11yLabel,
+    ).toBeUndefined();
+  });
+
   it('gives a command key a glyph and a11y label, and a character key a 1-unit width', () => {
     const space = slotOf('text', 'letters', 'space');
     expect(describeSlot(space, 'letters', false)).toMatchObject({

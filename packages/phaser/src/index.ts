@@ -8,7 +8,13 @@
 
 import './augment';
 
-export { Widget, WIDGET_EVENTS, type WidgetOptions } from './Widget';
+export {
+  Widget,
+  WIDGET_EVENTS,
+  type ActivationSource,
+  type FocusTarget,
+  type WidgetOptions,
+} from './Widget';
 export {
   AbsoluteWidget,
   type AbsoluteWidgetOptions,

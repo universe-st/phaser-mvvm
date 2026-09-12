@@ -337,27 +337,31 @@ Column({ gap: 12, padding: 16 }, () => {
 
 **大小写**：`⇧` 按一次只大写**下一个字符**（打完自动松开，`⇧` 变回普通字形），连按两次**锁定**（`⇪`），按第三次全部放开——和手机键盘一致。**符号页**：`123` 换到数字/符号页（该页没有 `⇧`，没有可大写的东西），页码键变成 `ABC`。
 
-**换键盘要重新构建**（两种键集不同）：这在点击回调里发生，**没有构建作用域**，所以要用 `buildUiSubtree()` 包一层——它不是可选的礼节，而是"在构建趟之外造控件"的唯一入口：
+**换键集是状态，不是重建**：`kind` 是一个数据槽，写 `ref` 就等于换键盘——键盘自己会重建键，**没有第二条构建路径**，也就没有"重建时忘了传 `onSubmit`"这种事（第 81 轮的 V48 正是它）：
 
 ```ts
-import { buildUiSubtree } from '@phaser-mvvm/phaser';
-import { VirtualKeyboard } from '@phaser-mvvm/widgets/compose';
-import type { VirtualKeyboardWidget } from '@phaser-mvvm/widgets';
+import { ref } from '@phaser-mvvm/core';
+import { TextField, VirtualKeyboard, Row, Button } from '@phaser-mvvm/widgets/compose';
 
-const replacement = buildUiSubtree(
-  this,
-  () => VirtualKeyboard({ target: () => this.field, kind: 'numeric', onSubmit: this.submit }),
-  'swapKeyboard(): the replacement keyboard',
-) as VirtualKeyboardWidget;
+const pin = ref(false); // 或者其它任何"要不要数字键盘"的状态
+const field = TextField({ label: 'PIN', value: pinValue, inputType: 'number', width: 240 });
 
-this.keyboardHost.addWidget(replacement); // 然后 removeWidget(旧的, true)
+VirtualKeyboard({
+  target: () => field,
+  kind: () => (pin.value ? 'numeric' : 'text'), // 字面量 / ref / getter 都行
+  onSubmit: () => this.submit(),
+});
+
+Button('切数字键盘', { onClick: () => (pin.value = !pin.value) }); // 就这一行
 ```
 
-> ⚠️ **两条路径的选项要来自同一个工厂**。`#/keyboard` 第一版在重建时漏了 `onSubmit`，于是"切到数字键盘之后 `Enter` 不提交了"——这条路径没有验收就没人会发现（[`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md) §6 V48）。另一个更隐蔽的坑是给行找错了父节点（V47），DSL 已经用 `withUiParent()` 修好。
+换键集时**焦点会跟着走**：同一个键 id 还在（`enter`、`backspace`、`space` 两种键盘都有）就落在同一个键上，不在了就落在新键集的第一个键上——手柄玩家不会因为换了个键盘就"焦点消失、要重新找"。页码切换（`123`）同样是换键集：符号页真的**没有** `⇧`，数字键盘真的没有字母，而不是留一排按不动的假键。
+
+> 「在构建趟之外造控件」这条一般规则仍然成立（点击回调、`Repeat` 行模板）：那种情况下用 `buildUiSubtree(scene, () => …, '…')`，裸调 DSL 会因 `currentUiScene()` 抛错。`VirtualKeyboard` 现在不需要它，因为它自己造自己的键。
 
 **它刻意不是输入法**：没有候选词、没有组合态，打不出中文/日文。需要中文的场景走真实键盘（DOM 输入桥，§2）；`VirtualKeyboard` 服务的是"这台设备上没有键盘"。按住 `A` 也不会连打（`activate` 是边沿触发，只有方向键才有连发节流）——自动重复打字几乎总是误输入。
 
-完整的验收页是 `#/keyboard`：假手柄走查、鼠标/触摸按下、大小写与页码、换键盘泄漏门禁、37 个控制节点的可访问性树断言，矩阵见 [`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md)。
+完整的验收页是 `#/keyboard`：假手柄走查、鼠标/触摸按下、大小写与页码、换键集（`kind` ref 与页码）的焦点保持与泄漏门禁、37 个控制节点的可访问性树断言，矩阵见 [`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md)。
 
 ---
 

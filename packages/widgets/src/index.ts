@@ -32,6 +32,7 @@ export {
   type KeyboardPage,
 } from './VirtualKeyboard';
 export {
+  a11yLabelFor,
   afterTyping,
   CASE_OFF,
   COMMAND_GLYPH,

@@ -20,7 +20,7 @@
 
 import Phaser from 'phaser';
 import { ref } from '@phaser-mvvm/core';
-import { buildUiSubtree, themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
+import { themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
   Divider,
@@ -31,20 +31,25 @@ import {
   VirtualKeyboard,
   ui,
 } from '@phaser-mvvm/widgets/compose';
-import type { VirtualKeyboardOptions, VirtualKeyboardWidget } from '@phaser-mvvm/widgets';
+import type {
+  VirtualKeyboardKind,
+  VirtualKeyboardOptions,
+  VirtualKeyboardWidget,
+} from '@phaser-mvvm/widgets';
 import { setDemoState } from '../demo';
 import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
 export class KeyboardScene extends Phaser.Scene {
   private readonly note = ref('用方向键走到按键上，按 A 输入；Enter 提交。');
   private readonly nameValue = ref('');
+  /** Which key set the keyboard shows. A plain `ref` — the widget rebuilds its own keys when it flips. */
+  private readonly kind = ref<VirtualKeyboardKind>('text');
 
-  private page: Widget | null = null;
-  /** The panel the keyboard lives in (a `Widget`, not a Phaser `Container`, for `addWidget`). */
-  private keyboardHost: Widget | null = null;
   private field: ReturnType<typeof TextField> | null = null;
   private keyboard: VirtualKeyboardWidget | null = null;
   private submits = 0;
+  /** Key widgets are rebuilt when the page or the kind changes; this is the generation they belong to. */
+  private keysRevision = -1;
 
   private readonly tracked = new Map<string, Widget>();
   private readonly published = new Map<string, string>();
@@ -55,7 +60,7 @@ export class KeyboardScene extends Phaser.Scene {
 
   create(): void {
     const page = ui(this, () => {
-      const panel = Panel(
+      Panel(
         {
           direction: 'vertical',
           gap: 12,
@@ -86,17 +91,13 @@ export class KeyboardScene extends Phaser.Scene {
           this.field = field;
           this.track('field', field);
 
-          const keyboard = VirtualKeyboard(this.keyboardOptions('text'));
+          // One construction for the whole page: `kind` is a reactive slot, so the "切到数字键盘" button
+          // only flips the ref — the keyboard rebuilds its keys itself (and keeps `onSubmit`/`onChange`,
+          // which belong to the keyboard rather than to a particular key set).
+          const keyboard = VirtualKeyboard({ ...this.keyboardOptions(), kind: this.kind });
           this.keyboard = keyboard;
           this.track('keyboard', keyboard);
-          for (const row of keyboard.slots()) {
-            for (const slot of row) {
-              const key = keyboard.keyOf(slot.id);
-              if (key) {
-                this.track(`k.${slot.id}`, key);
-              }
-            }
-          }
+          this.syncKeys();
 
           Divider({});
           this.track(
@@ -120,7 +121,9 @@ export class KeyboardScene extends Phaser.Scene {
               Button('切到数字键盘', {
                 variant: 'secondary',
                 name: 'kb.numeric',
-                onClick: () => this.swapKeyboard('numeric'),
+                onClick: () => {
+                  this.kind.value = 'numeric';
+                },
               }),
             );
             this.track(
@@ -128,17 +131,16 @@ export class KeyboardScene extends Phaser.Scene {
               Button('切回文字键盘', {
                 variant: 'secondary',
                 name: 'kb.text',
-                onClick: () => this.swapKeyboard('text'),
+                onClick: () => {
+                  this.kind.value = 'text';
+                },
               }),
             );
           });
         },
       );
-      // The panel is the keyboard's host: swapping keyboards adds the new one here and drops the old.
-      this.keyboardHost = panel;
     });
 
-    this.page = page;
     this.mvvm.mount(page);
     this.exposeApi();
 
@@ -148,16 +150,14 @@ export class KeyboardScene extends Phaser.Scene {
   }
 
   /**
-   * The options both keyboard constructions share.
+   * The keyboard's options.
    *
-   * One factory rather than two literals: the swapped-in keyboard is built by a different code path (a
-   * click handler, outside the page's build pass) and must behave identically — the first version of this
-   * page rebuilt it without `onSubmit`, so Enter worked until the player switched pages.
+   * No `kind` here: the kind is state (`this.kind`), not part of the keyboard's identity, which is what
+   * makes switching it a one-line change instead of a rebuild the caller has to get right.
    */
-  private keyboardOptions(kind: 'text' | 'numeric'): VirtualKeyboardOptions {
+  private keyboardOptions(): Omit<VirtualKeyboardOptions, 'kind'> {
     return {
       target: () => this.field,
-      kind,
       onSubmit: () => {
         this.submits += 1;
         this.note.value = `提交：${this.nameValue.value || '(空)'}`;
@@ -169,52 +169,43 @@ export class KeyboardScene extends Phaser.Scene {
   }
 
   /**
-   * Replaces the keyboard with the other kind.
+   * Re-points the per-key probes at the current key widgets.
    *
-   * The two kinds have different key sets (a numpad has no letters), so this is a rebuild rather than a
-   * re-label — the same thing a page would do when it switches from "name" to "PIN".
+   * A page or kind switch destroys the old keys, so the tracked widgets — and every `pt.kb.<id>` /
+   * `st.kb.<id>` line published from them — would otherwise keep pointing at destroyed objects. Keys
+   * that no longer exist publish `gone` for one frame and then stop publishing (the `#demo-state` line
+   * is shared by every scene, so a stale probe would aim a later check at the wrong place).
    */
-  private swapKeyboard(kind: 'text' | 'numeric'): void {
-    const current = this.keyboard;
-    if (!current || !this.page) {
+  private syncKeys(): void {
+    const keyboard = this.keyboard;
+    if (!keyboard || keyboard.keyRevision === this.keysRevision) {
       return;
     }
-    if (current.appearance.kind === kind) {
-      return;
-    }
-    for (const id of [...this.tracked.keys()]) {
-      if (id.startsWith('k.')) {
-        this.tracked.delete(id);
-        this.published.delete(`pt.kb.${id.slice(2)}`);
-        this.published.delete(`st.kb.${id.slice(2)}`);
-      }
-    }
-    // Built outside the page's build pass (a click handler runs later), so it needs its own scope:
-    // `buildUiSubtree()` gives the DSL a scene to attach to and returns the one root it built. Without
-    // it `currentUiScene()` throws, and the keys would have no container to adopt them.
-    //
-    // The options come from *one* factory for both paths (`keyboardOptions`): a rebuilt keyboard that
-    // silently lost `onSubmit` would look like "Enter stopped working after switching to the numpad".
-    const replacement = buildUiSubtree(
-      this,
-      () => VirtualKeyboard(this.keyboardOptions(kind)),
-      'swapKeyboard(): the replacement keyboard',
-    ) as VirtualKeyboardWidget;
-    // `parentContainer` is a Phaser container; the host is the *widget* the DSL built, which is what
-    // knows how to add and remove children (`Widget#addWidget`/`removeWidget`).
-    this.keyboardHost?.addWidget(replacement);
-    this.keyboardHost?.removeWidget(current, true);
-    this.keyboard = replacement;
-    this.tracked.set('keyboard', replacement);
-    for (const row of replacement.slots()) {
+    this.keysRevision = keyboard.keyRevision;
+
+    const live = new Set<string>();
+    for (const row of keyboard.slots()) {
       for (const slot of row) {
-        const key = replacement.keyOf(slot.id);
+        const key = keyboard.keyOf(slot.id);
         if (key) {
-          this.track(`k.${slot.id}`, key);
+          live.add(slot.id);
+          this.tracked.set(`k.${slot.id}`, key);
         }
       }
     }
-    this.note.value = kind === 'numeric' ? '数字键盘' : '文字键盘';
+    for (const key of [...this.tracked.keys()]) {
+      if (key.startsWith('k.') && !live.has(key.slice(2))) {
+        this.tracked.delete(key);
+        this.publish(`pt.kb.${key.slice(2)}`, 'gone');
+        this.publish(`st.kb.${key.slice(2)}`, 'gone');
+      }
+    }
+  }
+
+  private frame(): Promise<void> {
+    return new Promise((resolve) => {
+      this.game.events.once(Phaser.Core.Events.POST_RENDER, () => resolve());
+    });
   }
 
   private track(key: string, widget: Widget): Widget {
@@ -265,6 +256,8 @@ export class KeyboardScene extends Phaser.Scene {
   /** Per-frame probes. */
   override update(): void {
     this.reportKeys();
+    // A page or kind switch rebuilt the keys: re-point the probes before they are published.
+    this.syncKeys();
     const appearance = this.keyboard?.appearance ?? {
       page: 'letters',
       upper: false,
@@ -374,6 +367,12 @@ export class KeyboardScene extends Phaser.Scene {
         }
         return `@${Math.round(pagePoint(this.game, key).x)},${Math.round(pagePoint(this.game, key).y)}`;
       },
+      /** Flipping the kind ref is the whole API for switching keyboards. */
+      setKind: (next: VirtualKeyboardKind): string => {
+        this.kind.value = next;
+        return this.kind.value;
+      },
+      kind: (): VirtualKeyboardKind => this.kind.value,
       /** Focuses a widget by name (a shortcut for the acceptance's D-Pad walk). */
       focus: (name: string): string => {
         const widget = this.byName(name);
@@ -394,7 +393,9 @@ export class KeyboardScene extends Phaser.Scene {
         await this.frame();
         const before = this.counts();
         for (let i = 0; i < n; i++) {
-          this.swapKeyboard(i % 2 === 0 ? 'numeric' : 'text');
+          // A `ref` write is frame-aligned like every other data slot, so each round waits for the frame
+          // the rebuild lands on before the next one.
+          this.kind.value = i % 2 === 0 ? 'numeric' : 'text';
           await this.frame();
         }
         return { before, after: this.counts(), kind: this.keyboard?.appearance.kind ?? 'none' };
@@ -424,13 +425,6 @@ export class KeyboardScene extends Phaser.Scene {
       }),
     };
     (window as unknown as { keyboard?: unknown }).keyboard = api;
-  }
-
-  /** Waits for the next frame, so the counts are read after the framework's own per-frame collection. */
-  private frame(): Promise<void> {
-    return new Promise((resolve) => {
-      this.game.events.once(Phaser.Core.Events.POST_RENDER, () => resolve());
-    });
   }
 
   /** A widget by debug name, or `null` — the lookup both `point(name)` and `focus(name)` use. */

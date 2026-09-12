@@ -24,7 +24,8 @@
  */
 
 import Phaser from 'phaser';
-import type { Widget } from '@phaser-mvvm/phaser';
+import { BoxWidget, type FocusTarget, type Widget } from '@phaser-mvvm/phaser';
+import { Button } from './Button';
 import { Panel, type PanelOptions } from './Panel';
 import type { TextInputBase } from './TextInputBase';
 import {
@@ -32,9 +33,11 @@ import {
   CASE_OFF,
   describeSlot,
   type CaseState,
+  KEY_GAP,
   type KeySlot,
   type KeyboardPage,
   keyboardRows,
+  keyWidth,
   labelFor,
   pageOf,
   pressShift,
@@ -52,7 +55,15 @@ export interface VirtualKeyboardOptions extends PanelOptions {
    * yet": keys then do nothing, which is also what happens when the field is disabled or read-only.
    */
   target: () => TextInputBase | null;
-  /** Which page(s) to offer. `'text'` (default) starts on letters and can switch to digits/symbols. */
+  /**
+   * Which key set to show.
+   *
+   * The widget **rebuilds its own keys** when this changes — the DSL accepts a literal or a reactive
+   * source (`kind: () => this.kind.value`), and there is no second construction path to keep in step:
+   * `onSubmit`/`onChange`/`target` belong to the keyboard, not to a particular key set. This is the
+   * `#/keyboard` page's "切到数字键盘" button, and it is why switching cannot silently drop an option
+   * (round 81 V48 was exactly that, and this shape makes it unrepresentable).
+   */
   kind?: VirtualKeyboardKind;
   /** Called when the Enter key is pressed. */
   onSubmit?: () => void;
@@ -64,7 +75,7 @@ export interface VirtualKeyboardOptions extends PanelOptions {
 
 export class VirtualKeyboardWidget extends Panel {
   private readonly targetOf: () => TextInputBase | null;
-  private readonly kind: VirtualKeyboardKind;
+  private kind: VirtualKeyboardKind;
   private readonly onSubmitCallback: (() => void) | undefined;
   private readonly onChangeCallback: (() => void) | undefined;
   private readonly keyWidgets = new Map<string, { widget: Widget; slot: KeySlot }>();
@@ -73,6 +84,8 @@ export class VirtualKeyboardWidget extends Panel {
   private caseState: CaseState = CASE_OFF;
   /** Which character page the text keyboard shows. */
   private symbols = false;
+  /** Bumped on every rebuild; see `revision`. */
+  private revisionCount = 0;
 
   constructor(scene: Phaser.Scene, options: VirtualKeyboardOptions) {
     const { target, kind, onSubmit, onChange, name, ...panel } = options;
@@ -90,10 +103,138 @@ export class VirtualKeyboardWidget extends Panel {
     this.onSubmitCallback = onSubmit;
     this.onChangeCallback = onChange;
 
-    // The keys themselves are drawn by the DSL (`VirtualKeyboard()` in `compose.ts`), because a key is a
-    // `Button` and building one outside a UI scope would bypass the DSL's parenting rules — the same
-    // reason `List` lives in `compose.ts`. This class owns what the keys *mean*: the slot layout, the
-    // page/case state, and the actions, which is the part worth testing without a renderer.
+    // The keys are real widgets owned by this one, built here rather than by a caller-provided lambda:
+    // a keyboard that can change its own key set (`kind`) must be able to rebuild them *itself*, at any
+    // time, with or without a build pass around it. Drawing them through the DSL would hand that job to
+    // whoever called `VirtualKeyboard()`, and a rebuild from a click handler (the common case) has no
+    // build scope at all — round 81's V48 was exactly that trap.
+    this.drawKeys();
+  }
+
+  /**
+   * Switches the key set, rebuilding the keys — the reactive half of `kind`.
+   *
+   * Idempotent for the same kind, so a reactive `kind: () => ref.value` slot can call it on every
+   * change without knowing whether anything moved. Focus is restored onto the same key when that key
+   * exists on the new page (`enter` and `backspace` are on both), and onto the first key when it does
+   * not — a player must never be left with a keyboard that has no focus in it.
+   */
+  setKind(kind: VirtualKeyboardKind): boolean {
+    if (kind === this.kind) {
+      return false;
+    }
+    const held = this.focusedKeyId();
+    const manager = this.focusManagerOfKeys();
+    this.kind = kind;
+    this.symbols = false;
+    this.drawKeys();
+    this.restoreFocus(held, manager);
+    return true;
+  }
+
+  /**
+   * How many times the key widgets have been (re)built.
+   *
+   * A page or kind switch destroys the old keys and builds new ones, so anything holding a key
+   * reference — a probe table, a check walking `keyOf(id)` — has to know when its references went
+   * stale. A counter says that without diffing the keys. (`keyRevision`, not `revision`: the base
+   * widget already uses `revision` for the layout engine's dirty tracking.)
+   */
+  get keyRevision(): number {
+    return this.revisionCount;
+  }
+
+  /** The first key of the current page — where focus lands when the key it was on is gone. */
+  private firstKeyId(): string {
+    return this.keyWidgets.keys().next().value ?? '';
+  }
+
+  /** The id of the key that currently holds framework focus, or `null`. */
+  private focusedKeyId(): string | null {
+    for (const [id, entry] of this.keyWidgets) {
+      if (entry.widget.focused) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The focus manager, taken from a key rather than from `this`.
+   *
+   * A keyboard is a container, not a control: `Widget#focusManager` is only set on widgets the focus
+   * manager collects, and this panel is not focusable, so `this.focusManager` is always `null` here.
+   * Its keys are focusable, so one of them knows the manager.
+   */
+  private focusManagerOfKeys(): FocusTarget | null {
+    for (const entry of this.keyWidgets.values()) {
+      if (entry.widget.focusManager) {
+        return entry.widget.focusManager;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Puts focus back on the same key id after a rebuild, or on the first key when it is gone.
+   *
+   * The `refresh()` is not optional: `FocusManager.focus()` only accepts a widget of the scope's
+   * *collection*, and that collection still describes the keys this rebuild just destroyed — so without
+   * it the call is silently ignored and a gamepad player is left with nothing focused at all. The
+   * re-collection is what the plugin does for any structural change anyway; doing it here only means the
+   * new keys are known (and have their manager back-reference) before focus lands on one of them.
+   */
+  private restoreFocus(held: string | null, manager: FocusTarget | null): void {
+    if (held === null || !manager) {
+      return;
+    }
+    const target = this.keyOf(this.keyWidgets.has(held) ? held : this.firstKeyId());
+    if (!target) {
+      return;
+    }
+    manager.refresh?.();
+    target.focus();
+  }
+
+  /**
+   * Builds the rows and the keys for the current page.
+   *
+   * Destroying and rebuilding is the honest implementation of "the key set changed": the symbols page
+   * has no shift key and the numpad has no letters, so a page that only re-labelled its keys would show
+   * a `⇧` that does nothing and keep a `q` on the numpad. The rows are `BoxWidget`s and the keys are
+   * `ButtonWidget`s created here (not through the DSL) so this can run at *any* time — inside the page's
+   * build pass, from a click handler, or from a reactive `kind` slot — with no build scope involved.
+   */
+  private drawKeys(): void {
+    this.removeAllWidgets(true);
+    this.keyWidgets.clear();
+    this.revisionCount += 1;
+
+    for (const row of keyboardRows(this.kind, this.page)) {
+      const line = new BoxWidget(this.scene, {
+        direction: 'horizontal',
+        gap: KEY_GAP,
+        justifyContent: 'center',
+      });
+      this.scene.add.existing(line);
+      this.addWidget(line);
+
+      for (const slot of row) {
+        const key = describeSlot(slot, this.page, this.caseState.upper);
+        const button = new Button(this.scene, {
+          text: key.label,
+          name: `${this.name}.${slot.id}`,
+          size: 'sm',
+          variant: key.primary ? 'primary' : 'secondary',
+          width: keyWidth(key.weight),
+          ...(key.a11yLabel ? { label: key.a11yLabel } : {}),
+          onClick: () => this.activateSlot(slot),
+        });
+        this.scene.add.existing(button);
+        line.addWidget(button);
+        this.keyWidgets.set(slot.id, { widget: button, slot });
+      }
+    }
   }
 
   /**
@@ -105,21 +246,6 @@ export class VirtualKeyboardWidget extends Panel {
    */
   slots(): readonly (readonly KeySlot[])[] {
     return keyboardRows(this.kind, this.page);
-  }
-
-  /** How a key should be drawn right now (the DSL calls this once per slot when it builds the row). */
-  describeKey(slot: KeySlot): {
-    label: string;
-    a11yLabel?: string;
-    weight: number;
-    primary: boolean;
-  } {
-    return describeSlot(slot, this.page, this.caseState.upper);
-  }
-
-  /** Called by the DSL builder for each key it creates. */
-  registerKey(slot: KeySlot, widget: Widget): void {
-    this.keyWidgets.set(slot.id, { widget, slot });
   }
 
   /** The action of one slot (the DSL's `onClick`). */
@@ -199,10 +325,16 @@ export class VirtualKeyboardWidget extends Panel {
         this.caseState = pressShift(this.caseState);
         this.relabel();
         return true;
-      case 'page':
+      case 'page': {
+        // A different page is a different *key set* (the symbols page has no shift key), so this is a
+        // rebuild rather than a relabel — the plan and the widget have to agree on what is on screen.
+        const held = this.focusedKeyId() ?? slot.id;
+        const manager = this.focusManagerOfKeys();
         this.symbols = !this.symbols;
-        this.relabel();
+        this.drawKeys();
+        this.restoreFocus(held, manager);
         return true;
+      }
       case 'enter':
         this.onSubmitCallback?.();
         return true;

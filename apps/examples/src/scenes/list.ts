@@ -568,6 +568,16 @@ export class ListScene extends Phaser.Scene {
         // synchronous reading here would catch it mid-update (measured: 19 targets instead of 25).
         // Asking for the refresh makes the leak gate deterministic instead of frame-timing dependent.
         this.mvvm.refreshInteraction();
+        // Warm-up scroll *before* the snapshot, and it is not cosmetic: the very first scroll of a page
+        // does one-time work (the window grows past the clamped leading overscan, and the scroll bar
+        // appears) which shows up as a single step in the counts — measured `themeListeners` 91 → 92 on
+        // a freshly loaded page, only on the first call, and only when the page had not scrolled yet.
+        // Without this the gate compared across that step and read it as a leak whenever the run happened
+        // to start before the first scroll (the 21-scene sweep hit exactly that). Same family as the offset
+        // normalisation above: a leak gate must not depend on what ran before it.
+        this.listScroll?.scrollTo(ITEM_EXTENT * 6);
+        this.listScroll?.scrollTo(0);
+        this.mvvm.refreshInteraction();
         const before = this.counts();
         const createdBefore = this.rowsCreated;
         for (let i = 0; i < n; i++) {

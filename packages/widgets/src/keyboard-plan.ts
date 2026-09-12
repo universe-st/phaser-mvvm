@@ -153,15 +153,32 @@ export function labelFor(slot: KeySlot, page: KeyboardPage, upper: boolean): str
   return page === 'letters' && upper ? char.toUpperCase() : char;
 }
 
+/**
+ * The accessible name of a key.
+ *
+ * Almost always the fixed `a11yLabel` (a glyph says nothing: `⌫` → "Delete"). The page key is the
+ * exception, because its *meaning* flips with the page: it is named after where it goes — "Numbers and
+ * symbols" on the letters page, "Letters" on the symbols page — since a reader that says "Numbers and
+ * symbols" while the player is standing on the numbers page is describing the current state, not the
+ * button under the finger.
+ */
+export function a11yLabelFor(slot: KeySlot, page: KeyboardPage): string | undefined {
+  if (slot.command === 'page') {
+    return page === 'symbols' ? 'Letters' : 'Numbers and symbols';
+  }
+  return slot.a11yLabel;
+}
+
 /** How a key is drawn: a `Button` of `keyWidth()` px, highlighted when it is the submit key. */
 export function describeSlot(
   slot: KeySlot,
   page: KeyboardPage,
   upper: boolean,
 ): { label: string; a11yLabel?: string; weight: number; primary: boolean } {
+  const a11yLabel = a11yLabelFor(slot, page);
   return {
     label: labelFor(slot, page, upper),
-    ...(slot.a11yLabel ? { a11yLabel: slot.a11yLabel } : {}),
+    ...(a11yLabel ? { a11yLabel } : {}),
     weight: slot.weight ?? 1,
     primary: slot.command === 'enter',
   };
