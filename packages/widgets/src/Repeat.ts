@@ -538,6 +538,7 @@ export class Repeat<Item> extends Widget {
     for (const child of this.getWidgetChildren()) {
       if (!wanted.has(child)) {
         this.removeWidget(child, false);
+        this.detachFromDisplayList(child);
       }
     }
 
@@ -558,11 +559,28 @@ export class Repeat<Item> extends Widget {
     }
     for (const child of afterAdd) {
       this.removeWidget(child, false);
+      this.detachFromDisplayList(child);
     }
     for (const widget of desired) {
       this.addWidget(widget);
     }
     return true;
+  }
+
+  /**
+   * Takes a *kept* widget off the scene display list after detaching it.
+   *
+   * Phaser hands a removed container child **back to the display list** (`Container#removeHandler`
+   * calls `gameObject.addToDisplayList()` for exclusive containers), so a pooled widget — the leading
+   * and trailing fillers a virtualised list keeps for reuse — would sit in the render pipeline at
+   * (0,0) with a live theme subscription while it is detached. Re-attaching does the opposite
+   * automatically (`addHandler` calls `removeFromDisplayList`), so this keeps the pair symmetric.
+   */
+  private detachFromDisplayList(widget: Widget): void {
+    if (widget.isDestroyed) {
+      return;
+    }
+    (widget as unknown as { removeFromDisplayList?: () => void }).removeFromDisplayList?.();
   }
 
   // ------------------------------------------------------------------ metrics

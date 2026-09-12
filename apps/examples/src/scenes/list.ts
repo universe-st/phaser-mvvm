@@ -3,7 +3,11 @@
  *
  * What it exercises:
  * - `Repeat` with `virtualize: true` — only the visible window (plus overscan) is mounted, and the
- *   mounted `Panel` rows are reused across add / delete / shuffle (keyed diff, no rebuild);
+ *   mounted rows are reused when the window keeps the same keys (keyed diff, no rebuild). What
+ *   "reuse" means precisely is asserted with `listDemo.created()`: stepping the window one row at a
+ *   time builds exactly one row per step, deleting a row builds none, and swapping two rows inside
+ *   the window builds none either — while a shuffle (which brings *different* rows into the window)
+ *   necessarily builds the ones that entered;
  * - `BindingContext` with `bindTemplate` / `bindPath` / `bindTemplateText`, so every row reads
  *   `$item`, `$index` and — through `$root`/`$parent` — the page view model;
  * - `bindModel` for the two-way filter field, and `bindCommand` with a **path** `canExecute` on the
@@ -21,6 +25,7 @@ import {
   bindPath,
   bindTemplate,
   bindTemplateText,
+  themeListenerCount,
 } from '@phaser-mvvm/phaser';
 import type { Widget } from '@phaser-mvvm/phaser';
 import type { Button, Label, Panel, Repeat, ScrollView } from '@phaser-mvvm/widgets';
@@ -73,6 +78,14 @@ export class ListScene extends Phaser.Scene {
   private readonly renderedCount = ref(0);
   private nextId = INITIAL_ROWS;
   private shuffleSeed = 20_260_901;
+  /**
+   * How many row templates have been *built* since the scene started.
+   *
+   * The whole point of a virtualised list is that this stays small while the list is scrolled: a
+   * window that moves by 10 rows must build about 10 rows, not 220. Without the counter that claim is
+   * unverifiable — `rendered` only says how many are mounted *now*.
+   */
+  private rowsCreated = 0;
 
   /** What the list actually shows: the source filtered by `filterText`. */
   private readonly filtered = computed<readonly RowItem[]>(() => {
@@ -286,9 +299,11 @@ export class ListScene extends Phaser.Scene {
           width: 240,
         }),
         this.add.uiLabel({
-          text: 'Shuffle keeps every mounted row (keyed reuse); Clear disables itself when the list is empty.',
+          text:
+            'Shuffle reorders the whole source, so the window then shows other rows and those get built. ' +
+            'Swapping two rows *inside* the window reuses the mounted ones (listDemo.swapVisible()).',
           tone: 'muted',
-          maxLines: 4,
+          maxLines: 5,
           width: 240,
         }),
       ],
@@ -362,7 +377,140 @@ export class ListScene extends Phaser.Scene {
         total: this.filtered.value.length,
         rendered: this.repeat?.renderedCount ?? 0,
         source: this.allItems.value.length,
+        created: this.rowsCreated,
       }),
+      /** Rows built since the scene started — the virtualisation claim as a number. */
+      created: (): number => this.rowsCreated,
+      offset: (): number => Math.round(this.listScroll?.offset ?? 0),
+      maxOffset: (): number => Math.round(this.listScroll?.maxOffset ?? 0),
+      /** Scrolls the port to an absolute offset (0..maxOffset). */
+      scrollTo: (y: number): number => {
+        this.listScroll?.scrollTo(y);
+        return Math.round(this.listScroll?.offset ?? 0);
+      },
+      /** Scrolls by whole rows, which is what a check usually wants to reason about. */
+      scrollRows: (rows: number): number => {
+        this.listScroll?.scrollTo(rows * ITEM_EXTENT);
+        return Math.round(this.listScroll?.offset ?? 0);
+      },
+      window: (): { first: string; last: string; rendered: number } => {
+        const keys = this.repeat?.getRenderedKeys() ?? [];
+        return {
+          first: keys[0] ?? '',
+          last: keys[keys.length - 1] ?? '',
+          rendered: keys.length,
+        };
+      },
+      /**
+       * Page coordinates of a row's Delete button, **only when that row is inside the port**.
+       *
+       * A virtualised list mounts `overscan` rows outside the viewport, and those are not clickable
+       * (the port's clip takes them out of hit testing, V23) — a check that aims at one gets "the click
+       * did nothing" for the wrong reason. `pointMounted()` is the raw version, for geometry questions.
+       */
+      point: (key: string): string => {
+        const at = this.rowPoint(key, true);
+        return at ? `@${at.x},${at.y}` : 'none';
+      },
+      pointMounted: (key: string): string => {
+        const at = this.rowPoint(key, false);
+        return at ? `@${at.x},${at.y}` : 'none';
+      },
+      /** Keys whose row is mounted *and* inside the port: what the user can actually click. */
+      visibleKeys: (): string[] => this.visibleKeys(),
+      /** The port's stage rect in page coordinates. */
+      viewport: (): { x: number; y: number; width: number; height: number } | null => {
+        const scroll = this.listScroll;
+        if (!scroll) {
+          return null;
+        }
+        const canvas = this.game.canvas.getBoundingClientRect();
+        const origin = stagePosition(scroll);
+        return {
+          x: Math.round(canvas.left + origin.x),
+          y: Math.round(canvas.top + origin.y),
+          width: Math.round(scroll.appliedRect.width),
+          height: Math.round(scroll.appliedRect.height),
+        };
+      },
+      click: (key: string): boolean => {
+        this.deleteItem(key);
+        return true;
+      },
+      add: (): void => this.addItem(),
+      shuffle: (): void => this.shuffleItems(),
+      /**
+       * Swaps the items of two rows that are *inside* the port.
+       *
+       * This is the case where keyed reuse has to hold: the window shows the same keys in a different
+       * order, so the mounted rows are reused and simply re-ordered — `created` must not grow.
+       * (`shuffle()` reorders the whole source, so the window then shows *different* rows and those
+       * are built; that is a different property, and the demo used to claim otherwise.)
+       */
+      swapVisible: (a = 0, b = 1): boolean => {
+        const keys = this.visibleKeys();
+        const keyA = keys[a];
+        const keyB = keys[b];
+        if (keyA === undefined || keyB === undefined) {
+          return false;
+        }
+        const items = this.allItems.value.slice();
+        const indexA = items.findIndex((item) => item.id === keyA);
+        const indexB = items.findIndex((item) => item.id === keyB);
+        if (indexA === -1 || indexB === -1) {
+          return false;
+        }
+        const first = items[indexA] as RowItem;
+        items[indexA] = items[indexB] as RowItem;
+        items[indexB] = first;
+        this.allItems.value = items;
+        return true;
+      },
+      clear: (): void => this.clearItems(),
+      filter: (text: string): void => {
+        this.filterText.value = text;
+      },
+      focusName: (): string => this.mvvm.focus.focusedWidget?.name || 'none',
+      focusables: (): string[] =>
+        this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
+      counts: (): ListCounts => this.counts(),
+      /** Scrolls through `n` windows and back, so a leak in row recycling shows up as a counter drift. */
+      churn: (
+        n: number,
+      ): {
+        before: ListCounts;
+        after: ListCounts;
+        created: number;
+      } => {
+        const before = this.counts();
+        const createdBefore = this.rowsCreated;
+        for (let i = 0; i < n; i++) {
+          this.listScroll?.scrollTo(((i + 1) % 10) * ITEM_EXTENT);
+        }
+        this.listScroll?.scrollTo(0);
+        // The router re-collects its target list on the next frame after a structural change, so a
+        // synchronous reading here would catch it mid-update (measured: 19 targets instead of 25).
+        // Asking for the refresh makes the leak gate deterministic instead of frame-timing dependent.
+        this.mvvm.refreshInteraction();
+        return { before, after: this.counts(), created: this.rowsCreated - createdBefore };
+      },
+      state: (): Record<string, unknown> => {
+        const keys = this.repeat?.getRenderedKeys() ?? [];
+        return {
+          total: this.filtered.value.length,
+          source: this.allItems.value.length,
+          rendered: keys.length,
+          first: keys[0] ?? '',
+          last: keys[keys.length - 1] ?? '',
+          created: this.rowsCreated,
+          offset: Math.round(this.listScroll?.offset ?? 0),
+          maxOffset: Math.round(this.listScroll?.maxOffset ?? 0),
+          filter: this.filterText.value,
+          deleted: this.deleted.value,
+          focus: this.mvvm.focus.focusedWidget?.name || 'none',
+          count: this.counts(),
+        };
+      },
     };
   }
 
@@ -371,9 +519,71 @@ export class ListScene extends Phaser.Scene {
     this.publishState();
   }
 
+  /** Live-object counters used as the leak gate of `docs/ACCEPTANCE-list.md`. */
+  private counts(): ListCounts {
+    return {
+      widgets: this.page && !this.page.isDestroyed ? countWidgets(this.page) : 0,
+      themeListeners: themeListenerCount(),
+      pointerTargets: this.mvvm.input.widgets.length,
+      focusables: this.mvvm.focus.focusables.length,
+    };
+  }
+
+  /** Keys whose row is mounted *and* whose centre is inside the port. */
+  private visibleKeys(): string[] {
+    return (this.repeat?.getRenderedKeys() ?? []).filter(
+      (key) => this.rowPoint(key, true) !== null,
+    );
+  }
+
+  /**
+   * Page coordinates of a row's Delete button, or `null` when it is not there (or, with `insidePort`,
+   * when the row is mounted but scrolled outside the viewport).
+   */
+  private rowPoint(key: string, insidePort: boolean): { x: number; y: number } | null {
+    const widget = this.findWidget(`row.delete.${key}`);
+    const scroll = this.listScroll;
+    if (!widget || !scroll || widget.appliedRect.width <= 0) {
+      return null;
+    }
+    const canvas = this.game.canvas.getBoundingClientRect();
+    const origin = stagePosition(widget);
+    const x = Math.round(canvas.left + origin.x + widget.appliedRect.width / 2);
+    const y = Math.round(canvas.top + origin.y + widget.appliedRect.height / 2);
+    if (!insidePort) {
+      return { x, y };
+    }
+    const port = stagePosition(scroll);
+    const top = canvas.top + port.y;
+    const bottom = top + scroll.appliedRect.height;
+    return y >= top && y <= bottom ? { x, y } : null;
+  }
+
+  /** Depth-first search for a named widget inside the page. */
+  private findWidget(name: string): Widget | null {
+    const root = this.page;
+    if (!root) {
+      return null;
+    }
+    const visit = (widget: Widget): Widget | null => {
+      if (widget.name === name) {
+        return widget;
+      }
+      for (const child of widget.getWidgetChildren()) {
+        const found = visit(child);
+        if (found) {
+          return found;
+        }
+      }
+      return null;
+    };
+    return visit(root);
+  }
+
   // ------------------------------------------------------------------ rows
 
   private createRow(item: RowItem, index: number, context: BindingContext): Widget {
+    this.rowsCreated += 1;
     const row = this.add.uiPanel({
       direction: 'horizontal',
       gap: 6,
@@ -511,6 +721,9 @@ export class ListScene extends Phaser.Scene {
     this.publish('last', keys[keys.length - 1] ?? '');
     this.publish('filter', this.filterText.value);
     this.publish('deleted', this.deleted.value);
+    this.publish('created', this.rowsCreated);
+    this.publish('offset', Math.round(this.listScroll?.offset ?? 0));
+    this.publish('maxOffset', Math.round(this.listScroll?.maxOffset ?? 0));
 
     const point = this.deletePoint();
     if (point) {
@@ -563,4 +776,21 @@ export class ListScene extends Phaser.Scene {
     }
     return null;
   }
+}
+
+/** Live-object counters sampled by the leak gate. */
+interface ListCounts {
+  widgets: number;
+  themeListeners: number;
+  pointerTargets: number;
+  focusables: number;
+}
+
+/** Number of widgets in a subtree, the root included (used by the leak counters). */
+function countWidgets(root: Widget): number {
+  let total = 1;
+  for (const child of root.getWidgetChildren()) {
+    total += countWidgets(child);
+  }
+  return total;
 }
