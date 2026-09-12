@@ -359,7 +359,7 @@ this.mvvm.mount(page);
 
 预算与**测量方式**（第一次实测见 [`ACCEPTANCE-performance.md`](./ACCEPTANCE-performance.md)）：
 
-- 布局：1000 节点全量 `measure+arrange` < 1.5 ms（M 系列 Mac，Node 基准）——由 `packages/layout/test/perf.test.ts` 断言（取预热后多次运行的最小值，避免 CI 抖动误报），实测 **0.06 ms**；无变化帧布局耗时 = 0——同一文件断言「一次无变化 pass 的 `measureCalls` 增量 = 0、`arrangeCalls` 增量 = 1、`skippedSubtrees` > 100」，实测 **0.024 ms**；单节点内容变更仅重算 relayout boundary 子树——同一文件用逐节点 `measureCount` 证明「编辑 1 个节点只重测 1 个节点（共 922）」。
+- 布局：1000 节点全量 `measure+arrange` < 1.5 ms（M 系列 Mac，Node 基准）——由 `packages/layout/test/perf.test.ts` 断言（取预热后多次运行的最小值，避免 CI 抖动误报），实测 **0.06 ms**；无变化帧布局耗时 = 0——同一文件用**结构性**断言（一次无变化 pass 的 `measureCalls` 增量 = 0、`arrangeCalls` 增量 = 1、`skippedSubtrees` > 100；实测 0.02 ms，另有 1 ms 的粗略时间上界），因为在这个量级上计时无法区分「零工作」与「重测 922 个节点」；单节点内容变更仅重算 relayout boundary 子树——同一文件用逐节点 `measureCount` 证明「编辑 1 个节点只重测 1 个节点（共 922）」。
 - 度量缓存：布局引擎的约束缓存命中率 > 95%（表单类界面）——`perf.test.ts` 实测键盘编辑 100 次为 **95.6%**，断言下限取 90% 以免随页面规模抖动，另用「编辑一次只重测一个节点」承担回归权重。
 - 文本度量缓存：**已实现**（`packages/widgets/src/text-metrics.ts`，按场景的 `WeakMap` + LRU，缓存 `Label` 的换行结果与省略号搜索用的候选串宽度、`TextInputBase` 的逐串宽度）。测量口径与实测：**每一次不同的 (文本, 样式, 换行宽度) 恰好只度量一次（一次 miss），此后全部命中**——`#/states` 上连续 4 轮悬停扫描每轮 36 次命中、**0 次未命中**（稳态命中率 100%）；首屏 124 个不同字符串各付一次 miss，因此整段会话的累计命中率为 72%–89%（随会话变长收敛到 100%），"排布重算时不再重复度量同一文本"这条要求已满足。与关掉缓存的前后逐像素比对为 **0 像素差异**。
 - 分配：排布热路径零新增对象/闭包——`perf.test.ts` 断言对象池（按深度索引的 `EngineContext`）在 200 次 pass 后长度不变、且这些 pass 不产生任何测量。

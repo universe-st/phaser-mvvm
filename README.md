@@ -127,24 +127,21 @@ pnpm preview       # 预览构建产物（端口 4173）
 ```ts
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
-import { installWidgetFactories } from '@phaser-mvvm/widgets';
+import { MVVMPlugin } from '@phaser-mvvm/phaser';
 import {
   Button,
   Column,
   Divider,
   List,
   Panel,
+  render,
   Row,
   Scroll,
   Spacer,
   Text,
   TextField,
-  ui,
 } from '@phaser-mvvm/widgets/compose';
-
-installFactories();
-installWidgetFactories();
+// 用 DSL 不需要 installFactories()/installWidgetFactories()：那两个只注册 this.add.* 工厂方法。
 
 // ViewModel：普通 TS 类 + ref/computed
 class UserFormVM {
@@ -160,7 +157,7 @@ export class DemoScene extends Phaser.Scene {
   create(): void {
     const vm = new UserFormVM();
 
-    const page = ui(this, () => {
+    render(this.mvvm, () => {
       Panel({ variant: 'surface', radius: 12, padding: 16, width: 480, gap: 12 }, () => {
         Text('用户信息', { style: { fontSize: '18px' } });
         TextField({ value: vm.name, label: '姓名', placeholder: '请输入姓名', clearable: true });
@@ -190,8 +187,6 @@ export class DemoScene extends Phaser.Scene {
         });
       });
     });
-
-    this.mvvm.mount(page);
   }
 }
 
@@ -205,7 +200,7 @@ new Phaser.Game({
 
 三件事需要记住：
 
-1. **`ui(scene, () => { … })` 是入口**：它打开作用域并返回根控件，`this.mvvm.mount(page)` 负责挂载与首帧布局。
+1. **`render(this.mvvm, () => { … })` 是入口**：建树与挂载一次完成（底层等价形式是 `const page = ui(this, () => { … }); this.mvvm.mount(page);`，需要在挂载前拿到根控件时用后者）。
 2. **数据槽位接受常量 / `ref` / getter**：`Text(() => …)` 是单向，`TextField({ value: ref })` 是双向（IME 组合期暂停写回）。
 3. **工厂 API 仍然可用**（`this.add.uiButton(...)`、`vbox([...])`）：DSL 只是更顺手的写法，两者建的是同一批控件，可混用。
 
@@ -266,6 +261,7 @@ phaser-mvvm/
 | [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md) | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                      |
 | [`docs/ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)                 | 验收记录：交互状态矩阵（hover/press/focus/error/disabled 真实输入扫描）与指针聚焦缺陷                                                                        |
 | [`docs/ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)       | 验收记录：PLAN §8 性能与体积预算的实测（1000 节点 0.06 ms、无变化帧零测量、缓存 95.6%、体积 18.3/14.7 KB）                                                   |
+| [`docs/ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)           | 验收记录：`render()` 入口、控制流演示、DSL 优先的快速开始与文档对齐                                                                                          |
 | [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                       | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
 | [`docs/adr/`](./docs/adr/README.md)                                        | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
 | `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                             | 生成的 API 参考                                                                                                                                              |

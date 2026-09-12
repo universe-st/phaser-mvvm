@@ -67,11 +67,11 @@ new Phaser.Game({
 
 ## 3. 第一个页面
 
-在场景的 `create()` 里搭树、挂载。**视图就是代码**：容器函数返回控件，`: children` 参数建立父子关系。
+在场景的 `create()` 里搭树、挂载。**视图就是代码**：容器函数收一个内容 lambda，里面创建的控件自动成为它的子节点——这是 [09 章](./09-compose-dsl.md) 的 Compose 风格 DSL，也是本指南推荐的第一写法。
 
 ```ts
 import Phaser from 'phaser';
-import type { Panel } from '@phaser-mvvm/widgets';
+import { render, Panel, Row, Text, Button, Divider } from '@phaser-mvvm/widgets/compose';
 
 export class HelloScene extends Phaser.Scene {
   constructor() {
@@ -81,45 +81,32 @@ export class HelloScene extends Phaser.Scene {
   create(): void {
     const theme = this.mvvm.theme; // 当前主题（默认 dark）
 
-    const card = (title: string, body: string): Panel =>
-      this.add.uiPanel(
-        { direction: 'vertical', gap: 6, padding: 14, variant: 'surfaceAlt', radius: 10, grow: 1 },
-        [
-          this.add.uiLabel({ text: title, style: { fontSize: `${theme.fontSize.lg}px` } }),
-          this.add.uiLabel({ text: body, tone: 'muted', maxLines: 3, ellipsis: true }),
-        ],
-      );
+    // 一个返回控件的普通函数就是「一个组件」
+    const card = (title: string, body: string): void =>
+      Panel({ gap: 6, padding: 14, variant: 'surfaceAlt', radius: 10, grow: 1 }, () => {
+        Text(title, { style: { fontSize: `${theme.fontSize.lg}px` } });
+        Text(body, { tone: 'muted', maxLines: 3, ellipsis: true });
+      });
 
-    const page = this.add.uiPanel(
-      { direction: 'vertical', gap: 12, padding: 20, variant: 'surface', radius: 12, width: 520 },
-      [
-        this.add.uiLabel({
-          text: 'Hello phaser-mvvm',
-          style: { fontSize: `${theme.fontSize.xl}px` },
-        }),
-        this.add.uiLabel({ text: '一条声明式的 UI 树，引擎负责测量与排布', tone: 'muted' }),
+    // render() = 建树 + this.mvvm.mount()，一次调用搞定整页
+    render(this.mvvm, () => {
+      Panel({ gap: 12, padding: 20, variant: 'surface', radius: 12, width: 520 }, () => {
+        Text('Hello phaser-mvvm', { style: { fontSize: `${theme.fontSize.xl}px` } });
+        Text('一条声明式的 UI 树，引擎负责测量与排布', { tone: 'muted' });
 
-        // 横向容器：两张卡片 + 一个撑开的 Spacer 不需要，因为卡片是 grow: 1
-        this.add.hbox({ gap: 12, alignItems: 'stretch', width: 'fill' }, [
-          card('布局', '两阶段 measure/arrange，自动处理百分比、填充与伸缩'),
-          card('控件', '主题驱动的外观，零美术资源也能跑通'),
-        ]),
+        Row({ gap: 12, alignItems: 'stretch', width: 'fill' }, () => {
+          card('布局', '两阶段 measure/arrange，自动处理百分比、填充与伸缩');
+          card('控件', '主题驱动的外观，零美术资源也能跑通');
+        });
 
-        this.add.uiDivider({}),
+        Divider({});
 
-        this.add.hbox({ gap: 8, justifyContent: 'end', width: 'fill' }, [
-          this.add.uiButton({ text: '取消', variant: 'ghost' }),
-          this.add.uiButton({
-            text: '确定',
-            variant: 'primary',
-            onClick: () => console.log('clicked'),
-          }),
-        ]),
-      ],
-    );
-
-    // 挂到 UIRoot：接上输入路由 + 立刻布局一次
-    this.mvvm.mount(page);
+        Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
+          Button('取消', { variant: 'ghost' });
+          Button('确定', { variant: 'primary', onClick: () => console.log('clicked') });
+        });
+      });
+    });
   }
 }
 ```
@@ -130,13 +117,17 @@ export class HelloScene extends Phaser.Scene {
 new Phaser.Game({ /* … */ scene: [HelloScene] });
 ```
 
+> **用 DSL 就不必调用 `installFactories()` / `installWidgetFactories()`**：那两个函数只注册 `this.add.uiButton(...)` 这类工厂方法，而 DSL 直接构造控件类。只有当你（或旧代码）要写 `this.add.*` 时才需要它们。
+
 ### 这段代码在发生什么
 
-- `this.add.uiPanel(...)` 构造 `Panel` 并 **`scene.add.existing()`**，所以它已经在显示列表里了；但**还没参与布局**。第二个参数的子控件会被 `addWidget` 挂进这棵「widget 树」。
-- `this.mvvm.mount(page)` 才是关键一步：
+- 每个 composable（`Panel`/`Row`/`Text`/…）都 **`scene.add.existing()`** 了一个控件，所以它已经在显示列表里；但**还没参与布局**。内容 lambda 里创建的控件会在创建时挂到当前容器上（[09 §7](./09-compose-dsl.md) 讲这套作用域机制）。
+- `render(this.mvvm, () => { … })` 是关键一步，等价于 `const page = ui(this, () => { … }); this.mvvm.mount(page);`：
   1. `root.addWidget(page)`：把页面挂到 `UIRoot` 下，并**立刻布局一次**；
   2. `refreshInteraction()`：重新收集可聚焦控件与指针目标，于是新页面上的按钮马上能点、能 Tab；
   3. 页面在 `UIRoot` 的 `stack`（默认 `align: 'center'`）里居中显示。
+
+> 需要自己拿着根控件时（对话框、稍后替换的分区）用 `ui(this, () => { … })`，它只建不挂。
 
 > `UIRoot` 构造时按当前游戏尺寸（`scene.scale.gameSize`）把自己撑满，并 `setDepth(1000)` 抬高渲染层级；窗口尺寸变化时它监听 `scale` 的 `resize` 重新布局。页面因此天然居中。想要页面占满整屏就把 `page` 的 `width/height` 设成 `'fill'`。
 >
@@ -144,15 +135,15 @@ new Phaser.Game({ /* … */ scene: [HelloScene] });
 
 ---
 
-## 4. 工厂 vs 构造函数 vs 具名函数
+## 4. 创建控件的四种方式（DSL 优先）
 
-同一个控件有三种创建方式，选一种风格即可，别混着用同一个控件：
+**首选 DSL**（上一节），它把「建控件 + 建立父子关系 + 挂载」压成一次 `render()`。下面三种是同一批控件的其它入口，需要时再退回：
 
 ```ts
-// A) 场景工厂（推荐，最像 Phaser 原生写法）
+// A) 工厂（要写 this.add.*、或从旧代码迁移时用；需要 install*Factories()）
 const a = this.add.uiButton({ text: 'A' });
 
-// B) 具名函数（适合把视图拆成普通函数、脱离 this 的场景）
+// B) 具名函数（脱离 this 的普通函数里建控件；需要 install*Factories() 之外的场景也可直接用）
 import { button, panel, label } from '@phaser-mvvm/widgets';
 const b = button(this, { text: 'B' }); // 内部同样会 scene.add.existing()
 

@@ -29,6 +29,7 @@ import {
   Image,
   List,
   Panel,
+  render,
   Row,
   Scroll,
   Spacer,
@@ -42,7 +43,17 @@ import { makeTexture, makeTileTexture, setDemoState } from '../demo';
 import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
 
 type SectionId =
-  'text' | 'buttons' | 'inputs' | 'decor' | 'box' | 'grid' | 'stack' | 'params' | 'list' | 'parity';
+  | 'flow'
+  | 'text'
+  | 'buttons'
+  | 'inputs'
+  | 'decor'
+  | 'box'
+  | 'grid'
+  | 'stack'
+  | 'params'
+  | 'list'
+  | 'parity';
 
 interface SectionDef {
   id: SectionId;
@@ -51,6 +62,7 @@ interface SectionDef {
 }
 
 const SECTIONS: readonly SectionDef[] = [
+  { id: 'flow', title: 'Flow', caption: 'if · for · visible · render()' },
   { id: 'text', title: 'Text', caption: '常量 · ref · getter · 截断' },
   { id: 'buttons', title: 'Button', caption: '变体 · 状态 · 反应式标签' },
   { id: 'inputs', title: 'Text inputs', caption: 'ref 双向 · onValueChange · 校验' },
@@ -127,7 +139,7 @@ export class ComposeScene extends Phaser.Scene {
       graphics.fillCircle(8, 8, 3);
     });
 
-    const page = ui(this, () => {
+    const page = render(this.mvvm, () => {
       Panel(
         {
           direction: 'horizontal',
@@ -166,7 +178,6 @@ export class ComposeScene extends Phaser.Scene {
     });
 
     this.page = page;
-    this.mvvm.mount(page);
 
     this.mvvm.focus.onFocusChange = (widget) => {
       this.publish('focus', widget ? widget.name || 'unnamed' : 'none');
@@ -293,6 +304,9 @@ export class ComposeScene extends Phaser.Scene {
 
   private buildSection(id: SectionId): void {
     switch (id) {
+      case 'flow':
+        this.buildFlow();
+        break;
       case 'text':
         this.buildText();
         break;
@@ -339,6 +353,66 @@ export class ComposeScene extends Phaser.Scene {
         content();
       },
     );
+  }
+
+  /**
+   * Control flow, written the way Compose writes it — except that here it is just TypeScript.
+   *
+   * Building a view is synchronous, so a plain `if`/`for`/`switch` inside a content lambda composes
+   * statically: the branch that runs is the branch that exists. A *reactive* condition uses the
+   * `visible` slot instead, which collapses the node without rebuilding the subtree.
+   */
+  private buildFlow(): void {
+    this.card('Flow', 'if / for 直接写；反应式条件用 visible；页面用 render() 一次挂载', () => {
+      // Static condition: the tree is built once, so `if` decides what exists.
+      if (this.rows.value.length > 0) {
+        Text('这一行只在列表非空时被创建（静态 if）', { tone: 'muted' });
+      }
+
+      // Static loop: each iteration emits one node, exactly like Compose's `for`.
+      Row({ gap: 6, wrap: true, alignItems: 'center' }, () => {
+        for (const label of ['for', 'each', '自己', '写', '循环']) {
+          Panel(
+            {
+              variant: 'surfaceAlt',
+              radius: 6,
+              padding: { top: 4, bottom: 4, left: 8, right: 8 },
+            },
+            () => {
+              Text(label, { tone: 'muted' });
+            },
+          );
+        }
+      });
+
+      // Reactive condition: `visible` takes the node out of the flow when it flips.
+      Row({ gap: 8, alignItems: 'center' }, () => {
+        this.track(
+          'flow.toggle',
+          Button(() => (this.highlighted.value ? '隐藏通知' : '显示通知'), {
+            size: 'sm',
+            name: 'flow.toggle',
+            onClick: () => (this.highlighted.value = !this.highlighted.value),
+          }),
+        );
+        Text('通知：布局已更新', {
+          visible: () => this.highlighted.value,
+          tone: 'success',
+          name: 'flow.notice',
+        });
+        Divider({ name: 'flow.after' });
+      });
+
+      // Switch on state: the branch that runs at build time is the branch that exists.
+      switch (this.section.value) {
+        case 'flow':
+          Text('当前就是 Flow 分区（switch 也照常写）', { tone: 'muted' });
+          break;
+        default:
+          Text('其他分区', { tone: 'muted' });
+          break;
+      }
+    });
   }
 
   private buildText(): void {

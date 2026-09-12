@@ -31,6 +31,7 @@
 
 import type Phaser from 'phaser';
 import type { BindingContext } from '@phaser-mvvm/core';
+import type { MVVMPlugin } from '@phaser-mvvm/phaser';
 import { devLog, warn } from '@phaser-mvvm/core';
 import {
   AbsoluteWidget,
@@ -107,6 +108,34 @@ export function ui(scene: Phaser.Scene, content: () => void): Widget {
   scene.add.existing(wrapper);
   devLog(`ui(): built ${widgets} widget(s), ${depth} level(s) deep, wrapped ${roots.length} roots`);
   return wrapper;
+}
+
+/**
+ * Builds a view **and mounts it** — the `setContent { … }` of this framework.
+ *
+ * `ui()` returns the root so a caller can decide what to do with it (a dialog, a section that is
+ * swapped in later); `render()` is the one-call form for the common case of a whole page:
+ *
+ * ```ts
+ * render(this.mvvm, () => {
+ *   Column({ padding: 16, gap: 12 }, () => {
+ *     Text('Hello');
+ *     Button('确定', { variant: 'primary', onClick: save });
+ *   });
+ * });
+ * ```
+ *
+ * A page built this way does not need `installFactories()`/`installWidgetFactories()`: the DSL
+ * constructs the widget classes directly, so the `this.add.*` registrations are irrelevant to it.
+ */
+export function render(plugin: MVVMPlugin, content: () => void): Widget {
+  // `ScenePlugin#scene` is protected, so the scene comes from the UI root — which is the object the page
+  // is mounted into anyway, and reading it creates and wires that root on first use.
+  const root = plugin.root;
+  const page = ui(root.scene, content);
+  plugin.mount(page);
+  devLog('render(): mounted the page built by the content lambda');
+  return page;
 }
 
 // --------------------------------------------------------------------- containers

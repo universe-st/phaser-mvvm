@@ -82,9 +82,12 @@ DSL 是**独立入口**（`@phaser-mvvm/widgets/compose`），不在包根导出
 
 | 你要做的                 | 写法                                                         |
 | ------------------------ | ------------------------------------------------------------ |
+| **整页：建树 + 挂载**    | `render(this.mvvm, () => { … })`                             |
 | 搭出页面并挂到 UI 根     | `const page = ui(this, () => { … }); this.mvvm.mount(page);` |
 | 搭一段子树（切页、弹窗） | `const card = ui(this, () => { … }); host.addWidget(card);`  |
 | 不挂载，交给别的树       | 同上，`addWidget` 会重新认父                                 |
+
+整页最常用的形态是 **`render(this.mvvm, () => { … })`** —— 建树与挂载合成一次调用（`setContent { }` 的对应物）；用了 DSL 就**不需要** `installFactories()` / `installWidgetFactories()`（那两个只注册 `this.add.*` 工厂方法，DSL 直接构造控件类）。
 
 内容里一个控件都没建 → 直接抛错（空页面几乎总是 bug）；建了多个根 → 自动包一层纵向 `Column` 并给出 dev 警告（对应 Compose `setContent` 的宽容度，但方向必须显式时才最好）。
 
@@ -135,7 +138,31 @@ Divider({ orientation: 'vertical', height: 'fill' });
 
 注意：只有**数据槽位**接受函数——`onClick` 这类本来就是函数，不会被当成 getter。
 
-### 4.1 外观也能是反应式的
+### 4.1 控制流就是 TypeScript
+
+建树是同步的，所以容器的内容 lambda 里可以直接写 `if` / `for` / `switch`——**跑到的分支就是存在的分支**，形状和 Compose 里的 `if (cond) { Text(…) }` 一模一样：
+
+```ts
+Column(() => {
+  if (rows.value.length > 0) Text('有数据'); // 静态条件
+  for (const item of rows.value) Text(item.label); // 静态循环
+  switch (mode.value) {
+    case 'a':
+      Text('A');
+      break;
+  } // 静态分支
+});
+```
+
+区别只在**反应式**条件：上面的 `if` 只在建树那一刻判断一次。数据变化时要收起/显示，用 `visible` 槽位——节点不重建，直接退出布局流：
+
+```ts
+Text('仅在开启时出现', { visible: () => on.value });
+```
+
+`#/compose` 的 `Flow` 分区把两种写法都做成了可点按的演示（实测：关闭时同一行里后面的分隔线 x 由 224 移到 88）。
+
+### 4.2 外观也能是反应式的
 
 除了数据，几个最常用的**外观槽位**同样接受 `Ref`/getter，改动会按帧重绘，而不是重建节点：
 

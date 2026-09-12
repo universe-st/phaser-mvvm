@@ -25,8 +25,15 @@ import { box, grid, leaf } from './harness';
 
 /** Budget from PLAN §8 (M-series Mac, Node). */
 const BUDGET_MS = 1.5;
-/** An unchanged frame must not measure anything; the root arrange is all that may remain. */
-const IDLE_BUDGET_MS = 0.05;
+/**
+ * Sanity bound for an unchanged frame (PLAN §8 says "0 work").
+ *
+ * The *gate* for that budget is structural — zero measure calls and a single root arrange — because at
+ * this scale timing cannot tell "no work" (0.02 ms) from "re-measured 922 nodes" (0.06 ms), while a
+ * loaded CI machine can make a 20-run minimum drift by more than the difference. The time bound here
+ * only catches a gross regression (an idle frame that suddenly takes milliseconds).
+ */
+const IDLE_SANITY_MS = 1;
 
 function counters(engine: LayoutEngine): LayoutEngineStats {
   return { ...engine.stats };
@@ -143,8 +150,8 @@ describe('layout performance budgets (PLAN §8)', () => {
     const ms = bestOf(20, 5, () => {
       engine.layout(root, constraint);
     });
-    console.log(`unchanged frame: ${ms.toFixed(4)} ms`);
-    expect(ms).toBeLessThan(IDLE_BUDGET_MS);
+    console.log(`unchanged frame: ${ms.toFixed(4)} ms (sanity bound ${IDLE_SANITY_MS} ms)`);
+    expect(ms).toBeLessThan(IDLE_SANITY_MS);
   });
 
   it('keeps the measurement-cache hit rate above 95 % while typing', () => {
