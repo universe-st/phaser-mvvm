@@ -160,7 +160,7 @@ export class LifecycleScene extends Phaser.Scene {
                 key: (row) => row.id,
                 width: 'fill',
                 height: 140,
-                container: { gap: 2 },
+                gap: 2,
                 virtualize: true,
                 itemExtent: 24,
               },

@@ -42,11 +42,13 @@ import {
   bindText,
   bindValue,
   BoxWidget,
+  type BoxLayoutOptions,
   type BoxWidgetOptions,
   buildUiSubtree,
   currentUiScene,
   emitWidget,
   GridWidget,
+  type GridLayoutOptions,
   type GridWidgetOptions,
   RectWidget,
   type RectWidgetOptions,
@@ -68,6 +70,7 @@ import { Label, type LabelOptions, type LabelTone } from './Label';
 import { Panel as PanelWidget, type PanelOptions } from './Panel';
 import { Repeat, type RepeatOptions } from './Repeat';
 import { ScrollView, type ScrollViewOptions } from './ScrollView';
+import { withListFlow, type ListFlowShorthands } from './list-flow';
 import { Slider as SliderWidget, SLIDER_EVENTS, type SliderOptions } from './Slider';
 import { Spacer as SpacerWidget, type SpacerOptions } from './Spacer';
 import { TextArea as TextAreaWidget, type TextAreaOptions } from './TextArea';
@@ -549,10 +552,13 @@ export function Slider(options: SliderDslOptions = {}): SliderWidget {
 // --------------------------------------------------------------------- lists
 
 /** Options of `List`: everything `Repeat` takes except the template, which is the content lambda. */
-export type ListOptions<Item> = Omit<RepeatOptions<Item>, 'template' | 'empty'> &
-  DslOptions & {
+export type ListOptions<Item> = Omit<RepeatOptions<Item>, 'template' | 'empty' | 'container'> &
+  DslOptions &
+  ListFlowShorthands & {
     /** Content lambda for the empty state; omitted shows nothing. */
     empty?: (() => void) | null;
+    /** Row flow in its full form; the shorthands above are merged into it (explicit fields win). */
+    container?: BoxLayoutOptions | GridLayoutOptions;
   };
 
 /**
@@ -575,9 +581,10 @@ export function List<Item>(
   item: (item: Item, index: number, ctx: BindingContext) => void,
 ): Repeat<Item> {
   const scene = currentUiScene();
-  const { empty, visible, ...rest } = options;
+  const { empty, visible, gap, rowGap, columnGap, container, ...rest } = options;
   const widget = new Repeat<Item>(scene, {
     ...rest,
+    container: withListFlow(container, { gap, rowGap, columnGap }),
     template: (row, index, ctx) => buildUiSubtree(scene, () => item(row, index, ctx), 'List()'),
     empty:
       empty === null || empty === undefined

@@ -824,7 +824,7 @@ export class ComposeScene extends Phaser.Scene {
               name: 'list',
               width: 'fill',
               height: 'fill',
-              container: { gap: 4 },
+              gap: 4, // List 的简写：等价于 container: { gap: 4 }
               virtualize: true,
               itemExtent: 34,
               overscan: 4,

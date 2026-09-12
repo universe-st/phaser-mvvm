@@ -29,6 +29,7 @@ export { TextField, type TextFieldOptions } from './TextField';
 export { Slider, SLIDER_EVENTS, type SliderOptions } from './Slider';
 export { clampSliderValue, sliderFraction, sliderValueFromPosition } from './slider-geometry';
 export { Repeat, DEFAULT_OVERSCAN, repeat, type RepeatOptions } from './Repeat';
+export { withListFlow, type ListFlowShorthands } from './list-flow';
 export {
   ScrollView,
   MIN_THUMB,

@@ -399,7 +399,7 @@ export class StatesScene extends Phaser.Scene {
             key: (row) => row.id,
             width: 'fill',
             height: 'fill',
-            container: { gap: 2 },
+            gap: 2,
             virtualize: true,
             itemExtent: 26,
           },

@@ -4,25 +4,19 @@
 
 > 对应示例：[`apps/examples/src/scenes/scroll.ts`](../../apps/examples/src/scenes/scroll.ts)（`#/scroll`，纵向 + 横向 + 嵌套三种）与 [`apps/examples/src/scenes/list.ts`](../../apps/examples/src/scenes/list.ts)（`#/list`，虚拟化 + 键控复用 + 筛选）。
 
-> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose` 的 list 段与 `#/scroll`）：`Scroll({ … }, () => { … })`、`List({ … }, (row, index) => { … })`。DSL 直接构造同两个控件类，选项表与工厂写法（`this.add.uiScroll` / `this.add.uiRepeat`）完全通用；`List` 就是 `Repeat`，模板从 `template:` 选项变成第二个参数（`LazyColumn` 的写法）。
 
 ---
 
 ## 1. `ScrollView`：先做最简单的一个
 
 ```ts
-const content = this.add.uiPanel({ direction: 'vertical', gap: 8, width: 'fill' }, [
-  this.add.uiLabel({ text: '第一行' }),
-  this.add.uiLabel({ text: '第二行' }),
-  // …很多行
-]);
-
-const scroll = this.add.uiScroll({
-  width: 360,
-  height: 240,
-  direction: 'vertical',
-  scrollbar: 'auto',
-  content,
+const scroll = Scroll({ width: 360, height: 240, direction: 'vertical', scrollbar: 'auto' }, () => {
+  Panel({ direction: 'vertical', gap: 8, width: 'fill' }, () => {
+    Text('第一行');
+    Text('第二行');
+    // …很多行
+  });
 });
 ```
 
@@ -116,28 +110,27 @@ scroll.on('scroll', ({ y, maxOffsetY }) => {
 ### 6.1 最小示例（不虚拟化）
 
 ```ts
-const rows = ['Alice', 'Bob', 'Carol'];
+const names = ['Alice', 'Bob', 'Carol'];
 
-const list = this.add.uiRepeat({
-  items: () => rows,
-  key: (name) => name,
-  template: (name, index, ctx) => this.add.uiLabel({ text: `${index + 1}. ${name}`, height: 32 }),
-  container: { direction: 'vertical', gap: 6 },
+const list = List({ items: () => names, key: (name) => name, gap: 6 }, (name, index) => {
+  Text(`${index + 1}. ${name}`, { height: 32 });
 });
 ```
 
-| 选项         | 类型                                           | 默认       | 说明                                                                              |
-| ------------ | ---------------------------------------------- | ---------- | --------------------------------------------------------------------------------- |
-| `items`      | `() => readonly Item[]`                        | **必填**   | 数据源。**在 `flush: 'frame'` 的 effect 里读取**，所以一帧内多次变更只做一次 diff |
-| `key`        | `(item, index) => string \| number`            | **必填**   | 行身份。键相同就复用控件，键消失就卸载                                            |
-| `template`   | `(item, index, ctx: BindingContext) => Widget` | **必填**   | 构造一行；`ctx` 提供 `$item`/`$index`/`$root`/`$parent`（06 章）                  |
-| `update`     | `(widget, item, index) => void`                | —          | 键存活但**对象引用变了**时调用；不提供就整行重建                                  |
-| `container`  | `BoxLayoutOptions \| GridLayoutOptions`        | 纵向 box   | 行的排布算法（网格列表就传 grid 选项）                                            |
-| `virtualize` | `boolean`                                      | `false`    | 只挂载可见窗口（见 §7）                                                           |
-| `itemExtent` | `number`                                       | —          | 单行长度，**包含行间距**（虚拟化必需）                                            |
-| `overscan`   | `number`                                       | `2`        | 窗口上下各多挂几行                                                                |
-| `empty`      | `(() => Widget) \| null`                       | `null`     | 空数据时显示的控件                                                                |
-| `context`    | `BindingContext`                               | 空根作用域 | 行的**父作用域**；给了之后行模板能通过 `$root`/`$parent` 读到页面 VM              |
+| 选项                   | 类型                                           | 默认       | 说明                                                                              |
+| ---------------------- | ---------------------------------------------- | ---------- | --------------------------------------------------------------------------------- |
+| `items`                | `() => readonly Item[]`                        | **必填**   | 数据源。**在 `flush: 'frame'` 的 effect 里读取**，所以一帧内多次变更只做一次 diff |
+| `key`                  | `(item, index) => string \| number`            | **必填**   | 行身份。键相同就复用控件，键消失就卸载                                            |
+| `template`             | `(item, index, ctx: BindingContext) => Widget` | **必填**   | 构造一行；`ctx` 提供 `$item`/`$index`/`$root`/`$parent`（06 章）                  |
+| `update`               | `(widget, item, index) => void`                | —          | 键存活但**对象引用变了**时调用；不提供就整行重建                                  |
+| `gap`                  | `number`                                       | `0`        | 行间距（`container: { gap }` 的简写；网格列表请用下面两个）                       |
+| `rowGap` / `columnGap` | `number`                                       | `0`        | 换行流/网格的行列间距（同上，都是简写）                                           |
+| `container`            | `BoxLayoutOptions \| GridLayoutOptions`        | 纵向 box   | 行的排布算法（网格列表就传 grid 选项）；显式字段优先于上面的简写                  |
+| `virtualize`           | `boolean`                                      | `false`    | 只挂载可见窗口（见 §7）                                                           |
+| `itemExtent`           | `number`                                       | —          | 单行长度，**包含行间距**（虚拟化必需）                                            |
+| `overscan`             | `number`                                       | `2`        | 窗口上下各多挂几行                                                                |
+| `empty`                | `(() => Widget) \| null`                       | `null`     | 空数据时显示的控件                                                                |
+| `context`              | `BindingContext`                               | 空根作用域 | 行的**父作用域**；给了之后行模板能通过 `$root`/`$parent` 读到页面 VM              |
 
 | 成员                                   | 说明                               |
 | -------------------------------------- | ---------------------------------- |
@@ -174,20 +167,22 @@ this.rows.splice(10, 3);
 ## 7. 虚拟化：只挂载看得见的行
 
 ```ts
-const list = this.add.uiRepeat<Row>({
-  items: () => this.rows,
-  key: (row) => row.id,
-  template: (row, index, ctx) => this.rowWidget(row, index, ctx),
-  container: { direction: 'vertical', gap: ROW_GAP },
-  virtualize: true,
-  itemExtent: ROW_HEIGHT + ROW_GAP, // ← 注意：含行间距
-  overscan: 3,
+const list = List<Row>(
+  {
+    items: () => this.rows,
+    key: (row) => row.id,
+    gap: ROW_GAP,
+    virtualize: true,
+    itemExtent: ROW_HEIGHT + ROW_GAP, // ← 注意：含行间距
+    overscan: 3,
 
-  // 虚拟化需要知道「看得到多高」：自身或某个祖先必须有确定高度。
-  // 只写 virtualize + itemExtent 而不给高度时，窗口会塌成 overscan 行
-  // （开发模式会告警），所以这里给它一个高度——实际项目里通常像 §8 那样放进 Scroll。
-  height: 320,
-});
+    // 虚拟化需要知道「看得到多高」：自身或某个祖先必须有确定高度。
+    // 只写 virtualize + itemExtent 而不给高度时，窗口会塌成 overscan 行
+    // （开发模式会告警），所以这里给它一个高度——实际项目里通常像 §8 那样放进 Scroll。
+    height: 320,
+  },
+  (row, index, ctx) => this.rowWidget(row, index, ctx),
+);
 ```
 
 > 三个前提缺一不可：`virtualize: true`、正的 `itemExtent`、以及**能解析出高度**的容器（自身 `height`，或祖先/外层 `ScrollView` 的视口高度）。
@@ -215,34 +210,29 @@ const list = this.add.uiRepeat<Row>({
 这是长列表的标准写法（来自 `#/list`）：
 
 ```ts
-const list = this.add.uiRepeat<Row>({
-  items: () => this.visibleRows,
-  key: (row) => row.id,
-  template: (row, index, ctx) => this.rowWidget(row, index, ctx),
-  container: { direction: 'vertical', gap: ROW_GAP },
-  virtualize: true,
-  itemExtent: ROW_HEIGHT + ROW_GAP,
-  overscan: 3,
-  context: this.pageContext, // 让行能读到页面 VM（$root/$parent）
-  width: 'fill',
-  height: LIST_HEIGHT,
-  name: 'list.repeat',
-});
-
-// 内容是一层普通容器，把 Repeat 包起来（也可以是 Panel，用于背景）
-const listContent = this.add.uiPanel(
-  { direction: 'vertical', width: 'fill', height: 'fill', variant: 'plain' },
-  [list],
-);
-
-const listScroll = this.add.uiScroll({
-  width: 'fill',
-  height: 'fill',
-  direction: 'vertical',
-  scrollbar: 'auto',
-  content: listContent,
+const listScroll = Scroll({ width: 'fill', height: 'fill', direction: 'vertical' }, () => {
+  // 内容是一层普通容器，把列表包起来（也可以是 Panel，用于背景）
+  Panel({ direction: 'vertical', width: 'fill', height: 'fill', variant: 'plain' }, () => {
+    List<Row>(
+      {
+        items: () => this.visibleRows,
+        key: (row) => row.id,
+        gap: ROW_GAP,
+        virtualize: true,
+        itemExtent: ROW_HEIGHT + ROW_GAP,
+        overscan: 3,
+        context: this.pageContext, // 让行能读到页面 VM（$root/$parent）
+        width: 'fill',
+        height: LIST_HEIGHT,
+        name: 'list.repeat',
+      },
+      (row, index, ctx) => this.rowWidget(row, index, ctx),
+    );
+  });
 });
 ```
+
+> `Scroll` 的内容 lambda 里**只能放一个**根控件（这里的 `Panel`），`List` 的第二个参数（一行）同理：两者都用 `buildUiSubtree`，**建出 0 个或 2 个以上根会直接抛错**（错误信息会告诉你用 `Column`/`Row`/`Panel` 包一层），而不是悄悄替你包一层。
 
 **两者如何协同**（这是最容易搞混的一点）：
 

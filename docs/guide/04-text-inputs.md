@@ -5,19 +5,23 @@
 > 对应示例：[`apps/examples/src/scenes/form.ts`](../../apps/examples/src/scenes/form.ts)（`#/form`）。
 > 设计背景：Canvas 文本输入拿不到输入法候选框和移动端软键盘，所以框架用一层**隐藏 DOM 元素镜像**（[ADR-0004](../adr/0004-dom-input-bridge.md)）。光标与选区仍然画在 Canvas 里，保证视觉一致与 z-order 可控。
 
-> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`）：`TextField({ … })`、`TextArea({ … })`。DSL 直接构造同一个控件类，选项表与工厂写法（`this.add.uiTextField(...)`）完全通用。最关键的一点：`value` 是**数据槽**，绑一个 `ref` 就是双向的——本章第 7 节那个登录表单因此从四十多行变成十几行。
 
 ---
 
 ## 1. 先做一个最小的输入框
 
 ```ts
-const name = this.add.uiTextField({
-  placeholder: '请输入姓名',
-  width: 320,
-});
+const name = ref('');
+TextField({ value: name, placeholder: '请输入姓名', width: 320 });
 
-name.on('change', (value: string) => console.log('用户输入了', value));
+// 想只在"用户改了"时做点什么（而不是每次值变化）：
+const runSearch = (value: string) => console.log('search', value);
+TextField({ placeholder: '搜索', onValueChange: runSearch });
+
+// 需要拿控件本体时（聚焦、手动校验、读 bridged…）：
+const email = TextField({ label: 'Email', placeholder: 'you@example.com', width: 320 });
+email.focus();
 ```
 
 就能点了：点击聚焦、出现闪烁光标、可以输入、可以选区 —— 这部分是控件自己在 Canvas 里实现的，不依赖 DOM。**中文输入法候选框与移动端软键盘**才需要游戏开 DOM 容器（下一节）。
@@ -58,7 +62,7 @@ console.log(field.composing); // 输入法组合期是否为 true
 ## 3. `TextField` 选项
 
 ```ts
-this.add.uiTextField({
+TextField({
   label: 'Email',
   placeholder: 'ada@example.com',
   inputType: 'email',
@@ -162,7 +166,7 @@ field.on(TEXT_INPUT_EVENTS.SUBMIT, (value: string) => {
 | `submitOnEnter` | `boolean` | `false` | 交换 Enter 绑定：`true` 时 Enter 提交、`Shift+Enter` 换行；`false` 时 Enter 换行、`Ctrl/Cmd+Enter` 提交 |
 
 ```ts
-const notes = this.add.uiTextArea({
+TextArea({
   placeholder: '备注…（Enter 换行，Ctrl/Cmd+Enter 提交）',
   rows: 4,
   maxLength: 200,
@@ -182,7 +186,7 @@ const notes = this.add.uiTextArea({
 ## 6. 校验与错误态
 
 ```ts
-const email = this.add.uiTextField({
+TextField({
   label: 'Email',
   width: 360,
   validate: (value) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? null : '请输入有效邮箱'),
@@ -206,10 +210,10 @@ const email = this.add.uiTextField({
 ```ts
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { bindEnabled, bindText, bindValue } from '@phaser-mvvm/phaser';
-import type { TextField } from '@phaser-mvvm/widgets';
+import { Button, Divider, Panel, Text, TextField, render } from '@phaser-mvvm/widgets/compose';
 
 export class LoginScene extends Phaser.Scene {
+  // 表单状态就是这个页面的全部状态：两个输入、一个忙碌标记，其余都是派生值
   private email = ref('');
   private password = ref('');
   private busy = ref(false);
@@ -230,70 +234,54 @@ export class LoginScene extends Phaser.Scene {
   }
 
   create(): void {
-    const emailField = this.add.uiTextField({
-      label: 'Email',
-      placeholder: 'you@example.com',
-      inputType: 'email',
-      width: 360,
-      clearable: true,
-      validate: (value) => (value === '' || this.emailValid.value ? null : '邮箱格式不正确'),
+    let emailField: ReturnType<typeof TextField> | null = null;
+
+    render(this.mvvm, () => {
+      Panel(
+        { gap: 12, padding: 22, variant: 'surface', radius: 12, width: 420, alignItems: 'stretch' },
+        () => {
+          Text('登录', { style: { fontSize: '20px' } });
+
+          // `value: this.email` 就是双向绑定：用户输入写回 ref，代码写 ref 更新输入框
+          emailField = TextField({
+            value: this.email,
+            label: 'Email',
+            placeholder: 'you@example.com',
+            inputType: 'email',
+            clearable: true,
+            width: 'fill',
+            validate: (value) => (value === '' || this.emailValid.value ? null : '邮箱格式不正确'),
+          });
+
+          TextField({
+            value: this.password,
+            label: 'Password',
+            placeholder: '至少 6 位',
+            inputType: 'password',
+            width: 'fill',
+          });
+
+          // 派生数据就是一行 Text：hint 变了它自己重绘
+          Text(() => this.hint.value, { tone: 'muted' });
+
+          Divider({});
+
+          // 禁用态也可以派生：canSubmit 一变，按钮自己变灰、也不再响应
+          Button('登录', {
+            variant: 'primary',
+            width: 'fill',
+            disabled: () => !this.canSubmit.value,
+            loading: () => this.busy.value,
+            onClick: () => {
+              this.busy.value = true;
+              void this.login();
+            },
+          });
+        },
+      );
     });
 
-    const passwordField = this.add.uiTextField({
-      label: 'Password',
-      placeholder: '至少 6 位',
-      inputType: 'password',
-      width: 360,
-    });
-
-    const hintLabel = this.add.uiLabel({ text: '', tone: 'muted', width: 360 });
-    const submit = this.add.uiButton({
-      text: '登录',
-      variant: 'primary',
-      width: 360,
-      onClick: () => {
-        this.busy.value = true;
-        void this.login();
-      },
-    });
-
-    // 用户编辑 → 写回 ViewModel（change 只在用户输入时触发）
-    emailField.on('change', (value: string) => {
-      this.email.value = value;
-    });
-    passwordField.on('change', (value: string) => {
-      this.password.value = value;
-    });
-
-    // ViewModel → 视图（程序化写入走静默 setValue，不会打回环）
-    bindValue(
-      emailField,
-      () => this.email.value,
-      (value, w) => (w as TextField).setValue(String(value)),
-    );
-    bindValue(
-      passwordField,
-      () => this.password.value,
-      (value, w) => (w as TextField).setValue(String(value)),
-    );
-
-    bindText(hintLabel, () => this.hint.value);
-    bindEnabled(submit, () => this.canSubmit.value);
-
-    const page = this.add.uiPanel(
-      { direction: 'vertical', gap: 12, padding: 22, variant: 'surface', radius: 12, width: 420 },
-      [
-        this.add.uiLabel({ text: '登录', style: { fontSize: '20px' } }),
-        emailField,
-        passwordField,
-        hintLabel,
-        this.add.uiDivider({}),
-        submit,
-      ],
-    );
-
-    this.mvvm.mount(page);
-    emailField.focus(); // 打开页面就聚焦第一个字段
+    emailField?.focus(); // 打开页面就聚焦第一个字段
   }
 
   private async login(): Promise<void> {
@@ -305,16 +293,9 @@ export class LoginScene extends Phaser.Scene {
 
 这个例子里几个值得注意的点：
 
-- `change` 事件负责「视图 → 模型」，`bindValue` 负责「模型 → 视图」。两边都写是因为示例想同时展示两种方向；实际项目里更省事的是 `bindModel`（[06 章 §4](./06-data-and-theme.md)）：
-  ```ts
-  bindModel(
-    emailField,
-    () => this.email.value,
-    (v) => (this.email.value = v),
-  );
-  ```
-- `bindEnabled` 直接驱动按钮的 `disabled` 状态，所以「不能提交」是视觉 + 交互一起生效的。
-- `bindText` 里的 `computed` 每个依赖变化都会重算，但**每帧只刷一次**（`flush: 'frame'`）。
+- **没有一处手写的双向同步**：`TextField({ value: this.email })` 一个参数同时管两个方向（DSL 内部用 `bindModel`），`Text(() => this.hint.value)` 管派生显示，`Button({ disabled: () => !canSubmit.value })` 管禁用态。要自己接线时（例如把控件接到 store 而不是 `ref`）才用命令式 API：`bindModel` / `bindValue` / `bindText` / `bindEnabled`，见 [06 章 §4](./06-data-and-theme.md)。
+- **禁用是视觉 + 交互一起生效的**：`disabled` 数据槽最终落到 `setEnabled(false)`，按钮既变灰也拒绝按下与焦点。
+- `computed` 每个依赖变化都会重算，但**每帧只刷一次**（`flush: 'frame'`），所以输入时不会每敲一个字符就重排一次页面。
 
 ---
 
@@ -324,7 +305,7 @@ export class LoginScene extends Phaser.Scene {
 | --------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | 打不出中文 / 没有候选框           | 没开 `dom.createContainer`，或用了 `dom: false`                                                  | 开 DOM 容器；用 `field.bridged` 自检                                                     |
 | 在输入框里敲空格却激活了别的东西  | 空格在导航里等于 `activate`；框架在输入框聚焦时会消费该键，但你自己挂的全局 keydown 可能抢在前面 | 不要把全局快捷键挂在捕获阶段；需要时先判断 `document.activeElement` 或 `field.composing` |
-| `setValue()` 之后 `change` 没触发 | 这是**设计如此**（静默写入，防回环）                                                             | 想感知变化就监听用户输入，或在模型侧 `watch`                                             |
+| `setValue()` 之后 `change` 没触发 | 这是**设计如此**（静默写入，防回环）；DSL 的 `value` 槽同样遵循                                  | 想感知变化就监听用户输入（`onValueChange`），或在模型侧 `watch`                          |
 | `field.on('blur', …)` 从不触发    | 聚焦/失焦只有**回调选项**，没有事件                                                              | 用 `onBlur` / `onFocus` 选项                                                             |
 | 输入时整个页面在重排              | 用了 `width: 'auto'`。只有 auto 宽度才会因为内容变化而 `markDirty`                               | 表单里给输入框写固定的 `width` 或 `'fill'`                                               |
 | 失焦后校验没跑                    | 焦点没有真正转移（点击画布空白处会失焦，切到别的控件也会）                                       | 明确调用 `field.blur()` 或 `validateNow()`                                               |
