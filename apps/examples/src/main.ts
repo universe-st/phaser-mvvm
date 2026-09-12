@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
 import { installWidgetFactories } from '@phaser-mvvm/widgets';
 import { BindingsScene } from './scenes/bindings';
+import { ComposeScene } from './scenes/compose';
 import { DashboardScene } from './scenes/dashboard';
 import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
@@ -32,6 +33,7 @@ const SCENES = {
   list: ListScene,
   scroll: ScrollScene,
   showcase: ShowcaseScene,
+  compose: ComposeScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

@@ -30,7 +30,7 @@ import type {
   StopBinding,
   TemplateScope,
 } from '@phaser-mvvm/core';
-import type { Widget } from './Widget';
+import type { ActivationSource, Widget } from './Widget';
 
 export type BindingFlush = 'sync' | 'pre' | 'post' | 'frame';
 
@@ -300,11 +300,12 @@ function bindCommandWith(
   options: CommandBindingOptions,
 ): StopBinding {
   const previous = host.onActivate;
-  host.onActivate = (source) => {
+  const installed = (source: ActivationSource): void => {
     previous?.(source);
     const command = read();
     command?.();
   };
+  host.onActivate = installed;
 
   let stopCanExecute: StopBinding | null = null;
   if (options.canExecute) {
@@ -314,7 +315,9 @@ function bindCommandWith(
 
   return () => {
     stopCanExecute?.();
-    if (host.onActivate !== null) {
+    // Only restore when this binding's handler is still installed: a handler bound *after* it must not
+    // be wiped out by stopping the older binding.
+    if (host.onActivate === installed) {
       host.onActivate = previous;
     }
   };

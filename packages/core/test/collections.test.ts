@@ -6,6 +6,7 @@ import {
   reactive,
   resetDevWarnings,
   setDevMode,
+  shallowReactive,
   toRaw,
 } from '../src/index';
 
@@ -195,5 +196,36 @@ describe('reactive Set', () => {
       [2, 2],
       [3, 3],
     ]);
+  });
+});
+
+describe('shallow collection proxies', () => {
+  it('unwraps a shallowReactive Map, so its instrumented methods do not re-enter themselves', () => {
+    const map = shallowReactive(new Map<string, number>([['a', 1]]));
+    expect(map.get('a')).toBe(1);
+    expect(map.has('a')).toBe(true);
+    expect(map.size).toBe(1);
+    expect(toRaw(map)).not.toBe(map);
+  });
+
+  it('unwraps a shallowReactive Set', () => {
+    const set = shallowReactive(new Set<number>([1, 2]));
+    expect(set.has(1)).toBe(true);
+    expect(set.size).toBe(2);
+    set.add(3);
+    expect(set.has(3)).toBe(true);
+    expect(toRaw(set)).not.toBe(set);
+  });
+
+  it('keeps a shallow collection usable inside an effect', () => {
+    const map = shallowReactive(new Map<string, number>([['a', 1]]));
+    const seen: number[] = [];
+    effect(() => {
+      seen.push(map.get('a') ?? -1);
+    });
+    expect(seen).toEqual([1]);
+    map.set('a', 2);
+    flushSync();
+    expect(seen).toEqual([1, 2]);
   });
 });

@@ -168,3 +168,27 @@ describe('computed', () => {
     expect(seen).toEqual([6, 60]);
   });
 });
+
+describe('computed with a throwing getter', () => {
+  it('re-runs the getter on the next read instead of serving the stale cache', () => {
+    const source = ref(1);
+    let calls = 0;
+    const boom = computed(() => {
+      calls++;
+      if (source.value === 1) throw new Error('boom');
+      return source.value;
+    });
+
+    expect(() => boom.value).toThrow('boom');
+    expect(calls).toBe(1);
+
+    // The failed evaluation must leave the computed invalidated, so the error is not swallowed into a
+    // silently stale (or undefined) value on the next read.
+    expect(() => boom.value).toThrow('boom');
+    expect(calls).toBe(2);
+
+    source.value = 7;
+    expect(boom.value).toBe(7);
+    expect(calls).toBe(3);
+  });
+});

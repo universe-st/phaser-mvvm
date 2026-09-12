@@ -5,6 +5,7 @@ import {
   isProxy,
   isReactive,
   isReadonly,
+  isRef,
   markRaw,
   onDevWarning,
   reactive,
@@ -14,6 +15,8 @@ import {
   setDevMode,
   shallowReactive,
   toRaw,
+  unref,
+  watch,
 } from '../src/index';
 
 beforeEach(() => {
@@ -193,6 +196,23 @@ describe('readonly', () => {
     count.value = 1;
     flushSync();
     expect(seen).toEqual([0, 1]);
+  });
+
+  it('keeps the read-only ref a ref, so isRef/unref/watch keep working', () => {
+    const count = ref(2);
+    const view = readonly(count);
+    expect(isRef(view)).toBe(true);
+    expect(isReadonly(view)).toBe(true);
+    expect(unref(view)).toBe(2);
+    expect(() => {
+      (view as { value: number }).value = 5;
+    }).toThrow();
+
+    const seen: number[] = [];
+    watch(view, (value) => seen.push(value as number), { flush: 'sync' });
+    count.value = 3;
+    flushSync();
+    expect(seen).toEqual([3]);
   });
 });
 

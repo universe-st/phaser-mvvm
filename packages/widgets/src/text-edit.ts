@@ -117,11 +117,18 @@ export function clampCaret(value: string, caret: number): number {
   if (!Number.isFinite(caret)) {
     return 0;
   }
-  let index = Math.max(0, Math.min(value.length, Math.floor(caret)));
-  if (isLowSurrogate(value.charCodeAt(index))) {
-    index -= 1;
-  }
-  return index;
+  return snapToCodePoint(value, caret);
+}
+
+/**
+ * Moves an offset back onto a code point boundary.
+ *
+ * An offset naming the low half of a surrogate pair is moved one code unit back, so callers that slice
+ * a string (the ellipsis search, the caret) can never cut an emoji in half.
+ */
+export function snapToCodePoint(value: string, index: number): number {
+  const clamped = Math.max(0, Math.min(value.length, Math.floor(index)));
+  return isLowSurrogate(value.charCodeAt(clamped)) ? clamped - 1 : clamped;
 }
 
 /** Orders a caret/anchor pair into an ascending range. */
@@ -317,7 +324,9 @@ export function filterNumeric(value: string): string {
       digits += character;
     }
   }
-  return `${negative ? '-' : ''}${digits}`;
+  // A lone sign or point (`-`, `.`, `-.`) has no digits and parses to `NaN`; the field must never hold
+  // such a value, because a two-way binding would write that `NaN` straight into the view model.
+  return /\d/.test(digits) ? `${negative ? '-' : ''}${digits}` : '';
 }
 
 /** Replaces line breaks with spaces; a single-line field never holds a newline. */
@@ -518,7 +527,8 @@ export function moveCaretVertically(
     Math.min(lines.length - 1, direction === 'up' ? index - 1 : index + 1),
   );
   const targetLine = lines[target] ?? line;
-  const offset = Math.max(0, Math.min(column, targetLine.text.length));
+  // `clampCaret` (not a raw `Math.min`) so the restored column cannot land inside a surrogate pair.
+  const offset = clampCaret(targetLine.text, column);
 
   return { caret: targetLine.start + offset, columnHint: column };
 }

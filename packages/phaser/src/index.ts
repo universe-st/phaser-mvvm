@@ -26,6 +26,18 @@ export {
   vbox,
 } from './LayoutWidget';
 export { UIRoot, type UIRootOptions } from './UIRoot';
+export {
+  buildUiSubtree,
+  currentUiScene,
+  currentUiScope,
+  emitWidget,
+  inUiScope,
+  runInUiScope,
+  uiScopeDepth,
+  withUiParent,
+  type UiScopeFrame,
+  type UiScopeResult,
+} from './uiscope';
 export { MVVMPlugin, type MVVMPluginConfig } from './plugin';
 export { factoriesInstalled, FACTORY_KEYS, installFactories } from './factory';
 export {

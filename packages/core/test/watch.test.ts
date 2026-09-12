@@ -332,3 +332,44 @@ describe('watchEffect', () => {
     expect(runs).toBe(1);
   });
 });
+
+describe('watch over an array of sources', () => {
+  it('observes a reactive object entry instead of silently never firing', () => {
+    const state = reactive({ a: 1 });
+    const log: { a: number }[] = [];
+    watch(
+      [state],
+      (values: unknown[]) => {
+        log.push(values[0] as { a: number });
+      },
+      { flush: 'sync' },
+    );
+
+    state.a = 2;
+    flushSync();
+    expect(log.length).toBe(1);
+    expect(log[0]?.a).toBe(2);
+  });
+
+  it('still compares ref and getter entries element-wise', () => {
+    const count = ref(0);
+    const state = reactive({ a: 1 });
+    const log: unknown[] = [];
+    watch(
+      [count, () => state.a],
+      (values: unknown[]) => {
+        log.push(values.slice());
+      },
+      { flush: 'sync' },
+    );
+
+    count.value = 1;
+    flushSync();
+    state.a = 5;
+    flushSync();
+    expect(log).toEqual([
+      [1, 1],
+      [1, 5],
+    ]);
+  });
+});

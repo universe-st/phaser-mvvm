@@ -120,63 +120,96 @@ pnpm preview       # 预览构建产物（端口 4173）
 
 ---
 
-## 4. 最小代码示例（目标形态，实现中）
+## 4. 最小代码示例（已实现）
 
-以下代码取自 [`docs/PLAN.md` §5](./docs/PLAN.md) 的 API 草案，**标注「目标形态，实现中」**：类型与签名都可能调整，涉及的能力横跨 M1–M6。
+视图用 **Compose 风格 DSL** 写：嵌套调用 + 内容 lambda，没有 `this.add` 前缀、没有 children 数组。
 
 ```ts
-// 1) ViewModel：纯 TS 类 + 可选装饰性 API      —— M1（响应式）、M6（command）
-export class UserFormVM {
+import Phaser from 'phaser';
+import { computed, ref } from '@phaser-mvvm/core';
+import { MVVMPlugin, installFactories } from '@phaser-mvvm/phaser';
+import { installWidgetFactories } from '@phaser-mvvm/widgets';
+import {
+  Button,
+  Column,
+  Divider,
+  List,
+  Panel,
+  Row,
+  Scroll,
+  Spacer,
+  Text,
+  TextField,
+  ui,
+} from '@phaser-mvvm/widgets/compose';
+
+installFactories();
+installWidgetFactories();
+
+// ViewModel：普通 TS 类 + ref/computed
+class UserFormVM {
   name = ref('');
-  age = ref(0);
-  users = reactive<User[]>([]);
-  errors = computed(() => ({
-    name: this.name.value.trim().length >= 2 ? undefined : '姓名至少 2 个字符',
-  }));
-  save = command(
-    async () => {
-      await api.save({ name: this.name.value });
-    },
-    { canExecute: () => !this.errors.value.name },
-  );
-}
-
-// 2) 视图：类型安全的 builder（推荐默认）      —— M2（布局）、M4/M5（控件）、M6（绑定/repeat）
-export function UserForm(vm: UserFormVM) {
-  return vbox({ gap: 12, padding: 16, fill: 'both' }, [
-    label({ text: '用户信息', style: 'h2' }),
-
-    textField({
-      label: '姓名',
-      model: model(vm, 'name'), // 双向绑定
-      placeholder: '请输入姓名',
-      error: bind(() => vm.errors.value.name),
-    }),
-
-    textField({ label: '年龄', model: model(vm, 'age'), inputType: 'number', width: 120 }),
-
-    repeat({
-      items: bind(() => vm.users),
-      key: (u) => u.id,
-      virtualize: true,
-      template: (u) => card(u),
-    }),
-
-    hbox({ gap: 8, justifyContent: 'end' }, [
-      button({ text: '重置', onClick: () => vm.reset() }),
-      button({ text: '保存', command: vm.save, variant: 'primary' }),
-    ]),
-  ]);
-}
-
-// 3) 挂载：场景插件                            —— M3（MVVMPlugin）、M8（UIScene）
-export class DemoScene extends Phaser.Scene {
-  create() {
-    const vm = new UserFormVM();
-    this.mvvm.mount(vm, UserForm, { root: 'center', width: 480 });
+  users = ref<User[]>([]);
+  valid = computed(() => this.name.value.trim().length >= 2);
+  save(): void {
+    /* … */
   }
 }
+
+export class DemoScene extends Phaser.Scene {
+  create(): void {
+    const vm = new UserFormVM();
+
+    const page = ui(this, () => {
+      Panel({ variant: 'surface', radius: 12, padding: 16, width: 480, gap: 12 }, () => {
+        Text('用户信息', { style: { fontSize: '18px' } });
+        TextField({ value: vm.name, label: '姓名', placeholder: '请输入姓名', clearable: true });
+        Text(() => (vm.valid.value ? '姓名有效' : '姓名至少 2 个字符'), { tone: 'muted' });
+        Divider({});
+
+        Scroll({ direction: 'vertical', height: 200, width: 'fill' }, () => {
+          List(
+            {
+              items: () => vm.users.value,
+              key: (user) => user.id,
+              virtualize: true,
+              itemExtent: 34,
+            },
+            (user) => {
+              Row({ gap: 8, height: 30, alignItems: 'center', width: 'fill' }, () => {
+                Text(() => user.name);
+                Spacer({ flex: true });
+              });
+            },
+          );
+        });
+
+        Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
+          Button('取消', { variant: 'ghost' });
+          Button('保存', { variant: 'primary', onClick: () => vm.save() });
+        });
+      });
+    });
+
+    this.mvvm.mount(page);
+  }
+}
+
+new Phaser.Game({
+  // …
+  dom: { createContainer: true },
+  plugins: { scene: [{ key: 'MVVMPlugin', plugin: MVVMPlugin, mapping: 'mvvm' }] },
+  scene: [DemoScene],
+});
 ```
+
+三件事需要记住：
+
+1. **`ui(scene, () => { … })` 是入口**：它打开作用域并返回根控件，`this.mvvm.mount(page)` 负责挂载与首帧布局。
+2. **数据槽位接受常量 / `ref` / getter**：`Text(() => …)` 是单向，`TextField({ value: ref })` 是双向（IME 组合期暂停写回）。
+3. **工厂 API 仍然可用**（`this.add.uiButton(...)`、`vbox([...])`）：DSL 只是更顺手的写法，两者建的是同一批控件，可混用。
+
+完整教程见 [`docs/guide/09-compose-dsl.md`](./docs/guide/09-compose-dsl.md)；可运行示例见 `pnpm dev` → `#/compose`（逐控件验收）与 `#/showcase`（工厂 API 版验收页）。
 
 ---
 
@@ -225,12 +258,15 @@ phaser-mvvm/
 
 ## 7. 文档索引
 
-| 文档                                           | 内容                                                                                                                                                    |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`docs/PLAN.md`](./docs/PLAN.md)               | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3） |
-| [`docs/adr/`](./docs/adr/README.md)            | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                    |
-| `docs/api/`（**M10**，TypeDoc 生成，尚未创建） | 生成的 API 参考                                                                                                                                         |
-| `docs/widget-spec/`（**M10**，尚未创建）       | 控件规格文档                                                                                                                                            |
+| 文档                                                                 | 内容                                                                                                                                                         |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`docs/PLAN.md`](./docs/PLAN.md)                                     | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3）      |
+| [`docs/guide/`](./docs/guide/README.md)                              | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表 |
+| [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md) | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                      |
+| [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                 | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
+| [`docs/adr/`](./docs/adr/README.md)                                  | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
+| `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                       | 生成的 API 参考                                                                                                                                              |
+| `docs/widget-spec/`（**M10**，尚未创建）                             | 控件规格文档；落地前以 [`docs/guide/`](./docs/guide/README.md) 的控件章节为现行参考                                                                          |
 
 关键 ADR 速览：包划分 [0001](./docs/adr/0001-package-layout.md)｜两阶段布局 [0002](./docs/adr/0002-two-pass-layout.md)｜layout 零 Phaser 依赖 [0003](./docs/adr/0003-layout-is-renderer-agnostic.md)｜DOM 输入桥 [0004](./docs/adr/0004-dom-input-bridge.md)｜Phaser 依赖方式 [0005](./docs/adr/0005-phaser-dependency.md)｜Phase 1 范围 [0006](./docs/adr/0006-phase1-scope.md)｜Phaser 4 WebGL 约束 [0007](./docs/adr/0007-phaser4-webgl-constraints.md)｜响应式与调度器 [0008](./docs/adr/0008-reactivity-and-scheduler.md)。
 

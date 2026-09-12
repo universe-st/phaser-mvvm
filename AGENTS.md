@@ -16,17 +16,17 @@
 - 依赖已安装时**不要**重复 `pnpm install`；只有需要同步 lockfile 时才安装，并提交更新后的 `pnpm-lock.yaml`。
 - 示例 dev server 端口写死 **5173 + `strictPort: true`**：被占用会直接报错而不是换端口。若需另起服务，用后台任务并核实端口。
 
-| 命令                                                          | 用途                                                     |
-| ------------------------------------------------------------- | -------------------------------------------------------- |
-| `pnpm typecheck`                                              | `pnpm -r run typecheck`（逐包 `tsc -p tsconfig.json`）   |
-| `pnpm test`                                                   | `pnpm -r run test`（逐包 vitest）                        |
-| `pnpm build`                                                  | `pnpm -r run build`（tsup：ESM + CJS + d.ts）            |
-| `pnpm format` / `pnpm format:check`                           | Prettier 写 / 校验（CI 门禁是 `prettier --check .`）     |
-| `pnpm dev`                                                    | 示例 dev server → http://localhost:5173（`#/m0` 等场景） |
-| `pnpm build:examples` / `pnpm preview`                        | 构建示例 / 预览产物（4173，`strictPort`）                |
-| `pnpm --filter @phaser-mvvm/<pkg> run typecheck\|test\|build` | **并行开发期优先用这个**，只验证自己负责的包             |
-| `node scripts/visual-check.mjs`                               | 几何 + 像素验收（见 §6），需要本机 Chrome/Chromium       |
-| `UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test`  | 重新生成布局黄金快照                                     |
+| 命令                                                          | 用途                                                                                                             |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `pnpm typecheck`                                              | `pnpm -r run typecheck`（逐包 `tsc -p tsconfig.json`）                                                           |
+| `pnpm test`                                                   | `pnpm -r run test`（逐包 vitest）                                                                                |
+| `pnpm build`                                                  | `pnpm -r run build`（tsup：ESM + CJS + d.ts）                                                                    |
+| `pnpm format` / `pnpm format:check`                           | Prettier 写 / 校验（CI 门禁是 `prettier --check .`）                                                             |
+| `pnpm dev`                                                    | 示例 dev server → http://localhost:5173（场景：`#/showcase` 工厂 API 验收页、`#/compose` DSL 验收页、`#/m0` 等） |
+| `pnpm build:examples` / `pnpm preview`                        | 构建示例 / 预览产物（4173，`strictPort`）                                                                        |
+| `pnpm --filter @phaser-mvvm/<pkg> run typecheck\|test\|build` | **并行开发期优先用这个**，只验证自己负责的包                                                                     |
+| `node scripts/visual-check.mjs`                               | 几何 + 像素验收（见 §6），需要本机 Chrome/Chromium                                                               |
+| `UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test`  | 重新生成布局黄金快照                                                                                             |
 
 包名：`@phaser-mvvm/core`、`@phaser-mvvm/layout`、`@phaser-mvvm/phaser`、`@phaser-mvvm/widgets`，示例为 `@phaser-mvvm/examples`（私有）。
 
@@ -38,7 +38,8 @@ packages/core      响应式内核 / 调度器 / 绑定上下文 / 表达式编�
 packages/layout    渲染无关的两阶段布局引擎（measure/arrange）—— 零 Phaser 依赖
 packages/phaser    Phaser 4 适配层：Widget/UIRoot/MVVMPlugin/输入·焦点·导航/主题/绑定——唯一可 import phaser 的包
 packages/widgets   控件库：Label/Panel/Button/Image/Spacer/Divider/TextField/TextArea/ScrollView/Repeat
-docs/              PLAN.md（唯一事实来源）、adr/（ADR-0001…0008）、ACCEPTANCE-*.md（验收记录）
+                   子路径 `@phaser-mvvm/widgets/compose` = Compose 风格 DSL（推荐写视图的方式）
+docs/              PLAN.md（唯一事实来源）、guide/（教程式使用指南：控件/布局/用法/DSL）、adr/（ADR-0001…0008）、ACCEPTANCE-*.md（验收记录）、DEFECT-BACKLOG.md（审计缺陷登记簿）
 scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）、png-sample.py（Pillow 采样）
 ```
 
@@ -47,6 +48,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 ## 4. 硬约束（改动前先读）
 
 1. **只有 `packages/phaser` 允许 `import phaser`**（含类型引入）。`core`/`layout` 零 Phaser 依赖；`widgets` 只通过 `@phaser-mvvm/phaser` 间接使用。构建时 `phaser` 一律 `--external`。
+   例外与延伸：`packages/phaser/src/uiscope.ts`（DSL 作用域机制）是**纯逻辑**，只允许 `import type` Phaser，必须保持可在 Node 单测。
 2. **布局算法不依赖渲染**：文本度量通过注入的 `Measurer` 接口获得；测试用等宽假测量器，保证黄金快照确定。
 3. **裁剪用 Mask filter**（`FilterList#addMask`），不要用 v3 的 `setMask(graphics)` 思路——`GeometryMask` 在 Phaser 4 仅 Canvas 可用（[ADR-0007](./docs/adr/0007-phaser4-webgl-constraints.md)）。
 4. **响应式副作用必须归入 `EffectScope`**：`destroy()` 里 `scope.stop()` + 注销输入 + 归还对象池；「场景创建→销毁 100 次后计数归零」是硬门禁（[ADR-0008](./docs/adr/0008-reactivity-and-scheduler.md)）。
@@ -82,7 +84,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 
 1. `pnpm format`（或只格式化改动文件），确保 `pnpm exec prettier --check .` 通过。
 2. `pnpm --filter @phaser-mvvm/<受影响包> run typecheck` 与 `run test`。
-3. 改动涉及包 `src/` 且被示例消费时：`pnpm run build:examples`；涉及控件外观/布局几何/输入交互时：`node scripts/visual-check.mjs`（等价于先 build 再验收）。
+3. 改动涉及包 `src/` 且被示例消费时：`pnpm run build:examples`；涉及控件外观/布局几何/输入交互时：`node scripts/visual-check.mjs`（等价于先 build 再验收），或用 Playwright MCP 打开 `http://localhost:5173/#/showcase`｜`#/compose` 读 `#status`/`#demo-state` 做几何与状态断言（`pt.<key>=@x,y` 是每个可点击控件的页面坐标）。
 4. 触及硬约束 §4 的任一条 → 先补/改 ADR，再写代码。
 5. 汇报时给出**实际运行过的命令与结果**，区分「已验证」与「未验证」。
 

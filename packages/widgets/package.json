@@ -13,6 +13,11 @@
       "types": "./src/index.ts",
       "import": "./src/index.ts",
       "require": "./dist/index.cjs"
+    },
+    "./compose": {
+      "types": "./src/compose.ts",
+      "import": "./src/compose.ts",
+      "require": "./dist/compose.cjs"
     }
   },
   "publishConfig": {
@@ -22,11 +27,16 @@
         "types": "./dist/index.d.ts",
         "import": "./dist/index.js",
         "require": "./dist/index.cjs"
+      },
+      "./compose": {
+        "types": "./dist/compose.d.ts",
+        "import": "./dist/compose.js",
+        "require": "./dist/compose.cjs"
       }
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean --target es2022 --external phaser",
+    "build": "tsup src/index.ts src/compose.ts --format esm,cjs --dts --clean --target es2022 --external phaser",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --passWithNoTests"
   },

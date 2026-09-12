@@ -84,6 +84,12 @@ export class ComputedRefImpl<T = unknown> implements ComputedRef<T>, Subscriber 
     const previous = setActiveSub(this);
     try {
       this.#cachedValue = this.#getter();
+    } catch (error) {
+      // A throwing getter produced no value, so the cache must not look fresh afterwards: otherwise
+      // every later read would silently return the previous value (or `undefined`) without re-running
+      // the getter, hiding the error.
+      this.#dirty = true;
+      throw error;
     } finally {
       setActiveSub(previous);
       this.#evaluating--;

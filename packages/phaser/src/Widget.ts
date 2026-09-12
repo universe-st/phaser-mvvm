@@ -438,6 +438,16 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = null;
     this.focusManager = null;
+    // The input router and the focus manager keep poking widgets they handed back (a removed row is
+    // unregistered a frame later, and `refreshInteraction()` runs once after a structural change).
+    // Leaving the flags set made those pokes look like real transitions, so a destroyed widget would
+    // repaint — touching `Graphics`/`Text` objects the destroy already released. Clearing them here
+    // turns every later `setHovered(false)`/`setPressed(false)`/`setFocusedInternal(false)` into a
+    // no-op through the existing equality guards.
+    this._hovered = false;
+    this._pressed = false;
+    this._focused = false;
+    this.pointerReady = false;
 
     const engine = this.engine;
     this.engine = null;

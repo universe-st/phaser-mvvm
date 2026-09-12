@@ -21,8 +21,20 @@ export function deepEqual(a: unknown, b: unknown, seen?: Map<object, object>): b
   const visited = seen ?? new Map<object, object>();
   const previous = visited.get(a);
   if (previous !== undefined) return previous === b;
+  // The pair is remembered only for as long as this comparison path is open: keeping it after the
+  // branch returns would make the walk order-dependent (and `deepEqual` asymmetric), because a
+  // sub-object aliased twice on the left would be matched against the first right-hand object for
+  // the rest of the walk. Cyclic structures still terminate — an ancestor pair is on the path.
   visited.set(a, b);
+  try {
+    return compareObjects(a, b, visited);
+  } finally {
+    visited.delete(a);
+  }
+}
 
+/** The structural comparison itself, with the cycle guard already installed by `deepEqual`. */
+function compareObjects(a: object, b: object, visited: Map<object, object>): boolean {
   if (isArray(a)) {
     if (!isArray(b) || a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {

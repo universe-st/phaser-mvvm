@@ -19,6 +19,7 @@ import type { EffectScope } from './scope';
 import type { FlushMode } from './scheduler';
 import { isReactive } from './reactive';
 import { deepEqual } from '../utils/equality';
+import { warn } from '../utils/dev';
 import {
   ReactiveFlags,
   hasChanged,
@@ -108,6 +109,9 @@ export function watch(
   const flush: FlushMode = options.flush ?? 'pre';
   let deep = options.deep === true;
   let isMultiSource = false;
+  // Per-entry deep flag for array sources: a reactive object is observable only through traversal,
+  // and its reference never changes, so the element-wise comparison has to be structural for it.
+  const deepEntries: boolean[] = [];
   let getter: () => unknown;
 
   if (isRef(source)) {
@@ -120,9 +124,21 @@ export function watch(
     isMultiSource = true;
     const sources = source as UntypedSource[];
     getter = () =>
-      sources.map((item) =>
-        isRef(item) ? item.value : isFunction(item) ? item() : (item as unknown),
-      );
+      sources.map((item, index) => {
+        if (isRef(item)) return item.value;
+        if (isFunction(item)) return (item as () => unknown)();
+        if (isReactive(item)) {
+          deepEntries[index] = true;
+          return traverse(item);
+        }
+        // Anything else cannot be observed at all: accepting it silently would produce a source that
+        // never reports a change, so the callback would look broken with no hint why.
+        warn(
+          'watch(): an array source must contain refs, getters or reactive objects; this entry ' +
+            'cannot be observed and its changes are ignored.',
+        );
+        return item as unknown;
+      });
   } else if (isFunction(source)) {
     getter = source as () => unknown;
   } else {
@@ -158,7 +174,11 @@ export function watch(
     if (instance.paused) return;
     const changed = isMultiSource
       ? (isArray(newValue) ? newValue : []).some((value, index) =>
-          sourceChanged(value, (isArray(oldValue) ? oldValue : [])[index], deep),
+          sourceChanged(
+            value,
+            (isArray(oldValue) ? oldValue : [])[index],
+            deep || deepEntries[index] === true,
+          ),
         )
       : sourceChanged(newValue, oldValue, deep);
     if (!changed) return;

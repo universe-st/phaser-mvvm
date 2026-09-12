@@ -186,8 +186,16 @@ function createReadonlyRef(source: Ref<unknown>): { readonly value: unknown; pee
       return source.value;
     },
     peek: (): unknown => source.value,
+    // Forwarded so `triggerRef(readonly(r))` still works; the setter stays absent.
+    trigger: (): void => {
+      const trigger = (source as { trigger?: () => void }).trigger;
+      if (typeof trigger === 'function') trigger.call(source);
+    },
   };
+  // Both flags: the view is readonly *and* a ref. Without `IS_REF`, `isRef`/`unref`/`watch` treated
+  // the wrapper as a plain object, contradicting the declared `DeepReadonly<Ref<T>>` type.
   def(wrapper, ReactiveFlags.IS_READONLY, true);
+  def(wrapper, ReactiveFlags.IS_REF, true);
   return wrapper;
 }
 
@@ -518,6 +526,16 @@ function wrapEntries(iterator: IterableIterator<[unknown, unknown]>): IterableIt
   return wrapped;
 }
 
+/** True when `receiver` is the proxy registered for `target` in any of the four proxy maps. */
+function isProxyOf(target: object, receiver: unknown): boolean {
+  return (
+    reactiveMap.get(target) === receiver ||
+    shallowReactiveMap.get(target) === receiver ||
+    readonlyMap.get(target) === receiver ||
+    shallowReadonlyMap.get(target) === receiver
+  );
+}
+
 function mapGet(this: Map<unknown, unknown>, key: unknown): unknown {
   const target = toRaw(this);
   track(target, key);
@@ -673,7 +691,10 @@ const collectionHandlers: ProxyHandler<CollectionTypes> = {
   get(target, key, receiver) {
     if (key === ReactiveFlags.IS_REACTIVE) return true;
     if (key === ReactiveFlags.IS_READONLY) return false;
-    if (key === ReactiveFlags.RAW && reactiveMap.get(target) === receiver) return target;
+    // A collection proxy can come from `reactive`, `shallowReactive`, `readonly` or
+    // `shallowReadonly`, and `toRaw()` has to unwrap all of them: accepting only `reactiveMap` made
+    // every instrumented method of a shallow collection proxy re-enter itself (stack overflow).
+    if (key === ReactiveFlags.RAW && isProxyOf(target, receiver)) return target;
 
     if (key === 'size') {
       track(target, ITERATE_KEY);

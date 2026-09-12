@@ -202,6 +202,17 @@ describe('numeric filtering', () => {
     expect(filterNumeric('')).toBe('');
     expect(filterNumeric('abc')).toBe('');
   });
+
+  it('never yields a value without digits, so the result always parses', () => {
+    // `Number('-')`, `Number('.')` and `Number('-.')` are all `NaN`, and a two-way binding would store
+    // that `NaN` in the view model.
+    for (const input of ['-', '.', '-.', ' - . ']) {
+      const filtered = filterNumeric(input);
+      expect(filtered).toBe('');
+      expect(Number.isNaN(Number(filtered))).toBe(false);
+    }
+    expect(Number.isNaN(Number(filterNumeric('-0.')))).toBe(false);
+  });
 });
 
 describe('sanitizeValue', () => {
@@ -345,6 +356,18 @@ describe('vertical caret movement', () => {
     expect(moveCaretVertically(lines, 0, 'up', -1).caret).toBe(0);
     expect(moveCaretVertically(lines, 17, 'down', -1).caret).toBe(17);
     expect(moveCaretVertically([], 0, 'down', -1)).toEqual({ caret: 0, columnHint: -1 });
+  });
+
+  it('keeps the restored column out of the middle of an emoji', () => {
+    // The second line is `X😀Y`, so column 2 names the low half of the emoji; the caret has to move
+    // back to the boundary after `X` (absolute offset 4) instead of splitting the pair at 5.
+    const linesWithEmoji = splitLines('ab\nX😀Y');
+    const moved = moveCaretVertically(linesWithEmoji, 2, 'down', 2);
+    expect(moved.caret).toBe(4);
+    expect(moved.caret).not.toBe(5);
+    expect(linesWithEmoji[1]?.text.slice(0, moved.caret - (linesWithEmoji[1]?.start ?? 0))).toBe(
+      'X',
+    );
   });
 });
 

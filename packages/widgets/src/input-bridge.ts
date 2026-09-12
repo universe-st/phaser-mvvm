@@ -331,6 +331,7 @@ export class DomInputBridge {
     );
     element.removeEventListener('compositionend', this.onCompositionEndEvent);
     element.removeEventListener('keydown', this.onKeyDownEvent as EventListener);
+    element.removeEventListener('keyup', this.onKeyUpEvent);
     element.removeEventListener('paste', this.onPasteEvent as EventListener);
     element.removeEventListener('blur', this.onBlurEvent);
     element.removeEventListener('focus', this.onFocusEvent);

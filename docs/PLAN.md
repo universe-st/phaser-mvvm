@@ -280,6 +280,39 @@ export class DemoScene extends Phaser.Scene {
 this.add.textField({ x: 0, y: 0, model: 'form.name', maxLength: 20 });
 ```
 
+### 5.1 Compose 风格 DSL（已实现，推荐默认写法）
+
+上面第 2 条的目标形态（`vbox({...}, [children])` builder）已由 **Compose 风格 DSL** 取代为默认写法：视图写成嵌套调用，容器的最后一个参数是内容 lambda，父子关系由作用域隐式建立，不再有 children 数组、不再需要 `this.add` 前缀。
+
+```ts
+import { ui, Column, Row, Text, Button, TextField, List, Scroll } from '@phaser-mvvm/widgets/compose';
+
+const page = ui(this, () => {
+  Column({ gap: 12, padding: 16, width: 520 }, () => {
+    Text(() => `你好，${vm.name.value}`);          // ref / getter 自动绑定
+    TextField({ value: vm.name, label: '姓名' });  // ref → 双向
+    Scroll({ height: 240, direction: 'vertical' }, () => {
+      List({ items: () => vm.users.value, key: (u) => u.id, virtualize: true, itemExtent: 34 },
+        (user) => Text(() => user.name));
+    });
+    Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
+      Button('重置', { variant: 'ghost', onClick: () => vm.reset() });
+      Button('保存', { variant: 'primary', onClick: vm.save });
+    });
+  });
+});
+this.mvvm.mount(page);
+```
+
+要点（细节与选项表见 [`docs/guide/09-compose-dsl.md`](./guide/09-compose-dsl.md)）：
+
+- **入口**：`@phaser-mvvm/widgets/compose` 子路径导出，与包根的同名控件类（`Panel`/`Button`/…）分开，避免符号覆盖；`ui(scene, content)` 返回根控件，仍需 `this.mvvm.mount()` 挂载。
+- **选项词汇不变**：每个 composable 收的就是对应控件的选项对象，DSL 只改结构、不新增一层配置；工厂 API（`this.add.ui*`、`vbox/hbox/…`）继续可用且不被弃用。
+- **作用域机制**：`packages/phaser/src/uiscope.ts`（纯逻辑、无 Phaser 运行时依赖、可在 Node 单测）提供 `runInUiScope`/`withUiParent`/`emitWidget`/`buildUiSubtree`；自定义控件可据此加入 DSL 树。
+- **反应式参数**：数据槽位（文本、输入框 value）接受常量 / `Ref` / getter；`Ref` 在可写控件上是双向绑定（IME 组合期暂停写回，沿用 M5 语义）。
+- **验收**：`#/compose` 场景用 DSL 搭建全部控件与容器，并含 **parity 演示**（同一卡片用工厂 API 与 DSL 各搭一次，逐节点比对 `appliedRect`），实测 `parity=ok`（见 [`docs/ACCEPTANCE-compose-dsl.md`](./ACCEPTANCE-compose-dsl.md)）。
+- **里程碑**：不新增里程碑编号，属于 M4/M6 之后的使用层演进（M8 起仍未开始）。
+
 ---
 
 ## 6. 里程碑计划

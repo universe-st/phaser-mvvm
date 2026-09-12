@@ -103,6 +103,17 @@ describe('deepEqual', () => {
     expect(deepEqual(a, c)).toBe(false);
   });
 
+  it('is symmetric when a sub-object is aliased on one side only', () => {
+    const shared = { v: 1 };
+    const left = { p: shared, q: shared };
+    const right = { p: { v: 1 }, q: { v: 1 } };
+    // The pair must be remembered only for the open comparison path, otherwise `shared` stays bound
+    // to the first right-hand object and `q` is compared against it a second time.
+    expect(deepEqual(left, right)).toBe(true);
+    expect(deepEqual(right, left)).toBe(true);
+    expect(deepEqual(left, { p: { v: 1 }, q: { v: 2 } })).toBe(false);
+  });
+
   it('treats class instances as identity-comparable only', () => {
     class Thing {
       constructor(public value: number) {}

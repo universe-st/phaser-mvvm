@@ -156,3 +156,25 @@ describe('applyLineLimit', () => {
     expect(result).toEqual({ lines: ['aaaa', 'bbbb'], truncated: false });
   });
 });
+
+describe('ellipsizeLine · code points', () => {
+  it('never slices a surrogate pair in half', () => {
+    // Width == code-unit count: the binary search lands on index 4, the low half of the second emoji.
+    // Cutting there would render a lone surrogate (a tofu box), so the cut moves back a unit — dropping
+    // a whole glyph is the correct trade.
+    const text = 'ab😀😀';
+    const result = ellipsizeLine(text, (value) => value.length, 4);
+    expect(result).toBe('ab…');
+    expect(result).not.toMatch(/[\uD800-\uDBFF](?!\uDC00|[\uDC00-\uDFFF])/u);
+  });
+
+  it('keeps an emoji that fits, pair intact', () => {
+    const text = 'ab😀';
+    expect(ellipsizeLine(text, (value) => value.length, 4)).toBe('ab😀');
+    expect(ellipsizeLine(text, (value) => value.length, 3)).toBe('ab…');
+  });
+
+  it('keeps the whole string when it already fits', () => {
+    expect(ellipsizeLine('ab😀', (value) => value.length, 10)).toBe('ab😀');
+  });
+});

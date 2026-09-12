@@ -8,6 +8,9 @@ export type DevWarningHandler = (message: string) => void;
 /** Number of times a subscriber may re-enter itself before the update is treated as cyclic. */
 export const RECURSION_LIMIT = 100;
 
+/** Upper bound of the once-per-message warning cache; see `warn()`. */
+const MAX_REPORTED_WARNINGS = 500;
+
 let devMode = true;
 const handlers = new Set<DevWarningHandler>();
 const reported = new Set<string>();
@@ -38,6 +41,11 @@ export const warn = (message: string, once = true): void => {
   const text = `[phaser-mvvm] ${message}`;
   if (once) {
     if (reported.has(text)) return;
+    if (reported.size >= MAX_REPORTED_WARNINGS) {
+      // The dedupe key holds the interpolated message, and some warnings embed user data (a property
+      // key, a path), so the set must not grow without bound in a long-running app.
+      reported.clear();
+    }
     reported.add(text);
   }
   if (handlers.size > 0) {
@@ -45,6 +53,22 @@ export const warn = (message: string, once = true): void => {
     return;
   }
   console.warn(text);
+};
+
+/**
+ * Prints a development-only diagnostic line.
+ *
+ * Unlike {@link warn} this is not deduplicated: it traces what the framework did on a given frame
+ * (scope builds, layout passes, binding runs). Release builds call `setDevMode(false)` and pay a
+ * single boolean check, so call sites may stay in the hot path.
+ */
+export const devLog = (message: string, data?: unknown): void => {
+  if (!devMode) return;
+  if (data === undefined) {
+    console.log(`[phaser-mvvm] ${message}`);
+    return;
+  }
+  console.log(`[phaser-mvvm] ${message}`, data);
 };
 
 /** Builds the error thrown when a reactive update keeps re-triggering itself. */

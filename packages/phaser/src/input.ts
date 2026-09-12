@@ -497,7 +497,10 @@ export class InputRouter {
       return inside ? widget : null;
     };
 
-    const target = visit(root, -root.x, -root.y);
+    // `offset` is "the pointer-space position of the widget's origin, its own position included", so
+    // the root contributes `+root.x/+root.y`. Negating it displaced every hit test by 2×root.(x,y) —
+    // invisible only because the layout engine always arranges the UI root at (0,0).
+    const target = visit(root, root.x, root.y);
     if (target && this.captureWidget && !isWithinTree(target, this.captureWidget)) {
       return null;
     }

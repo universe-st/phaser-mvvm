@@ -71,16 +71,19 @@ export class ProceduralSkin implements Skin {
       graphics.fillPath();
     }
     if (border !== null && borderWidth > 0) {
+      const inset = borderWidth / 2;
+      const innerWidth = width - borderWidth;
+      const innerHeight = height - borderWidth;
+      const innerRadius = Math.max(0, radius - inset);
       graphics.lineStyle(borderWidth, border, 1);
-      drawRoundedRect(
-        graphics,
-        borderWidth / 2,
-        borderWidth / 2,
-        width - borderWidth,
-        height - borderWidth,
-        Math.max(0, radius - borderWidth / 2),
-      );
-      graphics.strokePath();
+      // `drawRoundedRect` falls back to `fillRect` for a square corner, and Phaser 4's `fillRect` is
+      // an immediate fill command that opens no path — a following `strokePath()` would stroke nothing
+      // and the border would silently disappear. Square corners therefore stroke explicitly.
+      if (innerRadius <= 0) {
+        graphics.strokeRect(inset, inset, innerWidth, innerHeight);
+      } else {
+        strokeRoundedRect(graphics, inset, inset, innerWidth, innerHeight, innerRadius);
+      }
     }
   }
 }

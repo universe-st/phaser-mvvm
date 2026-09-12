@@ -7,6 +7,8 @@
  * therefore unit-testable in Node.
  */
 
+import { snapToCodePoint } from './text-edit';
+
 /** The single character appended to a clipped line (`…`, U+2026). */
 export const ELLIPSIS = '\u2026';
 
@@ -74,7 +76,9 @@ export function ellipsizeLine(
       high = mid - 1;
     }
   }
-  return text.slice(0, low) + ellipsis;
+  // The binary search counts UTF-16 code units, so `low` can land between the halves of a surrogate
+  // pair; slicing there would render a lone surrogate (a tofu box) instead of the last whole glyph.
+  return text.slice(0, snapToCodePoint(text, low)) + ellipsis;
 }
 
 /**
