@@ -185,7 +185,7 @@ notify.value = true; // 代码写 ref → 按钮自己翻过去
 // 用户点击按钮 → 事件写回 `notify`，派生出来的文案同一帧更新
 ```
 
-单向 getter 想接住用户操作就用 `onValueChange`（`TextField`/`Slider`/开关按钮都有）。
+单向 getter 想接住变化就用 `onValueChange`（`TextField`/`Slider`/开关按钮都有）：它在**值真的变了**时调用 —— 用户操作，或控件自己把值归位（比如滑杆的量程变小后钳制了当前值）。
 
 ### 4.1 控制流就是 TypeScript
 

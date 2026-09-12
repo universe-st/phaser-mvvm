@@ -289,6 +289,13 @@ Slider({ value: () => settings.brightness, onValueChange: (next) => save(next) }
 // 量化 + 禁用
 Slider({ value: quality, min: 0, max: 3, step: 1 });
 Slider({ value: 60, disabled: true, width: 160 });
+
+// 区间也是数据槽：换单位、换量程只改状态（滑块会跟着重新归位并重画）
+Slider({
+  value: temperature,
+  min: () => (celsius.value ? 0 : 32),
+  max: () => (celsius.value ? 40 : 104),
+});
 ```
 
 ### 选项
@@ -296,23 +303,25 @@ Slider({ value: 60, disabled: true, width: 160 });
 | 选项             | 类型                                      | 默认         | 说明                                                                                |
 | ---------------- | ----------------------------------------- | ------------ | ----------------------------------------------------------------------------------- |
 | `value`          | `number`                                  | `min`        | 初值；会先按 `min`/`max`/`step` 归位                                                |
-| `min` / `max`    | `number`                                  | `0`/`100`    | 取值区间；`max < min` 时按 `min` 处理                                               |
+| `min` / `max`    | `number`（**DSL 里可以是 `ref`/getter**） | `0`/`100`    | 取值区间；`max < min` 时按 `min` 处理；槽位变化会调用 `setRange`                    |
 | `step`           | `number`                                  | `0`          | 量化步长，`0`（默认）为连续；网格**以 `min` 为锚点**（`min:5, step:10` → 5/15/25…） |
-| `disabled`       | `boolean`                                 | `false`      | 初始禁用（拖不动、拿不到焦点）                                                      |
+| `disabled`       | `boolean`（**DSL 槽位**）                 | `false`      | 初始禁用（拖不动、拿不到焦点）                                                      |
 | `trackThickness` | `number`                                  | `6`          | 轨道厚度（设计像素）                                                                |
 | `knobRadius`     | `number`                                  | `9`          | 滑块半径（拖拽中会 +1，作为触摸反馈）                                               |
-| `onChange`       | `(value: number, slider: Slider) => void` | —            | **用户**改变时回调（`setValue` 不触发）                                             |
+| `onChange`       | `(value: number, slider: Slider) => void` | —            | **用户**改变时回调（程序化写值不触发；见下）                                        |
 | `width`/`height` | —                                         | `180`/`2r+4` | 常规布局参数；不写时用默认尺寸                                                      |
 
 ### 方法 / 事件
 
-| 成员                         | 说明                                            |
-| ---------------------------- | ----------------------------------------------- |
-| `getValue()` / `setValue(v)` | 读写值；`setValue` 会归位但**不** emit `change` |
-| `value`（get/set）           | 同上，属性形式                                  |
-| `setRange(min, max)`         | 改区间，当前值重新归位                          |
-| `setStep(step)`              | 改步长（`0` 为连续），当前值重新归位            |
-| `change`（事件）             | 用户拖动/点击时 emit，载荷 `value: number`      |
+| 成员                         | 说明                                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `getValue()` / `setValue(v)` | 读写值；`setValue` 会归位，并在值真的变了时 emit `change`（模型因此不会落后）              |
+| `value`（get/set）           | 同上，属性形式                                                                             |
+| `setRange(min, max)`         | 改区间：重新归位当前值、**重画**（滑块位置按比例变）、同步无障碍镜像、必要时 emit `change` |
+| `setStep(step)`              | 改步长（`0` 为连续），当前值重新归位                                                       |
+| `change`（事件）             | **值变了就 emit**（用户拖动/点击/按键，或控件自己归位时），载荷 `value: number`            |
+
+> **`change` 与 `onChange` 的分工**和文本框一致：`change` 是"模型通道"（`value: ref` 与 `bindNumberModel()` 靠它写回，所以程序化写值也会到达），`onChange` **选项**是"用户动了它"的回调。两者都只在值**真的**变了时触发。
 
 ### 坑
 
@@ -320,6 +329,7 @@ Slider({ value: 60, disabled: true, width: 160 });
 - **拖动会跟出控件**：手指/指针滑出滑杆范围时仍继续控制（超出两端按端点钳制），这是刻意的触摸行为；不要用 `pointerleave` 之类的逻辑去打断它。
 - **`step` 不是"只允许这些值"**：调用方 `setValue(37)` 时若 `step=10` 会被吸附到 40，绑定到 `ref` 的值永远是网格上的值。
 - **值永远是有限数**：`NaN`/`±Infinity` 会被归位到 `min`，不会传到绑定的 `ref` 里。
+- **改区间会改位置**：滑块与小节的填充按 `(value - min) / (max - min)` 画，所以 `setRange` 在值不变时**画面也会变**（值 40、量程 0..100 → 0..200，填充从 40% 缩到 20%）；值落到新区间之外时会被钳制，并像 `setValue` 一样把钳制结果通过 `change` 报给模型（否则 `ref` 会一直停在那个已经不可能的值上）。
 
 ---
 

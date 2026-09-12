@@ -150,6 +150,8 @@ export class ComposeScene extends Phaser.Scene {
   private readonly expanded = ref(false);
   private readonly altTexture = ref(false);
   private readonly stateNote = ref('这段文字可以选中、可以复制，但改不了');
+  /** Round 99: the slider's upper bound as state (the A/B pair and the button share it). */
+  private readonly rangeMax = ref(100);
   /** The `Scroll` slot of the `list` section: the scroll position as state (two-way). */
   private readonly listOffset = ref(0);
   /** Which branch the `Branch()` demo shows ('a' | 'b' | 'missing'). */
@@ -280,6 +282,9 @@ export class ComposeScene extends Phaser.Scene {
       this.publish('state.ellipsis', slots.ellipsis);
       this.publish('state.texture', slots.texture);
       this.publish('state.frozen', slots.frozen === true);
+      this.publish('state.rangeMax', slots.rangeMax);
+      this.publish('state.rangeBMax', slots.rangeBMax);
+      this.publish('state.rangeBValue', slots.rangeBValue);
     }
     this.publish('rows', this.rows.value.length);
     if (this.listWidget) {
@@ -1225,6 +1230,43 @@ export class ComposeScene extends Phaser.Scene {
             }),
           );
 
+          // The range as a slot, and as an **A/B in one screenshot**: the two sliders below hold the
+          // same value and differ only in `max`, so the painted fill has to be twice as long on the
+          // first one (40% vs 20%). A range change that forgets to repaint — the knob sits at
+          // `(value - min) / (max - min)` while only `value` is in the paint cache key — reads as two
+          // identical tracks (V67).
+          const rangeA = Slider({
+            value: this.stateVolume,
+            min: 0,
+            max: 100,
+            width: 260,
+            alignSelf: 'start',
+            name: 'state.rangeA',
+          });
+          const rangeB = Slider({
+            value: this.stateVolume,
+            min: 0,
+            max: () => this.rangeMax.value,
+            width: 260,
+            alignSelf: 'start',
+            name: 'state.rangeB',
+          });
+          this.track('state.rangeA', rangeA);
+          this.track('state.rangeB', rangeB);
+          this.reportStateProbes.set('state.rangeA', rangeA);
+          this.reportStateProbes.set('state.rangeB', rangeB);
+          this.track(
+            'state.range',
+            Button(() => `上限 ${this.rangeMax.value}`, {
+              variant: 'secondary',
+              size: 'sm',
+              name: 'state.range',
+              onClick: () => {
+                this.rangeMax.value = this.rangeMax.value === 100 ? 200 : 100;
+              },
+            }),
+          );
+
           const statePanel = Panel(
             {
               variant: () => this.stateVariant.value,
@@ -1504,6 +1546,9 @@ export class ComposeScene extends Phaser.Scene {
     texture: string;
     frozen: boolean | null;
     frozenValue: string;
+    rangeMax: number;
+    rangeBMax: number;
+    rangeBValue: number;
   } {
     const paragraph = this.tracked.get('state.text') as
       (Widget & { getDisplayText?: () => string; truncated?: boolean }) | undefined;
@@ -1512,6 +1557,10 @@ export class ComposeScene extends Phaser.Scene {
       (Widget & { currentTexture?: string }) | undefined;
     const frozenField = this.tracked.get('state.frozen') as
       (Widget & { readOnly?: boolean; getValue?: () => string }) | undefined;
+    // The slider's own `max`/`min`, not the `ref`: a slot that never reached `setRange` would look
+    // healthy if this read the ref back.
+    const rangeB = this.tracked.get('state.rangeB') as
+      (Widget & { min?: number; max?: number; getValue?: () => number }) | undefined;
     return {
       expanded: this.expanded.value,
       /** Lines actually painted: the observable half of `maxLines` + `ellipsis`. */
@@ -1521,6 +1570,9 @@ export class ComposeScene extends Phaser.Scene {
       texture: image?.currentTexture ?? 'none',
       frozen: frozenField?.readOnly ?? null,
       frozenValue: frozenField?.getValue?.() ?? '',
+      rangeMax: this.rangeMax.value,
+      rangeBMax: rangeB?.max ?? -1,
+      rangeBValue: rangeB?.getValue?.() ?? -1,
     };
   }
 
@@ -1581,9 +1633,17 @@ export class ComposeScene extends Phaser.Scene {
         frozen?: boolean;
         expanded?: boolean;
         altTexture?: boolean;
+        rangeMax?: number;
+        volume?: number;
       }): Record<string, unknown> => {
         if (patch.locked !== undefined) {
           this.locked.value = patch.locked;
+        }
+        if (patch.volume !== undefined) {
+          this.stateVolume.value = patch.volume;
+        }
+        if (patch.rangeMax !== undefined) {
+          this.rangeMax.value = patch.rangeMax;
         }
         if (patch.frozen !== undefined) {
           this.frozen.value = patch.frozen;

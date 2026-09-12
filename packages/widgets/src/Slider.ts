@@ -175,7 +175,16 @@ export class Slider extends Widget {
     return this.current;
   }
 
-  /** Sets the value programmatically; clamps/snaps it and never emits `change`. */
+  /**
+   * Sets the value programmatically; clamps/snaps it and reports the result on `change`.
+   *
+   * `change` fires for **any** committed value change, programmatic ones included, because it is the
+   * channel a two-way binding listens on (`bindNumberModel`): a widget that moved its own value
+   * silently would leave the bound `ref` stale forever — the down-binding never re-reads an unchanged
+   * source, so nothing would ever correct it (measured on `#/compose`: `setValue(80)` left
+   * `slots().volume` at 40, and a range clamp left the same disagreement). The `onChange` **option**
+   * stays user-only, which is the same split `TEXT_INPUT_EVENTS.CHANGE` and its `onChange` already have.
+   */
   setValue(next: number): this {
     const resolved = clampSliderValue(next, this.min, this.max, this.step);
     if (resolved === this.current) {
@@ -186,17 +195,51 @@ export class Slider extends Widget {
     // `valuenow` is what a screen reader reads for a slider, and a programmatic write (`bindNumberModel`)
     // must reach it without waiting for focus.
     this.notifyA11yChanged();
+    this.emit(SLIDER_EVENTS.CHANGE, resolved);
     return this;
   }
 
-  /** Changes the range; the current value is re-clamped (and re-snapped) against it. */
+  /**
+   * Changes the range; the current value is re-clamped (and re-snapped) against it.
+   *
+   * The **paint** does not depend on the value alone: the knob and the filled portion sit at
+   * `(value - min) / (max - min)`, so widening the range keeps the value and moves the knob. That is
+   * why this method repaints unconditionally instead of leaning on `setValue` — which returns early
+   * when the value survived the clamp (V67: measured `setRange(0, 200)` with value 40 left the fill
+   * covering 40% of the track instead of 20%) — and why `min`/`max` are part of the paint cache key.
+   *
+   * A clamp the *widget* performs is a real value change as far as the model is concerned, so it takes
+   * the same reporting path as `setValue` (see there).
+   */
   setRange(min: number, max: number): this {
-    this.min = Number.isFinite(min) ? min : 0;
-    this.max = Number.isFinite(max) ? Math.max(this.min, max) : this.min;
-    return this.setValue(this.current);
+    const nextMin = Number.isFinite(min) ? min : 0;
+    const nextMax = Number.isFinite(max) ? Math.max(nextMin, max) : nextMin;
+    const rangeChanged = nextMin !== this.min || nextMax !== this.max;
+    this.min = nextMin;
+    this.max = nextMax;
+    if (!rangeChanged) {
+      return this;
+    }
+    // The mirror reads `min`/`max` from `describeA11y()`, so a range change has to reach it even when
+    // the value stayed inside it (V68: `aria-valuemax` kept the old bound).
+    this.notifyA11yChanged();
+    const resolved = clampSliderValue(this.current, this.min, this.max, this.step);
+    if (resolved === this.current) {
+      this.refreshAppearance();
+      return this;
+    }
+    this.current = resolved;
+    this.refreshAppearance();
+    this.emit(SLIDER_EVENTS.CHANGE, resolved);
+    return this;
   }
 
-  /** Sets the snapping grid; `0` means continuous. */
+  /**
+   * Sets the snapping grid; `0` means continuous.
+   *
+   * Re-snapping can move the value, and a moved value is reported through `setValue` (see there); the
+   * paint itself does not depend on `step`, so an unchanged value needs no repaint.
+   */
   setStep(step: number): this {
     this.step = Number.isFinite(step) && step > 0 ? step : 0;
     return this.setValue(this.current);
@@ -364,7 +407,24 @@ export class Slider extends Widget {
     const height = Math.max(0, this.rect.height);
     const disabled = !this.enabled;
 
-    const key = [width, height, this.current, this.visualState, disabled, theme.name].join('|');
+    // Every input the paint below reads belongs in this key. `min`/`max` are the ones that are easy to
+    // forget — the knob sits at `(value - min) / (max - min)`, so a range change moves the whole drawing
+    // while `current` stays put (V67), and `knobRadius`/`trackThickness` resize it.
+    // Every input the paint below reads belongs in this key. `min`/`max` are the ones that are easy to
+    // forget — the knob sits at `(value - min) / (max - min)`, so a range change moves the whole drawing
+    // while `current` stays put (V67), and `knobRadius`/`trackThickness` resize it.
+    const key = [
+      width,
+      height,
+      this.current,
+      this.min,
+      this.max,
+      this.knobRadius,
+      this.trackThickness,
+      this.visualState,
+      disabled,
+      theme.name,
+    ].join('|');
     if (key === this.styleKey) {
       return;
     }

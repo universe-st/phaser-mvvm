@@ -363,3 +363,22 @@ Canvas 路径没有 DOM 的 `event.detail`，"这是第几次点击"只能由控
 **而把这两条遮住的，是 demo 自己**：`#/showcase` 的 "Label · truncation" 卡写着 `width: 340` / `width: 220`，但两张标签都长在 `alignItems: 'stretch'`（默认值）的列里——**cross 轴长度会被 stretch 覆盖**（指南 02 §199 早写了）。于是盒子是 964，段落两行就装下了，`truncated` 两张都是 `false`、省略号一个都没有：卡片标题承诺"maxLines + ellipsis 与 wrap: false 的裁剪"，屏幕上却是两张普通标签。教训是**反过来的 §8.55**：不是"没人用过的名字"，而是"**有人用、但用错了宽度**"——门禁读的是 `truncated`/画出来的文字才看得见，读截图看不见（两张标签本身画得毫无毛病）。修法：两处 `alignSelf: 'start'`，并把 `window.showcase.truncation()` 做成常驻读数（画出来的行数、是否掉行、结尾是不是 `…`、实际宽度）。
 
 **给自己留的判据**：任何"按宽度裁剪/省略/换行"的 demo，必须把**实际生效的宽度**也读出来。宽度来自祖先约束，而约束可以被 `stretch`/`fill`/`grow` 改掉，所以"我写的是 340"不是证据。
+
+## 8.59 重画的缓存键必须包含**画的时候读到的每一个输入**（第 99 轮 V67）
+
+给滑块的量程加数据槽时，`#/compose` 的 A/B 两只滑块（同值 40，量程 `0..100` 与 `0..200`）画出了一模一样的填充。顺着查下去是两处**互相掩护**的错误：
+
+1. `setRange()` 用 `return this.setValue(this.current)` 收尾——值还在新区间里时 `setValue` 直接早退，于是一次重画都没发生；
+2. 就算调了 `refreshAppearance()` 也没用：它的缓存键是 `[width, height, current, visualState, disabled, theme]`，**没有 `min`/`max`**，而滑块与小节的填充位置是 `(value - min) / (max - min)`——值没变、盒子没变，键就没变，画被跳过。
+
+实测：值 40、`setRange(0, 200)` 之后填充仍然盖住 40% 的轨道（应该 20%）；`aria-valuemax` 也还停在 100（`describeA11y()` 里读 `min`/`max`，而那次改动没通知桥）。修法是：`setRange()` 自己负责重画（不指望 `setValue` 的早退路径）、把量程与 `knobRadius`/`trackThickness` 一起放进缓存键、并在量程变化时通知无障碍层。
+
+**纪律**：任何 `styleKey`/`paintKey` 式的缓存，键里必须列全**画的时候读到的字段**；改一条绘制输入就回来补一次键。同一族的还有 V38（面板变体没丢皮肤缓存）与 V48/V50（键盘换键集只重新贴标签）。判据很简单：**"值不变但画面该变"的操作存在吗？** 存在，就说明键少了东西。
+
+## 8.60 控件自己改了值，就要说出来（第 99 轮 V69）
+
+`Slider.setValue()` 与 `Button.setValue()` 都是"静默"写值（文档写的是"不 emit `change`"），理由是"程序化写值不该看起来像用户编辑"。但对**双向绑定**来说这条理由不成立：`value: ref` 的向下方向只在**源变化时**才跑，所以控件自己改的值永远没有机会被写回源——两者就永久各说各话。
+
+实测（`#/compose`，滑块绑定到 `stateVolume`）：`setRange(0, 30)` 把值从 90 钳到 30，控件显示 30，而 `ref` 一直停在 **90**（页面按帧发布的 `volume=90` 与画面对不上）；`setValue(80)` 更直接——控件 80、`ref` 40，且不会回弹（向下绑定不会主动重读没变过的源）。
+
+修法是把"值变了"这件事在**所有**值变更路径上统一上报：`setValue`/`setRange` 的钳制结果都 emit `change`，而**用户专属**的回调仍然是 `onChange`（选项）——这正是文本框早就写明的分工（`TEXT_INPUT_EVENTS.CHANGE` 是模型通道，`onChange` 选项才是"用户动了它"）。于是 DSL 的 `onValueChange` 也跟着变成"值真的变了就给"，与 Compose 的 `onValueChange` 语义一致。

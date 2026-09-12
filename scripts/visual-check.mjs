@@ -70,7 +70,7 @@ const SCENE_SETUP = {
   // `readOnly` flag (built editable). Every expectation below is therefore only on screen if the slot
   // actually reached its setter and repainted — a slot that silently does nothing cannot pass.
   compose:
-    'window.compose.show("state"); window.compose.setState({ variant: "danger", altTexture: true, frozen: true })',
+    'window.compose.show("state"); window.compose.setState({ variant: "danger", altTexture: true, frozen: true, rangeMax: 200 })',
   // The modal scene's dialog only exists once it is opened; the scene reports the dialog's own rects
   // into #status on the first open of each kind, so this runs before the status read.
   modal: 'window.modal.open("confirm")',
@@ -383,6 +383,12 @@ const PIXEL_EXPECTATIONS = {
     'state.panel': { rgb: 0xf85149, fx: 0.92, fy: 0.5 },
     'state.tex': { rgb: 0x3fb950, fx: 0.5, fy: 0.5 },
     'state.frozen': { rgb: 0x1f2630, fx: 0.92, fy: 0.5 },
+    // The range pair, sampled at 30% of the width. Both sliders hold the *same* value (40) and differ
+    // only in `max` (100 vs the 200 the setup switched it to), so the filled part must end at 40% of one
+    // and 20% of the other: the first sample reads the fill, the second the track. A range change that
+    // forgets to repaint (V67) paints both identically and fails here.
+    'state.rangeA': { rgb: 0x2f6feb, fx: 0.3, fy: 0.5 },
+    'state.rangeB': { rgb: 0x30363d, fx: 0.3, fy: 0.5 },
   },
   keyboard: {
     'kb.keyboard': { rgb: 0x1f2630, fx: 0.03, fy: 0.5 },
@@ -514,6 +520,9 @@ const LIGHT_EXPECTATIONS = {
     // A texture is a literal, not a token: the swap must show the *same* green in the light theme.
     'state.tex': { rgb: 0x3fb950, fx: 0.5, fy: 0.5 },
     'state.frozen': { rgb: 0xeef1f4, fx: 0.92, fy: 0.5 },
+    // The same two samples in the light theme: `primary` and `border` are tokens, so both change.
+    'state.rangeA': { rgb: 0x0969da, fx: 0.3, fy: 0.5 },
+    'state.rangeB': { rgb: 0xd0d7de, fx: 0.3, fy: 0.5 },
   },
   keyboard: {
     'kb.keyboard': { rgb: 0xeef1f4, fx: 0.03, fy: 0.5 },

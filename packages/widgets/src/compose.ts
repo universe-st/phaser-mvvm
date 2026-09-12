@@ -716,10 +716,28 @@ export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
  * `onValueChange` fires on every user change, so a caller that keeps state in a store can write it back.
  */
 export interface SliderDslOptions
-  extends Omit<SliderOptions, 'value' | 'onChange' | 'disabled'>, DslOptions {
+  extends Omit<SliderOptions, 'value' | 'onChange' | 'disabled' | 'min' | 'max'>, DslOptions {
   value?: ReactiveSource<number>;
+  /**
+   * Lower bound; a `Ref`/getter moves the range at runtime (e.g. a unit switch).
+   *
+   * The range is state like the value is: the knob sits at `(value - min) / (max - min)`, so switching
+   * °C/°F or a device-dependent limit is one line instead of a rebuilt slider. Pair it with `max` —
+   * a range has two halves and each slot passes the other through (`setRange(min, host.max)`).
+   */
+  min?: ReactiveSource<number>;
+  /** Upper bound; see {@link SliderDslOptions.min}. */
+  max?: ReactiveSource<number>;
   /** Reactive enabled state: `disabled: () => locked.value`. */
   disabled?: ReactiveSource<boolean>;
+  /**
+   * Called whenever the slider's value really changed — a drag/tap/key, **or** a value the widget had
+   * to clamp when the range moved.
+   *
+   * Both cases must reach a caller that keeps its state outside a `ref`: a store that never hears about
+   * the clamp would hold a value the widget can no longer show (see `Slider#setValue` for the measured
+   * case). The user-only callback is the widget's `onChange` option.
+   */
   onValueChange?: (value: number, slider: SliderWidget) => void;
 }
 
@@ -733,10 +751,12 @@ export interface SliderDslOptions
  */
 export function Slider(options: SliderDslOptions = {}): SliderWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, disabled, visible, ...rest } = options;
+  const { value, onValueChange, disabled, min, max, visible, ...rest } = options;
   const slider = new SliderWidget(scene, {
     ...rest,
     ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
+    ...(min === undefined ? {} : { min: readReactive(min) }),
+    ...(max === undefined ? {} : { max: readReactive(max) }),
     ...(value === undefined ? {} : { value: readReactive(value) }),
   });
   scene.add.existing(slider);
@@ -745,6 +765,11 @@ export function Slider(options: SliderDslOptions = {}): SliderWidget {
   if (disabled !== undefined) {
     bindOption(slider, disabled, (host, next) => host.setEnabled(next !== true));
   }
+  // One Phaser-level call carries both halves of the range (`setRange(min, max)`), so each slot passes
+  // the other through — the same shape as `Image`'s texture/frame pair. Order does not matter: both
+  // bindings run in the same flush and each reads the field the other just wrote.
+  bindOption(slider, min, (host, next) => host.setRange(next, host.max));
+  bindOption(slider, max, (host, next) => host.setRange(host.min, next));
 
   if (value !== undefined) {
     const store = isWritableSource(value)
