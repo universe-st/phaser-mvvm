@@ -16,6 +16,7 @@ import { Widget } from '@phaser-mvvm/phaser';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
 import { optionBag, splitWidgetOptions } from './options';
+import { textMetricsOf, type SceneTextMetrics } from './text-metrics';
 import { applyLineLimit } from './text-truncate';
 
 export type LabelAlign = 'left' | 'center' | 'right';
@@ -81,6 +82,8 @@ export class Label extends Widget {
   private ellipsis: boolean;
   private tone: LabelTone;
   private readonly userStyle: Phaser.Types.GameObjects.Text.TextStyle;
+  /** Serialised once: it is part of both the style key and the text-metrics key. */
+  private readonly userStyleKey: string;
   private wrapWidth: number | null = null;
   private styleKey = '';
 
@@ -98,6 +101,7 @@ export class Label extends Widget {
     this.ellipsis = widget.ellipsis === true;
     this.tone = widget.tone ?? 'default';
     this.userStyle = widget.style ?? {};
+    this.userStyleKey = JSON.stringify(this.userStyle);
 
     this.textObject = new Phaser.GameObjects.Text(scene, 0, 0, this.rawText, {});
     this.textObject.setOrigin(0, 0);
@@ -171,7 +175,9 @@ export class Label extends Widget {
   private applyThemeStyle(): void {
     const theme = this.theme;
     const color = toCssColor(theme.colors[TONE_COLORS[this.tone]]);
-    const styleKey = `${theme.name}|${theme.fontFamily}|${theme.fontSize.md}|${color}|${this.align}`;
+    // The caller's style overrides participate in the key: two labels with the same theme style but a
+    // different `userStyle` must not share cached measurements.
+    const styleKey = `${theme.name}|${theme.fontFamily}|${theme.fontSize.md}|${color}|${this.align}|${this.userStyleKey}`;
     if (styleKey === this.styleKey) {
       return;
     }
@@ -194,8 +200,21 @@ export class Label extends Widget {
     this.textObject.setWordWrapWidth(next);
   }
 
+  /** This scene's text-metrics cache, or `null` once the widget lost its scene (destroyed). */
+  private get metrics(): SceneTextMetrics | null {
+    return this.scene ? textMetricsOf(this.scene) : null;
+  }
+
   private updateDisplayedText(): void {
-    const lines = this.textObject.getWrappedText(this.rawText);
+    const metrics = this.metrics;
+    // Wrapping and the ellipsis search are the two canvas-bound steps of a label, and both are pure
+    // functions of (text, style, wrap width) - so they are memoised per scene instead of re-run on every
+    // measure pass (see `text-metrics.ts`).
+    const lines = metrics
+      ? metrics.wrappedLines(this.metricsKey(this.rawText), () =>
+          this.textObject.getWrappedText(this.rawText),
+        )
+      : this.textObject.getWrappedText(this.rawText);
     const result = applyLineLimit(lines, {
       maxLines: this.maxLines,
       ellipsis: this.ellipsis,
@@ -210,11 +229,25 @@ export class Label extends Widget {
     }
   }
 
-  /** Width of a candidate string with the current font, straight from the text's own canvas. */
+  /**
+   * Width of a candidate string with the current font, straight from the text's own canvas.
+   *
+   * Cached per (style, wrap width, candidate): the ellipsis search calls this `log2(length)` times per
+   * line on *every* measure of a dirty label, always with the same handful of candidates.
+   */
   private measureTextWidth(value: string): number {
-    const context = this.textObject.context;
-    this.textObject.style.syncFont(this.textObject.canvas, context);
-    return context.measureText(value).width;
+    const metrics = this.metrics;
+    const compute = (): number => {
+      const context = this.textObject.context;
+      this.textObject.style.syncFont(this.textObject.canvas, context);
+      return context.measureText(value).width;
+    };
+    return metrics ? metrics.width(this.metricsKey(value), compute) : compute();
+  }
+
+  /** Identity of a measurement: the effective style, the wrap width, and the string itself. */
+  private metricsKey(text: string): string {
+    return `${this.styleKey}\u0001${this.wrapWidth ?? 0}\u0001${text}`;
   }
 
   private positionText(box: Rect): void {

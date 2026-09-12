@@ -145,6 +145,7 @@ export type { FlushMode, SchedulerHooks, SchedulerJob } from './reactivity/sched
 
 // Utilities and development helpers --------------------------------------------------------------
 export { deepEqual } from './utils/equality';
+export { LruCache } from './utils/lru';
 export {
   devLog,
   RECURSION_LIMIT,

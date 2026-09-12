@@ -28,6 +28,7 @@ import { toCssColor } from './color';
 import { contentBox } from './geometry';
 import { DomInputBridge, clampSelection, type InputBridgeHandlers } from './input-bridge';
 import { optionBag, splitWidgetOptions } from './options';
+import { textMetricsOf } from './text-metrics';
 import {
   CARET_BLINK_MS,
   MIN_CONTENT_WIDTH,
@@ -199,14 +200,25 @@ export abstract class TextInputBase extends Widget {
   private lastConsumedEvent: KeyboardEvent | null = null;
   private skinCache: { theme: Theme; skin: ProceduralSkin } | null = null;
 
-  /** Measured text width in design pixels, straight from a line object's canvas. */
+  /**
+   * Measured text width in design pixels, straight from a line object's canvas.
+   *
+   * Cached per (style, text) in the scene's text-metrics cache: caret placement, windowing and
+   * truncation all measure the same candidate strings again on every repaint and every measure pass.
+   */
   private readonly measureWidth = (text: string): number => {
     if (text.length === 0) {
       return 0;
     }
-    const probe = this.probeObject();
-    probe.style.syncFont(probe.canvas, probe.context);
-    return probe.context.measureText(text).width;
+    const compute = (): number => {
+      const probe = this.probeObject();
+      probe.style.syncFont(probe.canvas, probe.context);
+      return probe.context.measureText(text).width;
+    };
+    const scene = this.scene;
+    return scene === undefined || scene === null
+      ? compute()
+      : textMetricsOf(scene).width(`${this.textStyleKey}\u0001${text}`, compute);
   };
 
   // The Canvas fallback reads keys from a capture-phase listener on `window` while this field holds

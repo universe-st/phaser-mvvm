@@ -12,7 +12,12 @@
  */
 
 import Phaser from 'phaser';
+import { LruCache } from '@phaser-mvvm/core';
 import type { Size } from '@phaser-mvvm/layout';
+
+// Re-exported so existing consumers keep their import; the implementation lives in `core` so the
+// widget packages can cache without pulling Phaser (and therefore without a renderer) in.
+export { LruCache };
 
 export interface TextMeasureRequest {
   text: string;
@@ -32,45 +37,6 @@ export interface TextMeasureRequest {
 export interface MeasuredText extends Size {
   /** Number of wrapped lines; `1` when no wrapping is configured. */
   lines: number;
-}
-
-/** A tiny LRU cache (Map-based; insertion order doubles as recency order). */
-export class LruCache<K, V> {
-  private readonly entries = new Map<K, V>();
-
-  constructor(readonly maxEntries = 512) {}
-
-  get(key: K): V | undefined {
-    const value = this.entries.get(key);
-    if (value === undefined) {
-      return undefined;
-    }
-    // Refresh recency.
-    this.entries.delete(key);
-    this.entries.set(key, value);
-    return value;
-  }
-
-  set(key: K, value: V): void {
-    if (this.entries.has(key)) {
-      this.entries.delete(key);
-    }
-    this.entries.set(key, value);
-    if (this.entries.size > this.maxEntries) {
-      const oldest = this.entries.keys().next();
-      if (!oldest.done) {
-        this.entries.delete(oldest.value);
-      }
-    }
-  }
-
-  clear(): void {
-    this.entries.clear();
-  }
-
-  get size(): number {
-    return this.entries.size;
-  }
 }
 
 /** Builds the cache key of a request; style and text are both part of the identity. */

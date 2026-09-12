@@ -36,6 +36,7 @@ import {
   TextField,
   ui,
 } from '@phaser-mvvm/widgets/compose';
+import { textMetricsStats } from '@phaser-mvvm/widgets';
 import { makeTileTexture, setDemoState } from '../demo';
 import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
 
@@ -465,6 +466,8 @@ export class StatesScene extends Phaser.Scene {
           skippedSubtrees: stats.skippedSubtrees,
         };
       },
+      /** Text-metrics cache counters (PLAN §8: text measurement hit rate > 95 %). */
+      textMetrics: () => textMetricsStats(this) ?? { hits: 0, misses: 0, size: 0, hitRate: 1 },
       /** Number of widgets in the page, so a measure-count delta can be read against the page size. */
       widgetCount: () => {
         let total = 0;

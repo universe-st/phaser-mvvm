@@ -74,6 +74,14 @@ export {
   WIDGET_FACTORY_KEYS,
 } from './factories';
 
+export {
+  clearTextMetrics,
+  textMetricsOf,
+  textMetricsStats,
+  type SceneTextMetrics,
+  type TextMetricsStats,
+} from './text-metrics';
+
 // Pure helpers: they never import Phaser, so they are reusable (and tested) outside a renderer.
 export { computeFit, type FitResult, type ImageFit } from './fit';
 export {

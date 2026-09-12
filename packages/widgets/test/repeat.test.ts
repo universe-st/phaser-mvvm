@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { clearTextMetrics, textMetricsOf, textMetricsStats } from '../src/text-metrics';
 import {
   computeVisibleRange,
   contentExtentOf,
@@ -373,5 +374,59 @@ describe('contentExtentOf', () => {
     // What an enclosing port relies on: extent = maxOffset + the list's own viewport.
     const extent = contentExtentOf(200, 34, 4);
     expect(extent - 260).toBe(200 * 34 - 4 - 260);
+  });
+});
+
+describe('scene text metrics cache', () => {
+  it('caches wrap results and widths per scene and counts hits', () => {
+    const scene = {};
+    const metrics = textMetricsOf(scene);
+    let computed = 0;
+
+    const first = metrics.wrappedLines('k', () => {
+      computed += 1;
+      return ['a', 'b'];
+    });
+    const second = metrics.wrappedLines('k', () => {
+      computed += 1;
+      return ['a', 'b'];
+    });
+
+    expect(first).toEqual(['a', 'b']);
+    expect(second).toBe(first);
+    expect(computed).toBe(1);
+
+    let widths = 0;
+    expect(metrics.width('w', () => (widths += 1) && 12)).toBe(12);
+    expect(metrics.width('w', () => (widths += 1) && 12)).toBe(12);
+    expect(widths).toBe(1);
+
+    const stats = metrics.stats;
+    expect(stats.hits).toBe(2);
+    expect(stats.misses).toBe(2);
+    expect(stats.size).toBe(2);
+    expect(stats.hitRate).toBeCloseTo(0.5, 6);
+  });
+
+  it('keeps a separate cache per scene and reports nothing for an unseen scene', () => {
+    const a = {};
+    const b = {};
+    textMetricsOf(a).width('k', () => 1);
+
+    expect(textMetricsStats(a)?.misses).toBe(1);
+    expect(textMetricsStats(b)).toBeNull();
+    expect(textMetricsOf(b)).not.toBe(textMetricsOf(a));
+  });
+
+  it('clears on demand (theme/font changes that keep the same style key)', () => {
+    const scene = {};
+    const metrics = textMetricsOf(scene);
+    let computed = 0;
+    metrics.width('k', () => (computed += 1) && 5);
+    clearTextMetrics(scene);
+    metrics.width('k', () => (computed += 1) && 5);
+
+    expect(computed).toBe(2);
+    expect(textMetricsStats(scene)?.size).toBe(1);
   });
 });
