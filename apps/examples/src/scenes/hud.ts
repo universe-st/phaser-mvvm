@@ -210,6 +210,14 @@ export class HudScene extends Phaser.Scene {
     if (this.hudBar) {
       reportWidget('bar', this.hudBar);
     }
+    const score = this.probes.get('score')?.widget;
+    if (score) {
+      reportWidget('score', score);
+    }
+    // A world tile at an exact page coordinate, for the pixel gate (`scripts/visual-check.mjs`): its
+    // colour comes from the tile grid, so it changes when the camera scrolls and stays put when it does
+    // not - which is what makes it a check of the *world* moving behind the pinned HUD.
+    appendStatus('tile=@700,380 1x1');
     reportCanvas(this.game);
     this.publish('late.sf', 'n/a');
     this.exposeGlobals();

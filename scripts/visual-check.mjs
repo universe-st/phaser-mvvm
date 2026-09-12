@@ -42,7 +42,30 @@ const port = await freePort(requestedPort);
 const debugPort = await freePort(Number(flag('--debug-port', '9222')));
 const outDir = resolve(root, flag('--out', '.tmp/visual-check'));
 const [viewWidth, viewHeight] = flag('--size', '1280x720').split('x').map(Number);
-const scenes = ['m0', 'probe', 'stack'];
+const scenes = ['m0', 'probe', 'stack', 'hud'];
+
+/**
+ * Optional per-scene preparation, evaluated in the page *before* the screenshot.
+ *
+ * `hud` is the camera-pinned HUD: scrolling the camera first is what makes its pixel check meaningful -
+ * the HUD must stay where the layout put it while the world behind it moves. Add an entry here only
+ * for a hook the scene itself exposes (they are documented in each scene's header).
+ */
+const SCENE_SETUP = {
+  hud: 'window.hud.scroll(260, 140)',
+};
+
+/**
+ * Where the generic "did the renderer clear the canvas?" sample is taken, per scene.
+ *
+ * It defaults to 4px inside the canvas corner, which assumes the top-left is empty. The HUD page puts
+ * its bar there, so that sample would measure the bar's translucent overlay *over* the clear colour.
+ * For that scene the sample moves to a 2px seam between two world tiles (canvas-relative), where the
+ * camera background is visible on purpose.
+ */
+const CANVAS_CLEAR_AT = {
+  hud: [340, 60],
+};
 
 /**
  * A stale server on the requested port would silently serve an old bundle, so probe for a port that
@@ -72,6 +95,17 @@ async function isServing(port) {
 
 /** Widget label -> expected fill colour; `{rgb, fx, fy}` samples off-centre (partly covered widgets). */
 const PIXEL_EXPECTATIONS = {
+  /**
+   * The pinned HUD (ADR-0009) with the camera scrolled to (260, 140):
+   * - `score` is a *primary* button, sampled left of its label so the fill shows (`fx: 0.12`);
+   * - `tile` is a world tile sampled at page (700, 380): its colour is decided by the *tile grid*, so
+   *   the value below only matches if the camera really scrolled (world tile (4, 2) of the repeating
+   *   3-colour pattern = `colors[0]`) - scrolling changes it, pinning does not.
+   */
+  hud: {
+    score: { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
+    tile: 0x161b22,
+  },
   m0: {
     'rect.blue': 0x2f6feb,
     'rect.amber': 0xf2a33c,
@@ -238,11 +272,12 @@ function pixelSpec(scene, png, status) {
   const rects = parseRects(status);
   // Stage coordinates are canvas-relative; the app reports the canvas rect (Phaser may centre it).
   const canvas = rects.get('canvas') ?? { x: 0, y: 0, width: viewWidth, height: viewHeight };
+  const [clearX, clearY] = CANVAS_CLEAR_AT[scene] ?? [4, 4];
   const checks = [
     {
       label: 'canvas.clear',
-      x: canvas.x + 4,
-      y: canvas.y + 4,
+      x: canvas.x + clearX,
+      y: canvas.y + clearY,
       rgb: [0x0d, 0x11, 0x17],
     },
   ];
@@ -365,6 +400,15 @@ async function main() {
       const loaded = session.once('Page.loadEventFired');
       await session.send('Page.navigate', { url });
       await loaded;
+
+      // Scenes that need a specific state (a scrolled camera, an open panel) declare it here; this
+      // runs before the status read so the geometry and the pixels describe the same moment.
+      const setup = SCENE_SETUP[scene];
+      if (setup) {
+        await session.send('Runtime.evaluate', {
+          expression: `(() => { ${setup}; return true; })()`,
+        });
+      }
 
       // Wait until the scene reported its layout (or an error) into #status.
       await waitFor(

@@ -74,7 +74,9 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 - `packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`——不要删掉这个 flag，也**不要**为了「有测试」写空断言。
 - **黄金快照**：`packages/layout/test/golden/*.json`，零漂移是门禁；确认是有意变更后再用 `UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test` 重生成，并在说明里解释每一处差异。该目录在 `.prettierignore` 中。
 - **几何 + 像素验收**：`node scripts/visual-check.mjs`。脚本用**单个**无头 Chrome（CDP + 固定视口 1280×720）逐场景：读页面 `#status`（场景把引擎实际分配的 rect 写进 DOM）→ 截图 → 按 canvas 偏移换算后采样中心像素并与期望填充色比对。常用参数：`--no-build`、`--size 1024x768`、`--port`、`--out .tmp/visual-check`；需要 `CHROME_PATH` 或本机 Chrome/Chromium，**仅 macOS/Linux 可用**。
-  - 要校验的场景在脚本里**硬编码**（当前 `m0`、`probe`、`stack`）——新增场景若需像素断言，必须同时加进 `PIXEL_EXPECTATIONS` 与该场景列表。
+  - 要校验的场景在脚本里**硬编码**（当前 `m0`、`probe`、`stack`、`hud`）——新增场景若需像素断言，必须同时加进 `PIXEL_EXPECTATIONS` 与该场景列表。
+  - 需要先摆好状态的场景用 `SCENE_SETUP`（页内表达式，截图前执行）：`hud` 用它把相机滚到 (260,140)，于是「HUD 钉住不动 + 世界真的滚动」两件事都被像素断言（`score` 按钮在布局坐标上仍是 `#2f6feb`，而世界坐标 (960,520) 的瓦片色 `#161b22` 只有在相机滚动后才成立）。
+  - 通用检查「画布清屏色」默认在画布内 4px 处取样（假设左上角是空的）；`#/hud` 的顶栏盖在那里，所以它用 `CANVAS_CLEAR_AT` 把取样点挪到两块瓦片之间的 2px 缝上（画布相对坐标 (340,60)），那里能看见相机背景色。
   - 被其它控件遮挡的采样点用 `{ rgb, fx, fy }` 指定相对采样位置。
   - 脚本启动 Chrome 时**不传** `--user-data-dir`，因此依赖默认 profile 目录可写（`~/Library/Application Support/Google/Chrome`）。在受限/沙箱环境里 Chrome 会直接崩溃（Crashpad 写盘被拒），脚本报 `timed out waiting for chrome devtools endpoint` —— 这是环境限制而非脚本缺陷；此时请在汇报里说明「像素验收未运行」，并至少断言 `#status` 里的几何。
 - **指南片段门禁**：`pnpm docs:check`（`scripts/check-doc-snippets.mjs`）把 `docs/guide/*.md` 的 `ts` 代码块里**被调用**的标识符与四个包（含 `widgets/compose` 子路径）的公开导出对照，抓「改了 API 没改文档」与拼写错误。它是语法层面的检查（先剥掉注释、字符串与 `{{ … }}` 模板占位，跳过片段内自己声明的名字），不是编译器；新增/重命名导出后请跑一次。
