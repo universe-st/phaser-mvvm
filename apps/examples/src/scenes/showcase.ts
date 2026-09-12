@@ -32,7 +32,15 @@ import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
 import { bindTemplateText, themeListenerCount } from '@phaser-mvvm/phaser';
 import type { Widget } from '@phaser-mvvm/phaser';
-import type { PanelOptions, PanelVariant, Repeat, ScrollView } from '@phaser-mvvm/widgets';
+import type { LayoutParams } from '@phaser-mvvm/layout';
+import type { BoxWidget } from '@phaser-mvvm/phaser';
+import type {
+  Panel as PanelWidget,
+  PanelOptions,
+  PanelVariant,
+  Repeat,
+  ScrollView,
+} from '@phaser-mvvm/widgets';
 import {
   Absolute,
   Button,
@@ -56,7 +64,14 @@ import {
   ui,
 } from '@phaser-mvvm/widgets/compose';
 import { makeTileTexture, setDemoState } from '../demo';
-import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
+import {
+  appendStatus,
+  displayScale,
+  pageOrigin,
+  pagePoint,
+  reportCanvas,
+  reportWidget,
+} from '../status';
 
 /** Machine id of a section; also the `pt.nav.<id>` suffix. */
 type SectionId =
@@ -68,6 +83,7 @@ type SectionId =
   | 'grid'
   | 'stack'
   | 'params'
+  | 'sizing'
   | 'repeat'
   | 'focus';
 
@@ -109,13 +125,24 @@ const SECTIONS: readonly SectionDef[] = [
     title: 'Box',
     caption: 'vertical · horizontal · gap · align · wrap',
   },
-  { id: 'grid', group: 'layout', title: 'Grid', caption: 'columns · auto columns · spans · gaps' },
+  {
+    id: 'grid',
+    group: 'layout',
+    title: 'Grid',
+    caption: 'columns · auto columns · spans · explicit placement · gaps',
+  },
   { id: 'stack', group: 'layout', title: 'Stack & absolute', caption: 'overlap · align · corners' },
   {
     id: 'params',
     group: 'layout',
     title: 'Layout params',
     caption: 'width · grow · min/max · aspect · order · alignSelf',
+  },
+  {
+    id: 'sizing',
+    group: 'layout',
+    title: 'Sizing & flex',
+    caption: 'shrink · basis · min/max height',
   },
   {
     id: 'repeat',
@@ -237,6 +264,8 @@ export class ShowcaseScene extends Phaser.Scene {
     (window as unknown as { showcase?: unknown }).showcase = {
       sections: () => SECTIONS.map((def) => def.id),
       show: (id: string) => this.showSection(id as SectionId),
+      /** `show()` plus "and now the geometry is real": see {@link ShowcaseScene.showAndReport}. */
+      showAndReport: (id: string, frames?: number) => this.showAndReport(id as SectionId, frames),
       showAll: () => this.setShowAll(true),
       state: () => ({
         section: this.section.value,
@@ -402,6 +431,69 @@ export class ShowcaseScene extends Phaser.Scene {
         content: this.stageContent ? { ...this.stageContent.appliedRect } : null,
         section: this.sectionHost ? { ...this.sectionHost.appliedRect } : null,
       }),
+      /**
+       * The applied box of every named widget in the mounted section (optionally filtered).
+       *
+       * `geometry()` describes the page chrome and `controlStates()` only covers *tracked controls*, as
+       * page points. A layout-parameter card needs the opposite: the exact applied box of a specific
+       * child, so `shrink` / `basis` / `minHeight` / `maxHeight` / explicit grid placement can be
+       * asserted as numbers instead of judged from the picture (round 89).
+       */
+      rects: (
+        names?: readonly string[],
+      ): Array<{
+        name: string;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        /** Top-left in page (CSS) pixels, for a screenshot or a pixel read. */
+        pageX: number;
+        pageY: number;
+        pageWidth: number;
+        pageHeight: number;
+        visible: boolean;
+      }> => {
+        const wanted = names ? new Set(names) : null;
+        const found: Array<{
+          name: string;
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          pageX: number;
+          pageY: number;
+          pageWidth: number;
+          pageHeight: number;
+          visible: boolean;
+        }> = [];
+        const scale = displayScale(this.game);
+        const visit = (widget: Widget): void => {
+          if (widget.name && (wanted === null || wanted.has(widget.name))) {
+            const rect = widget.appliedRect;
+            const page = pageOrigin(this.game, widget as never);
+            found.push({
+              name: widget.name,
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+              pageX: page.x,
+              pageY: page.y,
+              pageWidth: rect.width * scale.x,
+              pageHeight: rect.height * scale.y,
+              visible: widget.visible,
+            });
+          }
+          for (const child of widget.getWidgetChildren()) {
+            visit(child);
+          }
+        };
+        if (this.sectionHost) {
+          visit(this.sectionHost);
+        }
+        return found;
+      },
     };
   }
 
@@ -413,6 +505,16 @@ export class ShowcaseScene extends Phaser.Scene {
       height: Math.max(240, size.height - 2 * PAGE_MARGIN),
     };
   }
+
+  /**
+   * Widgets the pixel gate samples by name, collected while a section is built and reported **after** the
+   * next layout pass.
+   *
+   * `reportWidget()` reads `appliedRect`, and inside a build lambda that rect is still `0x0` — the first
+   * version of this reported four `@0,0 0x0` lines and the gate dutifully sampled the canvas corner
+   * (round 89). Reporting on the next frame is the honest reading of "where the layout put it".
+   */
+  private gateWidgets = new Map<string, Widget>();
 
   /** Sizes the page to the window; also the thing `setLayoutParams` has to get right. */
   private fitPage(): void {
@@ -627,6 +729,30 @@ export class ShowcaseScene extends Phaser.Scene {
     this.replaceSection([id]);
   }
 
+  /**
+   * Show a section, wait for it to be laid out, then publish its gate rects into `#status`.
+   *
+   * The pixel gate needs both halves in that order, and only a scene can know when the second one is
+   * true: `show()` alone leaves the freshly built widgets at `0x0`. `await`ing the returned promise from
+   * `scripts/visual-check.mjs`'s `SCENE_SETUP` is what makes the order explicit.
+   */
+  async showAndReport(id: SectionId, frames = 2): Promise<void> {
+    this.showSection(id);
+    for (let frame = 0; frame < frames; frame += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    this.reportGate();
+  }
+
+  /** Publishes every collected gate widget's rect into `#status` (last line wins for a repeated name). */
+  private reportGate(): void {
+    for (const [name, widget] of this.gateWidgets) {
+      if (!widget.isDestroyed) {
+        reportWidget(name, widget);
+      }
+    }
+  }
+
   private setShowAll(on: boolean): void {
     this.showAll.value = on;
     if (!on) {
@@ -799,13 +925,17 @@ export class ShowcaseScene extends Phaser.Scene {
    * cross-axis `stretch` would otherwise widen every frame to the card (which silently un-wrapped
    * `Box · wrap` and shrank nothing about the point of a fixed-size track).
    */
-  private frame(options: PanelOptions, content: () => void): void {
-    Panel({ variant: 'surface', radius: 6, padding: 6, alignSelf: 'start', ...options }, content);
+  private frame(options: PanelOptions, content: () => void): PanelWidget {
+    return Panel(
+      { variant: 'surface', radius: 6, padding: 6, alignSelf: 'start', ...options },
+      content,
+    );
   }
 
   // ------------------------------------------------------------------ sections
 
   private buildSection(id: SectionId): void {
+    this.gateWidgets.clear();
     switch (id) {
       case 'text':
         this.buildText();
@@ -830,6 +960,9 @@ export class ShowcaseScene extends Phaser.Scene {
         return;
       case 'params':
         this.buildParams();
+        return;
+      case 'sizing':
+        this.buildSizing();
         return;
       case 'repeat':
         this.buildRepeat();
@@ -1391,6 +1524,23 @@ export class ShowcaseScene extends Phaser.Scene {
         );
 
         this.card(
+          'Grid · explicit placement',
+          'gridColumn / gridRow pin a cell (1-based); auto flow skips the occupied cells',
+          () => {
+            Grid({ columns: 3, columnGap: 8, rowGap: 8, width: 'fill', name: 'grid.place' }, () => {
+              // Declared **first**, painted last: an explicit cell must not consume a flow slot.
+              placeCell('pinned', 'grid.place.pin', { gridColumn: 3, gridRow: 2 }, 'primary');
+              placeCell('flow 1', 'grid.place.flow1', {}, 'surface');
+              placeCell('flow 2', 'grid.place.flow2', {}, 'surface');
+              // Spans two rows: its height is both rows plus the gap between them.
+              placeCell('row span 2', 'grid.place.span', { gridRowSpan: 2 }, 'danger');
+              placeCell('flow 3', 'grid.place.flow3', {}, 'surface');
+              placeCell('flow 4', 'grid.place.flow4', {}, 'surface');
+            });
+          },
+        );
+
+        this.card(
           'Grid · alignment',
           'justifyItems / alignItems place the child inside its cell',
           () => {
@@ -1607,6 +1757,135 @@ export class ShowcaseScene extends Phaser.Scene {
             );
           });
         });
+      },
+      { gap: 12, width: 'fill' },
+    );
+  }
+
+  /**
+   * The size parameters that no page had ever passed: `shrink`, `basis`, `minHeight`, `maxHeight`.
+   *
+   * Every card here is an **A/B**: the same declaration twice, once with the parameter and once
+   * without, so the assertion is a pair of numbers rather than "the picture looks right". The numbers
+   * are the ones `packages/layout/test/box.test.ts` pins on the engine side — the point of the card is
+   * that the *widget* layer hands the same parameters through (`Row`/`Panel` options are split into
+   * widget options and layout params, so a typo in a key table would silently drop them).
+   */
+  private buildSizing(): void {
+    this.column(
+      () => {
+        this.card('shrink', 'the overflow is given up in proportion to weight × base size', () => {
+          this.row(() => {
+            this.frame(
+              { direction: 'horizontal', width: 240, height: 56, name: 'sizing.shrink.off' },
+              () => {
+                sizingBox('no shrink', 'sizing.shrink.off.a', 120, 40, {});
+                sizingBox('no shrink', 'sizing.shrink.off.b', 120, 40, {});
+                sizingBox('no shrink', 'sizing.shrink.off.c', 120, 40, {});
+              },
+            );
+            Text('3 × 120 in a 228 box → the third one paints outside', {
+              tone: 'muted',
+              width: 150,
+            });
+            // Reported into `#status` so the *pixel* gate can sample two points that only agree with
+            // each other when the shrink really happened: the third box's own fill, and the frame's
+            // right padding (which the overflowing box would cover if `shrink` were dropped).
+            const shrunk = this.frame(
+              { direction: 'horizontal', width: 240, height: 56, name: 'sizing.shrink.on' },
+              () => {
+                sizingBox('shrink 1', 'sizing.shrink.on.a', 120, 40, { shrink: 1 });
+                sizingBox('shrink 1', 'sizing.shrink.on.b', 120, 40, { shrink: 1 });
+                const third = sizingBox('shrink 1', 'sizing.shrink.on.c', 120, 40, { shrink: 1 });
+                this.gateWidgets.set('sizing.shrink.on.c', third);
+              },
+            );
+            this.gateWidgets.set('sizing.shrink.on', shrunk);
+            Text('shrink 1 → 76 each (228 total)', { tone: 'muted', width: 150 });
+          });
+        });
+
+        this.card(
+          'basis',
+          'the initial main-axis size, before grow/shrink (CSS flex-basis)',
+          () => {
+            this.row(() => {
+              this.frame(
+                { direction: 'horizontal', width: 320, height: 56, name: 'sizing.basis.off' },
+                () => {
+                  sizingBox('width 40', 'sizing.basis.off.a', 40, 40, {});
+                  sizingBox('width 40', 'sizing.basis.off.b', 40, 40, {});
+                  sizingBox('width 40', 'sizing.basis.off.c', 40, 40, {});
+                },
+              );
+              Text('3 × 40', { tone: 'muted', width: 60 });
+              this.frame(
+                { direction: 'horizontal', width: 320, height: 56, name: 'sizing.basis.on' },
+                () => {
+                  sizingBox('basis 100', 'sizing.basis.on.a', 40, 40, { basis: 100 });
+                  sizingBox('basis 150', 'sizing.basis.on.b', 40, 40, { basis: 150 });
+                  sizingBox('width 40', 'sizing.basis.on.c', 40, 40, {});
+                },
+              );
+              Text('100 · 150 · 40', { tone: 'muted', width: 90 });
+            });
+          },
+        );
+
+        this.card(
+          'min / max height',
+          'a height clamp wins over the declared height and over a stretch',
+          () => {
+            this.row(() => {
+              const stretchFrame = this.frame(
+                {
+                  direction: 'horizontal',
+                  width: 260,
+                  height: 96,
+                  alignItems: 'stretch',
+                  name: 'sizing.height.stretch.frame',
+                },
+                () => {
+                  sizingBox('stretch', 'sizing.height.stretch.box', 70, undefined, {});
+                  const clamped = sizingBox(
+                    'maxHeight 40',
+                    'sizing.height.max.box',
+                    70,
+                    undefined,
+                    {
+                      maxHeight: 40,
+                    },
+                  );
+                  this.gateWidgets.set('sizing.height.max.box', clamped);
+                },
+              );
+              // The frame is reported too: the pixel gate samples it *below* the clamped box, where a
+              // stretch that ignored `maxHeight` would have painted the box instead.
+              this.gateWidgets.set('sizing.height.stretch.frame', stretchFrame);
+              Text('stretch gives 84; the clamp cuts it to 40', { tone: 'muted', width: 150 });
+            });
+            this.row(() => {
+              this.frame(
+                {
+                  direction: 'horizontal',
+                  width: 320,
+                  height: 120,
+                  alignItems: 'start',
+                  name: 'sizing.height.start.frame',
+                },
+                () => {
+                  sizingBox('height 20 · minHeight 60', 'sizing.height.min.box', 120, 20, {
+                    minHeight: 60,
+                  });
+                  sizingBox('height 90 · maxHeight 50', 'sizing.height.max.box2', 120, 90, {
+                    maxHeight: 50,
+                  });
+                },
+              );
+              Text('60 and 50 tall', { tone: 'muted', width: 110 });
+            });
+          },
+        );
       },
       { gap: 12, width: 'fill' },
     );
@@ -1879,6 +2158,72 @@ export class ShowcaseScene extends Phaser.Scene {
  * `params` are applied to the *block* (so `grow`, `order`, `alignSelf`, `width`, `visible` … behave
  * exactly as declared), while the rect inside is absolutely positioned to cover it.
  */
+/** One named grid cell of the explicit-placement card. */
+function placeCell(
+  text: string,
+  name: string,
+  params: LayoutParams & { name?: string },
+  variant: PanelVariant,
+): void {
+  Panel(
+    {
+      direction: 'horizontal',
+      alignItems: 'center',
+      justifyContent: 'center',
+      variant,
+      radius: 6,
+      height: 36,
+      name,
+      ...params,
+    },
+    () => {
+      Text(text, { align: 'center', style: { fontSize: '11px' } });
+    },
+  );
+}
+
+/**
+ * A box whose *main-axis* width and *cross-axis* height are declared separately, so a sizing card can
+ * leave the height to the container (`undefined`) or clamp it.
+ *
+ * `Block` always passes a height, which is exactly what a stretch card must not do.
+ */
+function sizingBox(
+  text: string,
+  name: string,
+  width: number,
+  height: number | undefined,
+  params: RowOptions,
+): BoxWidget {
+  return Row(
+    {
+      alignItems: 'center',
+      justifyContent: 'center',
+      width,
+      height,
+      name,
+      ...params,
+    },
+    () => {
+      Rect({
+        color: 0x2f6feb,
+        width: 'fill',
+        height: 'fill',
+        position: 'absolute',
+        left: 0,
+        top: 0,
+      });
+      Text(text, {
+        align: 'center',
+        style: { fontSize: '10px' },
+        maxLines: 2,
+        width,
+        name: `${name}.text`,
+      });
+    },
+  );
+}
+
 function Block(
   color: number,
   text: string,

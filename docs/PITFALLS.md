@@ -220,3 +220,11 @@
 现象：点击 `canvas` 字段后 `focus = none`，看起来像"输入框之间点击会丢焦点"——实际是点在空白处，框架正确地释放了焦点。改用 `window.game.scene.getScene(<scene>).mvvm.input.widgets` 里每个控件的**实时** `rect`（或逐帧发布的 `pt.*`）后，六个字段逐个点击全部正常。
 
 **纪律**：验收脚本里的坐标要么取逐帧 `pt.*`，要么当场读实时 `rect`；`#status` 只用来核对"布局本身对不对"，不要拿它当点击坐标。**先怀疑探针、再怀疑框架**——这条和 §8.41（文档数字滞后）是同一类错误：读数过期比读数错误更常见。
+
+## 8.48 构建趟里 `reportWidget()` 读到的是 `0×0`（第 89 轮）
+
+`reportWidget()` 打印的是 `appliedRect`，而 `appliedRect` 要等**第一次布局趟**之后才有值。把报告写在建卡的闭包里（`#/showcase` 的 `sizing` 分区第一版就是这么写的），`#status` 里就会出现四行 `@0,0 0x0`——数字都在、名字都对，只有几何是假的。
+
+现象：新加的像素门禁报「`sizing.shrink.on`: expected `#161b22` got `#0d1117` at (0,0)」——读到的是画布角落。看起来像布局放错了位置，实际是读数早了一帧；同一族的坑见 §8.47（一次性探针过期）与 AGENTS §5（`reportControl` 是创建时采样一次）。
+
+**纪律**：任何"把 `appliedRect` 写进 DOM"的探针，都要在**至少一帧之后**调用。跨不出场景的函数就把它做成场景的方法并返回 Promise：`#/showcase` 的 `showAndReport(section)` = `show()` + 等两帧 + `reportGate()`，`scripts/visual-check.mjs` 的 `SCENE_SETUP` 用 `awaitPromise: true` 等它。另外 `reportWidget()` 是**追加**行，`parseRects()` 取同名最后一个 → 重复报告是安全的（不需要先清空 `#status`）。

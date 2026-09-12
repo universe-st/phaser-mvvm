@@ -364,6 +364,23 @@ describe('grid: explicit placement and spans', () => {
     expectRect(next, 0, 10, 100, 10);
   });
 
+  it('makes a row-spanning automatic child skip a column the span would collide in', () => {
+    // The vertical twin of the test above, and the shape the `#/showcase` "explicit placement" card pins
+    // on screen: the cursor advances one cell at a time, so a `gridRowSpan: 2` child may only take the
+    // first free cell whose **whole** span is free. Cell (1, 2) is taken here, which pushes the spanning
+    // child to the second column — if `isFree` only checked its first row, the two would overlap.
+    const pinned = auto(10, 30, { gridColumn: 1, gridRow: 2 });
+    const tall = auto(10, 10, { gridRowSpan: 2 });
+    const root = grid({ columns: 2, rowGap: 4 }, [pinned, tall], { width: 200, height: 300 });
+
+    layout(root, loose(300, 400));
+
+    // Row 1 is empty, so the pinned cell sits one row gap down; the span then inherits its two rows
+    // (0 and 30 tall) plus the 4px gap between them.
+    expectRect(pinned, 0, 4, 100, 30);
+    expectRect(tall, 100, 0, 100, 34);
+  });
+
   it('moves an oversized child to the next row instead of splitting its span', () => {
     const first = auto(10, 10);
     const span = auto(10, 10, { gridColumnSpan: 2 });

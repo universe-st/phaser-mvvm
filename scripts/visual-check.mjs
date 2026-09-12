@@ -53,6 +53,7 @@ const scenes = [
   'compose',
   'options',
   'keyboard',
+  'showcase',
 ];
 
 /**
@@ -73,6 +74,12 @@ const SCENE_SETUP = {
   // The validated field, so the AX expectation below can assert `invalid` — the state a screen reader
   // needs *before* it reaches the field (`window.a11y.validate()` does not sync the mirror by hand).
   a11y: 'window.a11y.validate(); window.a11y.setVolume(65)',
+  // The sizing section: it holds the `shrink` / height-clamp cards whose pixels are asserted below, and
+  // it is not the section the page opens on (`buttons` is). Showing it also proves the section builder
+  // places its cards somewhere visible rather than off the stage.
+  // `showAndReport` resolves after the new section has been laid out: a `reportWidget()` inside the
+  // build lambda reads `appliedRect` before the first pass and publishes `0x0` (see the scene's own note).
+  showcase: 'window.showcase.showAndReport("sizing")',
 };
 
 /**
@@ -367,6 +374,26 @@ const PIXEL_EXPECTATIONS = {
   uiscene: {
     'show.a': { rgb: 0x2f6feb, fx: 0.12, fy: 0.5 },
   },
+  /**
+   * `#/showcase` with the **sizing** section up (`SCENE_SETUP.showcase`). Three of the four parameters
+   * this section exists for are checked here, and each sample is chosen so that a *no-op* parameter
+   * fails it:
+   * - `sizing.shrink.on` at `fx: 0.99` reads the frame's own right padding. The card's three boxes are
+   *   120 wide in a 228 content box, so with `shrink: 1` they end at 234 and this point stays frame
+   *   `surface`; if `shrink` were dropped the third box would start at 246 and cover it in `primary`.
+   * - `sizing.shrink.on.c` at `fx: 0.1` is the shrunken box's own fill: it is only here *because* the
+   *   box is 76 wide (the same `primary` token, at the position the shrink computed).
+   * - `sizing.height.stretch.frame` at `fy: 0.92` samples the stretch frame *below* the `maxHeight: 40`
+   *   box. A stretch that ignored the clamp would paint that box 84 tall and turn this point `primary`.
+   * - `sizing.height.max.box` is the clamped box itself, sampled **above its label**: the box is 40 tall
+   *   with one centred line of text, so `fy: 0.12` is fill and `fy: 0.5` would read a glyph edge.
+   */
+  showcase: {
+    'sizing.shrink.on': { rgb: 0x161b22, fx: 0.99, fy: 0.5 },
+    'sizing.shrink.on.c': { rgb: 0x2f6feb, fx: 0.1, fy: 0.5 },
+    'sizing.height.stretch.frame': { rgb: 0x161b22, fx: 0.43, fy: 0.92 },
+    'sizing.height.max.box': { rgb: 0x2f6feb, fx: 0.5, fy: 0.12 },
+  },
   stack: {
     // The card covers the centre of the backdrop, so the backdrop is sampled near its own corner.
     backdrop: { rgb: 0x161b22, fx: 0.05, fy: 0.05 },
@@ -413,6 +440,18 @@ const LIGHT_EXPECTATIONS = {
     card: 0x1f6feb,
     badge: 0x3fb950,
     footer: 0xf2a33c,
+  },
+  /**
+   * The sizing cards again, in the light theme: the two panel points must repaint (`surface` is
+   * `#ffffff` there, so a panel that kept the dark fill fails) and the two box fills must **not** move or
+   * change - they are `Rect({ color: 0x2f6feb })` literals, so "everything turned light" cannot pass
+   * for a correct repaint either.
+   */
+  showcase: {
+    'sizing.shrink.on': { rgb: 0xffffff, fx: 0.99, fy: 0.5 },
+    'sizing.shrink.on.c': { rgb: 0x2f6feb, fx: 0.1, fy: 0.5 },
+    'sizing.height.stretch.frame': { rgb: 0xffffff, fx: 0.43, fy: 0.92 },
+    'sizing.height.max.box': { rgb: 0x2f6feb, fx: 0.5, fy: 0.12 },
   },
   hud: {
     // `score` is a themed button (dark `#2f6feb`, light `#0969da`); the tile is world colour.
@@ -793,8 +832,11 @@ async function main() {
       // runs before the status read so the geometry and the pixels describe the same moment.
       const setup = SCENE_SETUP[scene];
       if (setup) {
+        // `awaitPromise` so a setup that has to wait for a frame (or an animation) can say so by
+        // returning a promise; a synchronous setup resolves immediately either way.
         await session.send('Runtime.evaluate', {
           expression: `(() => { ${setup}; return true; })()`,
+          awaitPromise: true,
         });
       }
 
