@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
-import { reportControl, setDemoState } from '../demo';
-import { appendStatus, reportCanvas, reportWidget } from '../status';
+import type { Widget } from '@phaser-mvvm/phaser';
+import { setDemoState } from '../demo';
+import { appendStatus, reportCanvas, reportWidget, stagePosition } from '../status';
 
 /**
  * Widget gallery: every M4 widget in every state, laid out with the layout engine only.
@@ -14,6 +15,48 @@ export class GalleryScene extends Phaser.Scene {
     super('gallery');
   }
 
+  /** Widgets whose `pt.*`/`st.*` are published every frame. */
+  private readonly tracked = new Map<string, Widget>();
+  private readonly published = new Map<string, string>();
+
+  private track(key: string, widget: Widget): void {
+    this.tracked.set(key, widget);
+  }
+
+  /** Per-frame probe publish: coordinates plus `visualState` for every named control. */
+  override update(): void {
+    for (const [key, widget] of this.tracked) {
+      if (widget.isDestroyed) {
+        continue;
+      }
+      this.publish(`st.${key}`, widget.visualState);
+      if (!widget.visible || widget.appliedRect.width <= 0 || widget.appliedRect.height <= 0) {
+        continue;
+      }
+      const canvas = this.game.canvas.getBoundingClientRect();
+      const origin = stagePosition(widget);
+      this.publish(
+        `pt.${key}`,
+        `@${Math.round(canvas.left + origin.x + widget.appliedRect.width / 2)},${Math.round(
+          canvas.top + origin.y + widget.appliedRect.height / 2,
+        )}`,
+      );
+    }
+    this.publish(
+      'focusables',
+      this.mvvm.focus.focusables.map((w) => w.name || 'unnamed').join('+'),
+    );
+  }
+
+  private publish(key: string, value: string | number | boolean): void {
+    const text = String(value);
+    if (this.published.get(key) === text) {
+      return;
+    }
+    this.published.set(key, text);
+    setDemoState(key, value);
+  }
+
   create(): void {
     const theme = this.mvvm.theme;
 
@@ -22,14 +65,14 @@ export class GalleryScene extends Phaser.Scene {
       [
         this.add.uiLabel({ text: 'Buttons', tone: 'muted' }),
         this.add.uiButton({ text: 'Primary', variant: 'primary', name: 'primary' }),
-        this.add.uiButton({ text: 'Secondary', variant: 'secondary' }),
-        this.add.uiButton({ text: 'Ghost', variant: 'ghost' }),
-        this.add.uiButton({ text: 'Danger', variant: 'danger' }),
+        this.add.uiButton({ text: 'Secondary', variant: 'secondary', name: 'secondary' }),
+        this.add.uiButton({ text: 'Ghost', variant: 'ghost', name: 'ghost' }),
+        this.add.uiButton({ text: 'Danger', variant: 'danger', name: 'danger' }),
         this.add.uiDivider({}),
-        this.add.uiButton({ text: 'Small', size: 'sm' }),
-        this.add.uiButton({ text: 'Large', size: 'lg' }),
-        this.add.uiButton({ text: 'Disabled', disabled: true }),
-        this.add.uiButton({ text: 'Loading', loading: true }),
+        this.add.uiButton({ text: 'Small', size: 'sm', name: 'small' }),
+        this.add.uiButton({ text: 'Large', size: 'lg', name: 'large' }),
+        this.add.uiButton({ text: 'Disabled', disabled: true, name: 'disabled' }),
+        this.add.uiButton({ text: 'Loading', loading: true, name: 'loading' }),
         this.add.uiButton({
           text: 'Toggle: off',
           name: 'toggle',
@@ -109,11 +152,23 @@ export class GalleryScene extends Phaser.Scene {
       );
       setDemoState('toggle', value);
     });
-    if (primaryButton) {
-      reportControl(this, 'primary', primaryButton as never);
-    }
-    if (toggleButton) {
-      reportControl(this, 'toggle', toggleButton as never);
+    // Every control is named and tracked: this page's job is "every widget in every state", so those
+    // states have to be readable from outside (a focus readout of `unnamed` proves nothing).
+    for (const key of [
+      'primary',
+      'secondary',
+      'ghost',
+      'danger',
+      'small',
+      'large',
+      'disabled',
+      'loading',
+      'toggle',
+    ]) {
+      const widget = buttonColumn.getWidgetChildren().find((child) => child.name === key);
+      if (widget) {
+        this.track(key, widget);
+      }
     }
     this.mvvm.focus.onFocusChange = (widget) => {
       setDemoState('focus', widget ? widget.name || 'unnamed' : 'none');
