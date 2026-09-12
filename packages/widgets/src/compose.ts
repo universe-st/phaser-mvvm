@@ -37,6 +37,7 @@ import {
   type AbsoluteWidgetOptions,
   bindModel,
   bindText,
+  bindValue,
   BoxWidget,
   type BoxWidgetOptions,
   buildUiSubtree,
@@ -50,10 +51,10 @@ import {
   type Widget,
   withUiParent,
 } from '@phaser-mvvm/phaser';
-import { Button as ButtonWidget, type ButtonOptions } from './Button';
+import { Button as ButtonWidget, type ButtonOptions, type ButtonVariant } from './Button';
 import { Divider as DividerWidget, type DividerOptions } from './Divider';
 import { Image as ImageWidget, type ImageOptions } from './Image';
-import { Label, type LabelOptions } from './Label';
+import { Label, type LabelOptions, type LabelTone } from './Label';
 import { Panel as PanelWidget, type PanelOptions } from './Panel';
 import { Repeat, type RepeatOptions } from './Repeat';
 import { ScrollView, type ScrollViewOptions } from './ScrollView';
@@ -110,58 +111,71 @@ export function ui(scene: Phaser.Scene, content: () => void): Widget {
 
 // --------------------------------------------------------------------- containers
 
-/** Options of `Column`/`Row`: the box widget's own bag, unchanged. */
-export type ColumnOptions = BoxWidgetOptions;
-export type RowOptions = BoxWidgetOptions;
+/** Options of `Column`/`Row`: the box widget's own bag plus the DSL slots. */
+export type ColumnOptions = BoxWidgetOptions & DslOptions;
+export type RowOptions = BoxWidgetOptions & DslOptions;
 
 /** A vertical box: `Column({ gap: 8 }, () => { … })` or `Column(() => { … })`. */
-export function Column(options?: BoxWidgetOptions | (() => void), content?: () => void): BoxWidget {
+export function Column(options?: ColumnOptions | (() => void), content?: () => void): BoxWidget {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new BoxWidget(scene, { ...args.options, direction: 'vertical' });
+  const widget = new BoxWidget(scene, { ...rest, direction: 'vertical' });
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return withUiParent(widget, args.content);
 }
 
 /** A horizontal box. */
-export function Row(options?: BoxWidgetOptions | (() => void), content?: () => void): BoxWidget {
+export function Row(options?: RowOptions | (() => void), content?: () => void): BoxWidget {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new BoxWidget(scene, { ...args.options, direction: 'horizontal' });
+  const widget = new BoxWidget(scene, { ...rest, direction: 'horizontal' });
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return withUiParent(widget, args.content);
 }
 
 /** A grid of equally sized tracks. */
-export function Grid(options?: GridWidgetOptions | (() => void), content?: () => void): GridWidget {
+export function Grid(
+  options?: (GridWidgetOptions & DslOptions) | (() => void),
+  content?: () => void,
+): GridWidget {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new GridWidget(scene, args.options);
+  const widget = new GridWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return withUiParent(widget, args.content);
 }
 
 /** A stack: children overlap and are aligned inside the same box. */
 export function Stack(
-  options?: StackWidgetOptions | (() => void),
+  options?: (StackWidgetOptions & DslOptions) | (() => void),
   content?: () => void,
 ): StackWidget {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new StackWidget(scene, args.options);
+  const widget = new StackWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return withUiParent(widget, args.content);
 }
 
 /** An absolutely positioned container: children carry `position: 'absolute'` plus their offsets. */
 export function Absolute(
-  options?: AbsoluteWidgetOptions | (() => void),
+  options?: (AbsoluteWidgetOptions & DslOptions) | (() => void),
   content?: () => void,
 ): AbsoluteWidget {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new AbsoluteWidget(scene, args.options);
+  const widget = new AbsoluteWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return withUiParent(widget, args.content);
 }
 
@@ -171,11 +185,16 @@ export function Absolute(
  * `Column`/`Row` are transparent layout boxes; `Panel` is the one that paints a background, so it is
  * what a card, a dialog or a page root is made of.
  */
-export function Panel(options?: PanelOptions | (() => void), content?: () => void): PanelWidget {
+export function Panel(
+  options?: (PanelOptions & DslOptions) | (() => void),
+  content?: () => void,
+): PanelWidget {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new PanelWidget(scene, args.options);
+  const widget = new PanelWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return withUiParent(widget, args.content);
 }
 
@@ -189,13 +208,15 @@ export const Surface = Panel;
  * content is itself a `List` also gets virtualisation, because `ScrollView` finds the list it wraps.
  */
 export function Scroll(
-  options?: Omit<ScrollViewOptions, 'content'> | (() => void),
+  options?: (Omit<ScrollViewOptions, 'content'> & DslOptions) | (() => void),
   content?: () => void,
 ): ScrollView {
   const args = normalizeContent(options, content);
+  const { visible, rest } = splitDsl(args.options);
   const scene = currentUiScene();
-  const widget = new ScrollView(scene, args.options);
+  const widget = new ScrollView(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   emitWidget(widget);
   if (args.content) {
     widget.setContent(buildUiSubtree(scene, args.content, 'Scroll()'));
@@ -205,8 +226,68 @@ export function Scroll(
 
 // --------------------------------------------------------------------- leaves
 
-/** Options of `Text`: the label's own bag. */
-export type TextOptions = LabelOptions;
+/**
+ * Options every composable accepts on top of its widget's own bag.
+ *
+ * `visible` is the DSL's condition: a hidden widget leaves the flow (`hideMode: 'collapse'` is the
+ * layout default), so `{ visible: () => open.value }` behaves like wrapping the widget in a Compose
+ * `if`. It is a *reactive* slot, so the node is not rebuilt when the value flips.
+ */
+export interface DslOptions {
+  visible?: ReactiveSource<boolean>;
+}
+
+/** Splits the DSL-level slots out of a widget's own option bag. */
+function splitDsl<O extends DslOptions>(
+  options: O,
+): {
+  visible: ReactiveSource<boolean> | undefined;
+  rest: Omit<O, 'visible'>;
+} {
+  const { visible, ...rest } = options;
+  return { visible, rest };
+}
+
+/** Applies the DSL-level options (currently just `visible`) to a freshly built widget. */
+function applyDslOptions(widget: Widget, options: { visible?: ReactiveSource<boolean> }): void {
+  const visible = options.visible;
+  if (visible === undefined) {
+    return;
+  }
+  widget.setVisible(readReactive(visible));
+  if (isReactiveSource(visible)) {
+    bindValue(
+      widget,
+      () => readReactive(visible) === true,
+      (value, host) => {
+        host.setVisible(value);
+      },
+    );
+  }
+}
+
+/**
+ * Binds one reactive option slot to a widget setter.
+ *
+ * Constants keep the straight-line path (the widget is constructed with them); only a `Ref`/getter
+ * creates a frame-aligned binding, exactly like the data slots do.
+ */
+function bindOption<T, W extends Widget>(
+  widget: W,
+  value: ReactiveSource<T> | undefined,
+  apply: (widget: W, next: T) => void,
+): void {
+  if (value === undefined || !isReactiveSource(value)) {
+    return;
+  }
+  bindValue(widget, sourceGetter(value), (next, host) => apply(host as W, next));
+}
+
+/** Options of `Text`: the label's own bag, plus the DSL's reactive slots. */
+export type TextOptions = Omit<LabelOptions, 'tone'> & {
+  /** Semantic colour; a `Ref`/getter repaints the label when it flips. */
+  tone?: ReactiveSource<LabelTone>;
+} & DslOptions;
 
 /**
  * A single- or multi-line label.
@@ -218,48 +299,82 @@ export type TextOptions = LabelOptions;
  */
 export function Text(value: ReactiveSource<string>, options: TextOptions = {}): Label {
   const scene = currentUiScene();
-  const label = new Label(scene, { ...options, text: readReactive(value) });
+  const { tone, visible, ...rest } = options;
+  const label = new Label(scene, {
+    ...rest,
+    ...(tone === undefined ? {} : { tone: readReactive(tone) }),
+    text: readReactive(value),
+  });
   scene.add.existing(label);
   emitWidget(label);
+  applyDslOptions(label, { visible });
   if (isReactiveSource(value)) {
     bindText(label, sourceGetter(value));
   }
+  bindOption(label, tone, (host, next) => host.setTone(next));
   return label;
 }
 
-/** A button; its label may be reactive, exactly like `Text`. */
-export function Button(label: ReactiveSource<string>, options: ButtonOptions = {}): ButtonWidget {
+/** Options of `Button`: the widget's bag plus reactive `variant`/`disabled`/`loading`/`visible`. */
+export type ButtonDslOptions = Omit<ButtonOptions, 'variant' | 'disabled' | 'loading'> & {
+  variant?: ReactiveSource<ButtonVariant>;
+  disabled?: ReactiveSource<boolean>;
+  loading?: ReactiveSource<boolean>;
+} & DslOptions;
+
+/** A button; its label, variant and state flags may all be reactive. */
+export function Button(
+  label: ReactiveSource<string>,
+  options: ButtonDslOptions = {},
+): ButtonWidget {
   const scene = currentUiScene();
-  const button = new ButtonWidget(scene, { ...options, text: readReactive(label) });
+  const { variant, disabled, loading, visible, ...rest } = options;
+  const button = new ButtonWidget(scene, {
+    ...rest,
+    ...(variant === undefined ? {} : { variant: readReactive(variant) }),
+    ...(disabled === undefined ? {} : { disabled: readReactive(disabled) === true }),
+    ...(loading === undefined ? {} : { loading: readReactive(loading) === true }),
+    text: readReactive(label),
+  });
   scene.add.existing(button);
   emitWidget(button);
+  applyDslOptions(button, { visible });
   if (isReactiveSource(label)) {
     bindText(button, sourceGetter(label));
   }
+  bindOption(button, variant, (host, next) => host.setVariant(next));
+  bindOption(button, disabled, (host, next) => host.setDisabled(next === true));
+  bindOption(button, loading, (host, next) => host.setLoading(next === true));
   return button;
 }
 
 /** A texture image. */
-export function Image(options: ImageOptions): ImageWidget {
+export function Image(options: ImageOptions & DslOptions): ImageWidget {
+  const { visible, rest } = splitDsl(options);
   const scene = currentUiScene();
-  const widget = new ImageWidget(scene, options);
+  const widget = new ImageWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return emitWidget(widget);
 }
 
 /** Empty space. `Spacer({ flex: true })` is this framework's `Modifier.weight(1f)`. */
-export function Spacer(options: SpacerOptions = {}): SpacerWidget {
+export function Spacer(options: SpacerOptions & DslOptions = {}): SpacerWidget {
+  const { visible, rest } = splitDsl(options);
   const scene = currentUiScene();
-  const widget = new SpacerWidget(scene, options);
+  const widget = new SpacerWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return emitWidget(widget);
 }
 
 /** A hairline rule along the cross axis of its parent. */
-export function Divider(options: DividerOptions = {}): DividerWidget {
+export function Divider(options: DividerOptions & DslOptions = {}): DividerWidget {
+  const { visible, rest } = splitDsl(options);
   const scene = currentUiScene();
-  const widget = new DividerWidget(scene, options);
+  const widget = new DividerWidget(scene, rest);
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return emitWidget(widget);
 }
 
@@ -270,13 +385,15 @@ export function Divider(options: DividerOptions = {}): DividerWidget {
  * `onValueChange` is the hoisted alternative: it fires on every *user* edit, so a caller that keeps
  * state in a store rather than a `ref` can still write it back.
  */
-export interface TextFieldDslOptions extends Omit<TextFieldOptions, 'value' | 'onChange'> {
+export interface TextFieldDslOptions
+  extends Omit<TextFieldOptions, 'value' | 'onChange'>, DslOptions {
   value?: ReactiveSource<string>;
   onValueChange?: (value: string, field: TextFieldWidget) => void;
 }
 
 /** {@link TextFieldDslOptions} for the multi-line field. */
-export interface TextAreaDslOptions extends Omit<TextAreaOptions, 'value' | 'onChange'> {
+export interface TextAreaDslOptions
+  extends Omit<TextAreaOptions, 'value' | 'onChange'>, DslOptions {
   value?: ReactiveSource<string>;
   onValueChange?: (value: string, field: TextAreaWidget) => void;
 }
@@ -284,12 +401,13 @@ export interface TextAreaDslOptions extends Omit<TextAreaOptions, 'value' | 'onC
 /** A single-line text input. */
 export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, ...rest } = options;
+  const { value, onValueChange, visible, ...rest } = options;
   const field = new TextFieldWidget(scene, {
     ...rest,
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
+  applyDslOptions(field, { visible });
   emitWidget(field);
   wireFieldModel(field, value, onValueChange);
   return field;
@@ -298,12 +416,13 @@ export function TextField(options: TextFieldDslOptions = {}): TextFieldWidget {
 /** A multi-line text input. */
 export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
   const scene = currentUiScene();
-  const { value, onValueChange, ...rest } = options;
+  const { value, onValueChange, visible, ...rest } = options;
   const field = new TextAreaWidget(scene, {
     ...rest,
     value: value === undefined ? '' : readReactive(value),
   });
   scene.add.existing(field);
+  applyDslOptions(field, { visible });
   emitWidget(field);
   wireFieldModel(field, value, onValueChange);
   return field;
@@ -312,10 +431,11 @@ export function TextArea(options: TextAreaDslOptions = {}): TextAreaWidget {
 // --------------------------------------------------------------------- lists
 
 /** Options of `List`: everything `Repeat` takes except the template, which is the content lambda. */
-export type ListOptions<Item> = Omit<RepeatOptions<Item>, 'template' | 'empty'> & {
-  /** Content lambda for the empty state; omitted shows nothing. */
-  empty?: (() => void) | null;
-};
+export type ListOptions<Item> = Omit<RepeatOptions<Item>, 'template' | 'empty'> &
+  DslOptions & {
+    /** Content lambda for the empty state; omitted shows nothing. */
+    empty?: (() => void) | null;
+  };
 
 /**
  * A keyed list, optionally virtualised — the `LazyColumn` of this framework.
@@ -337,7 +457,7 @@ export function List<Item>(
   item: (item: Item, index: number, ctx: BindingContext) => void,
 ): Repeat<Item> {
   const scene = currentUiScene();
-  const { empty, ...rest } = options;
+  const { empty, visible, ...rest } = options;
   const widget = new Repeat<Item>(scene, {
     ...rest,
     template: (row, index, ctx) => buildUiSubtree(scene, () => item(row, index, ctx), 'List()'),
@@ -347,6 +467,7 @@ export function List<Item>(
         : () => buildUiSubtree(scene, empty, 'List({ empty })'),
   });
   scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
   return emitWidget(widget);
 }
 

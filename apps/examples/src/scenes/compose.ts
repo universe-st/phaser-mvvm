@@ -93,6 +93,7 @@ export class ComposeScene extends Phaser.Scene {
   private readonly hoisted = ref('');
   private readonly rows = ref<SampleRow[]>(createRows(200));
   private readonly parity = ref('pending');
+  private readonly highlighted = ref(false);
 
   private readonly emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email.value));
 
@@ -260,6 +261,7 @@ export class ComposeScene extends Phaser.Scene {
     this.rebuildNav();
     this.stage?.setScrollOffset(0);
     this.publish('section', id);
+    this.publish('reactive.tone', 'n/a');
     this.pendingReport = id;
   }
 
@@ -358,6 +360,33 @@ export class ComposeScene extends Phaser.Scene {
         Text('居中', { align: 'center', width: 120, tone: 'muted' });
         Text('右对齐', { align: 'right', width: 120, tone: 'muted' });
       });
+      // Reactive appearance: `tone`, `variant` and `visible` are data slots too, so they follow the ref
+      // instead of being fixed at build time. `visible: false` collapses the node out of the flow
+      // (`inFlow === visible`), which is why the divider below moves up when the label disappears.
+      Column({ gap: 6, alignItems: 'start' }, () => {
+        Row({ gap: 8, alignItems: 'center' }, () => {
+          this.track(
+            'reactive.toggle',
+            Button(() => (this.highlighted.value ? '关闭高亮' : '开启高亮'), {
+              size: 'sm',
+              variant: () => (this.highlighted.value ? 'primary' : 'ghost'),
+              name: 'reactive.toggle',
+              onClick: () => (this.highlighted.value = !this.highlighted.value),
+            }),
+          );
+          Text('这行文字的 tone 随开关变化', {
+            tone: () => (this.highlighted.value ? 'success' : 'muted'),
+            name: 'reactive.tone',
+          });
+        });
+        Text('开关关闭时我会从布局里消失', {
+          visible: () => this.highlighted.value,
+          tone: 'danger',
+          name: 'reactive.hidden',
+        });
+        Divider({ name: 'reactive.after' });
+      });
+
       Row({ gap: 8 }, () => {
         Button('counter -1', { size: 'sm', onClick: () => this.counter.value-- });
         this.track(
@@ -841,6 +870,7 @@ export class ComposeScene extends Phaser.Scene {
       state: () => ({
         section: this.section.value,
         theme: this.mvvm.theme.name,
+        highlighted: this.highlighted.value,
         counter: this.counter.value,
         clicks: this.clicks.value,
         toggled: this.toggled.value,

@@ -135,6 +135,28 @@ Divider({ orientation: 'vertical', height: 'fill' });
 
 注意：只有**数据槽位**接受函数——`onClick` 这类本来就是函数，不会被当成 getter。
 
+### 4.1 外观也能是反应式的
+
+除了数据，几个最常用的**外观槽位**同样接受 `Ref`/getter，改动会按帧重绘，而不是重建节点：
+
+```ts
+Text('状态', { tone: () => (ok.value ? 'success' : 'muted') });
+Button(() => (on.value ? '关闭' : '开启'), {
+  variant: () => (on.value ? 'primary' : 'ghost'),
+  disabled: () => busy.value,
+  loading: () => busy.value,
+});
+```
+
+`visible` 是 DSL 的统一条件槽位（所有 composable 都支持）：
+
+```ts
+Text('仅在开启时出现', { visible: () => on.value });   // 相当于 Compose 的 if (on) { … }
+Panel({ visible: () => hasError.value }, () => { … });
+```
+
+隐藏的节点会**退出布局流**（`Widget.inFlow === visible`，`hideMode: 'collapse'` 是默认值），所以它后面的兄弟会跟着上移——这正是 Compose 里 `if` 的布局效果，只是不需要重建子树。
+
 ---
 
 ## 5. 表单：双向绑定与状态提升
@@ -227,6 +249,8 @@ DSL 的「隐式父子关系」来自 `@phaser-mvvm/phaser` 的 `uiscope.ts`，�
 | `Scroll` 内容不滚                   | 内容没建出来，或内容高度不超过视口（不是 bug）                                                                          |
 | 设了 `width` 却被拉伸               | 父容器 `alignItems: 'stretch'` 优先于子节点的交叉轴长度；用 `alignSelf: 'start'` 退出拉伸（[02 §附录](./02-layout.md)） |
 | 想给控件单独命名以便检查            | 传 `name: 'xxx'`，与工厂 API 一致                                                                                       |
+| 条件显示某个控件                    | `{ visible: () => cond.value }`（退出布局流；配 `hideMode: 'keep'` 则保留占位）                                         |
+| 想让 tone/variant/disabled 随状态变 | 这些槽位接受 `Ref`/getter（见 §4.1），无需重建节点                                                                      |
 
 ---
 

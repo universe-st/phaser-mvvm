@@ -107,6 +107,28 @@
 
 ---
 
+## 3.5 追加：DSL 反应式外观槽位（Compose 手感的补齐）
+
+`@phaser-mvvm/widgets/compose` 的槽位此前只有「数据」是反应式的（文本、输入框 value），外观只能写死——这在实际写界面时立刻会撞上（本轮第 1 轮就在示例里试过 `tone: () => …` 然后不得不删掉）。现在补齐：
+
+| 槽位                               | 控件                | 语义                                                                             |
+| ---------------------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| `tone`                             | `Text`              | `Ref`/getter → `Label.setTone()`，按帧重绘                                       |
+| `variant` / `disabled` / `loading` | `Button`            | → `setVariant`/`setDisabled`/`setLoading`                                        |
+| `visible`                          | **所有 composable** | → `setVisible()`；隐藏即退出布局流（`inFlow === visible`），等价 Compose 的 `if` |
+
+实现：常量仍走构造参数（零额外开销），只有 `Ref`/getter 才建立帧对齐绑定（`bindValue` + `bindOption`）。`#/compose` 的 `text` 分区新增一段实时演示（按钮同时切换自身 `variant`、标签 `tone` 与一个节点的 `visible`），Playwright 实测：
+
+| 状态     | `state().highlighted` | `tone`      | 按钮 `variant` | 隐藏节点 `visible`/`inFlow` | 其下方分隔线的 y |
+| -------- | --------------------- | ----------- | -------------- | --------------------------- | ---------------- |
+| 初始     | false                 | muted       | ghost          | false / false               | 34               |
+| 点一次   | true                  | **success** | **primary**    | **true / true**             | **58**           |
+| 再点一次 | false                 | muted       | ghost          | false / false               | 34               |
+
+分隔线在显示/隐藏之间移动 24px（= 18px 文本高 + 6px 间距），证明「隐藏」是真的把它移出了布局流，而不是仅仅不可见。
+
+---
+
 ## 4. 已运行的命令与结果
 
 | 命令                           | 结果                                                                                                                   |

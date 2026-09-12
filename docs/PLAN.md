@@ -310,7 +310,7 @@ this.mvvm.mount(page);
 - **入口**：`@phaser-mvvm/widgets/compose` 子路径导出，与包根的同名控件类（`Panel`/`Button`/…）分开，避免符号覆盖；`ui(scene, content)` 返回根控件，仍需 `this.mvvm.mount()` 挂载。
 - **选项词汇不变**：每个 composable 收的就是对应控件的选项对象，DSL 只改结构、不新增一层配置；工厂 API（`this.add.ui*`、`vbox/hbox/…`）继续可用且不被弃用。
 - **作用域机制**：`packages/phaser/src/uiscope.ts`（纯逻辑、无 Phaser 运行时依赖、可在 Node 单测）提供 `runInUiScope`/`withUiParent`/`emitWidget`/`buildUiSubtree`；自定义控件可据此加入 DSL 树。
-- **反应式参数**：数据槽位（文本、输入框 value）接受常量 / `Ref` / getter；`Ref` 在可写控件上是双向绑定（IME 组合期暂停写回，沿用 M5 语义）。
+- **反应式参数**：数据槽位（文本、输入框 value）接受常量 / `Ref` / getter；`Ref` 在可写控件上是双向绑定（IME 组合期暂停写回，沿用 M5 语义）。外观槽位 `tone`（Label）、`variant`/`disabled`/`loading`（Button）同样接受 `Ref`/getter（按帧重绘，不重建节点）；所有 composable 还支持 `visible`（常量 / `Ref` / getter），隐藏即退出布局流，等价于 Compose 的 `if`。
 - **验收**：`#/compose` 场景用 DSL 搭建全部控件与容器，并含 **parity 演示**（同一卡片用工厂 API 与 DSL 各搭一次，逐节点比对 `appliedRect`），实测 `parity=ok`（见 [`docs/ACCEPTANCE-compose-dsl.md`](./ACCEPTANCE-compose-dsl.md)）。
 - **里程碑**：不新增里程碑编号，属于 M4/M6 之后的使用层演进（M8 起仍未开始）。
 
