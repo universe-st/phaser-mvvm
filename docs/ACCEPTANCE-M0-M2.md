@@ -217,7 +217,9 @@ OK       backdrop / card / badge / footer
 
 - `packages/widgets/src/ScrollView.ts`：滚轮（按 `deltaMode` 归一化）、指针拖拽（带位移阈值，避免与点击冲突）、惯性衰减、可选边界回弹、`auto` 滚动条（thumb 夹取与最小长度）、键盘滚动、`setScrollOffset/scrollBy/scrollTo` 与 `offset/maxOffset/viewport`。
 - `packages/widgets/src/scroll-plan.ts`：纯函数 `clampOffset`/`normalizeWheel`/`applyInertia`/`thumbGeometry`/`isScrollable`/`planScrollDrag`/重新夹取，**46 个单测**。
-- **裁剪**：按 PLAN §2 的结论（Phaser 4 中 `GeometryMask` 仅 Canvas 可用）走 WebGL `Components.Filters#addMask` 的滤镜遮罩路径。
+- **裁剪**：按 PLAN §2 的结论（Phaser 4 中 `GeometryMask` 仅 Canvas 可用）走 WebGL `Components.Filters#addMask` 的滤镜遮罩路径（内部 `__WHITE` 遮罩，framebuffer = 控件尺寸即裁剪区）。
+- **踩到的真缺陷**：Phaser 自带的 `filtersAutoFocus` 对**嵌套在容器里**的控件会把内容放偏 —— framebuffer 尺寸正确，但内容只画进左上约 53%×53%（实测 v 视口 300×155 / 588×356，h 视口 310×40 / 588×76）；换成 `addColorMatrix`、开 `filtersForceComposite`、手动 `centerOn` 都无效，说明问题在 focus 而不在滤镜。修复：`filtersAutoFocus = false`，每次布局自己瞄相机（`setSize(视口)` + `setOrigin(0,0)` + `setZoom(1,1)` + `setScroll(this.x, this.y)`）。
+- **像素级证据**：视口外 3px 采样带内 24 个点，在"隐藏内容"前后**完全不变**（v/h/nested 三个视图）；关闭裁剪（`renderFilters = false`）后同一批点分别有 **24 / 20 / 6** 个像素发生变化（证明内容确实会画到那里）；视口内侧同位置在隐藏内容时有 **10 / 22 / 7** 个像素变化（证明内容确实画在视口内）；裁剪开启时外侧带恒为 **1 种颜色**；offset 1200 / 1240 / 1280 / 3000 时边界像素完全一致（无 1px 抖动或渗漏）。
 - `#/scroll` demo：垂直 `ScrollView` 内嵌虚拟化 `Repeat`（200+ 行）、水平 chip 条、以及**固定尺寸 Panel 内的 ScrollView**（同时回归 dirtyPath 修复）。
 
 ## 门禁
@@ -238,3 +240,11 @@ OK       backdrop / card / badge / footer
 ## 缺陷 B 修复的回归
 
 `#/scroll` 中"固定尺寸 Panel 内的 ScrollView"可正常滚动，且独立测试 `packages/layout/test/engine-dirty-path.test.ts`（9 例，其中 5 例在修复前失败）持续为绿。
+
+## M7 残留项（下一轮处理）
+
+1. **Canvas 降级不裁剪**：滤镜是 WebGL-only，Canvas 下仍可滚动但不裁剪（dev 模式 warn 一次）。
+2. **滚动条 thumb 不可拖拽**：目前只做指示（几何由纯函数 `thumbGeometry` 计算并有测试）。
+3. **嵌套 ScrollView 无"最内层优先"滚轮仲裁**：两个嵌套视图会同时消费 wheel 事件（demo 中三个视图互不嵌套，未触发）。
+4. **`Widget.setLayoutParams(patch)` 是整包归一化而非部分补丁**（框架缺陷，`packages/phaser/src/Widget.ts`）：`setLayoutParams({ height })` 会把未提及的 `width/position/...` 重置为默认值 —— ScrollView 就因此把 holder 的 `position:'absolute'` 冲掉、内容整体不位移。建议改成"只覆盖传入的键"（并注意 `width/height` 需要同时更新其 `widthMin/widthMax` 等派生字段），补一组回归测试。
+5. **M6 `#/list` demo 的滚轮只换挂载窗口、不位移容器**（视觉上"行不上移"）：应改用 M7 的 `ScrollView`（容器位移交给视图），并把 `pt.rowdelete` 从"首个挂载键"改为"首个可见行"。
