@@ -356,6 +356,12 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     child.once(Phaser.GameObjects.Events.DESTROY, this.handleChildDestroyed, this);
 
     this.markDirty();
+    // A subtree added to a camera-pinned parent has to be pinned too: Phaser's hit test uses the hit
+    // object's *own* scroll factor, so a factor-1 leaf under a factor-0 root is drawn in the pinned place
+    // but never hit (ADR-0009). Inheriting here is what makes "pin the root" stay true over time.
+    if (this.scrollFactorX !== 1 || this.scrollFactorY !== 1) {
+      child.setScrollFactorAll(this.scrollFactorX, this.scrollFactorY);
+    }
     this.structureListener?.();
     return child;
   }
