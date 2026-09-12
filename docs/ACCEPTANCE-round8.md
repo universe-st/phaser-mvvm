@@ -73,6 +73,24 @@ await frame();
 
 ---
 
+## 2.4 第 9 轮补：DSL 增加 `Rect` 组合函数
+
+迁移时暴露的一个缺口：DSL 没有纯色块，`#/showcase` 的 `Block()` 只能走「自定义控件加入树」的逃生舱（手动 `new RectWidget` + `emitWidget`）。第 9 轮补上 `Rect(options)`：
+
+```ts
+Rect({ color: 0x3fb950, width: 24, height: 24, position: 'absolute', left: 0, top: 0 });
+```
+
+它与其它叶子一样接受控件自身选项 + DSL 槽位（`visible`），`Block()` 随之变成「`Row(...)` 里放 `Rect(...)` 与 `Text(...)`」三行 composable。实测：
+
+| 检查                    | 结果                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 十个分区 `widgets` 计数 | 与基线**完全一致**（每个色块仍是 3 个节点：holder + rect + label）                                          |
+| 色块绘制                | `box` 分区内 37 个 `RectWidget`，`fillColor` 各自正确、`alpha=1`、尺寸 100×22，父节点为对应 `holder.<name>` |
+| 控制台                  | 0 error                                                                                                     |
+
+---
+
 ## 3. 已运行的命令与结果
 
 | 命令                           | 结果                                                          |

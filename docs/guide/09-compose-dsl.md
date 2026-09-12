@@ -124,6 +124,7 @@ Text(() => `计数：${counter.value}`); // getter：计数变，文本跟着变
 Text(title); // ref：等价于上一行
 Button(() => (on.value ? '开' : '关'), { toggle: true });
 Image({ texture: 'tile', fit: 'cover', width: 72, height: 64 });
+Rect({ color: 0x3fb950, width: 24, height: 24 }); // 纯色块（适配层的 RectWidget）
 Spacer({ flex: true }); // 等价 Compose 的 Modifier.weight(1f)
 Divider({ orientation: 'vertical', height: 'fill' });
 ```
@@ -260,7 +261,7 @@ DSL 的「隐式父子关系」来自 `@phaser-mvvm/phaser` 的 `uiscope.ts`，�
 | `buildUiSubtree(scene, content, what)` | 在隔离作用域里建出**恰好一个**根控件（供行模板／延迟内容用）     |
 | `currentUiScene()` / `inUiScope()`     | 取当前 scene／判断是否在作用域内                                 |
 
-自己的控件若想加入 DSL 树，只需实现一个「建实例 → `scene.add.existing` → `emitWidget`」的薄封装，或直接用 `withUiParent` 包住内容 lambda。真实例子见 [`#/showcase`](../../apps/examples/src/scenes/showcase.ts) 的 `Block()`：色块用的是适配层现成的 `RectWidget`（DSL 没有 `Rect` composable），它在外层 `Row` 的内容 lambda 里手动 `emitWidget` 加入树。
+自己的控件若想加入 DSL 树，只需实现一个「建实例 → `scene.add.existing` → `emitWidget`」的薄封装，或直接用 `withUiParent` 包住内容 lambda。真实例子见 [`#/showcase`](../../apps/examples/src/scenes/showcase.ts) 的 `Block()`：色块用 DSL 的 `Rect()`（纯色块），外层 `Row` 与里面的 `Text` 也都是 composable——三层各一个节点，全部由 DSL 组合出来。（需要完全自定义绘制时仍可退回 `emitWidget()`。）
 
 调试期每次 `ui()` 都会打印一行构建摘要（`[phaser-mvvm] ui(): built 42 widget(s), 5 level(s) deep`）；发布模式调用 `setDevMode(false)` 后完全静默（[08 §7](./08-lifecycle-and-pitfalls.md)）。
 

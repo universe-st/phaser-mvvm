@@ -30,7 +30,7 @@
 
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { bindTemplateText, currentUiScene, emitWidget, RectWidget } from '@phaser-mvvm/phaser';
+import { bindTemplateText } from '@phaser-mvvm/phaser';
 import type { Widget } from '@phaser-mvvm/phaser';
 import type { PanelOptions, PanelVariant, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import {
@@ -43,6 +43,7 @@ import {
   Image,
   List,
   Panel,
+  Rect,
   render,
   Row,
   type RowOptions,
@@ -1678,12 +1679,9 @@ export class ShowcaseScene extends Phaser.Scene {
 // --------------------------------------------------------------------- helpers
 
 /**
- * A labelled colour block: a `RectWidget` for the fill plus a `Text` for the name.
+ * A labelled colour block: a `Rect` for the fill plus a `Text` for the name.
  *
- * The DSL has no `Rect` composable — `RectWidget` is the M0 probe widget of the adapter — so this is
- * the "custom widget joins the tree" case the DSL guide describes: build the instance, add it to the
- * scene and `emitWidget()` it, which attaches it to whatever container is currently open. The rest of
- * the block (the positioning container and the name label) is composed as usual.
+ * Two nodes inside a positioning container, all three composed with the DSL.
  *
  * `params` are applied to the *block* (so `grow`, `order`, `alignSelf`, `width`, `visible` … behave
  * exactly as declared), while the rect inside is absolutely positioned to cover it.
@@ -1705,11 +1703,7 @@ function Block(
       ...params,
     },
     () => {
-      const scene = currentUiScene();
-      const rect = new RectWidget(scene, { color, width, height, name: `rect.${text}` });
-      scene.add.existing(rect);
-      rect.setLayoutParams({ position: 'absolute', left: 0, top: 0 });
-      emitWidget(rect);
+      Rect({ color, width, height, position: 'absolute', left: 0, top: 0, name: `rect.${text}` });
 
       Text(text, {
         align: 'center',

@@ -46,6 +46,8 @@ import {
   emitWidget,
   GridWidget,
   type GridWidgetOptions,
+  RectWidget,
+  type RectWidgetOptions,
   runInUiScope,
   StackWidget,
   type StackWidgetOptions,
@@ -229,6 +231,22 @@ export function Panel(
 
 /** Alias of `Panel`, for readers coming from Compose. */
 export const Surface = Panel;
+
+/**
+ * A solid colour block - the adapter's `RectWidget`.
+ *
+ * The DSL has no shape vocabulary of its own (panels, dividers and skins draw their own rectangles), so
+ * this is the primitive for a plain swatch, a colour chip, or a spacer that needs a fill. It takes the
+ * widget's own options plus the usual DSL slots, exactly like every other leaf.
+ */
+export function Rect(options: RectWidgetOptions & DslOptions = {}): RectWidget {
+  const { visible, rest } = splitDsl(options);
+  const scene = currentUiScene();
+  const widget = new RectWidget(scene, rest);
+  scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
+  return emitWidget(widget);
+}
 
 /**
  * A clipped viewport: `Scroll({ height: 240 }, () => { … })`.

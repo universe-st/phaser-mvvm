@@ -198,6 +198,7 @@ LayoutParams {
 | `Button` | 状态机、皮肤、图标 + 文本、键盘激活、长按/连击、`toggle` 模式、禁用 | `NineSlice`/`Graphics` + `InputPlugin` |
 | `Image` / `Icon` | 贴图、等比/拉伸模式、九宫格切图、`Fit` 适配 | `Image`、`NineSlice` |
 | `Spacer` / `Divider` | 撑开空间 / 分割线（横竖） | 无（纯布局） |
+| `Rect` | 纯色块（DSL 的 `Rect()`，对应适配层 `RectWidget`） | 无（纯绘制） |
 | `ScrollView` | 拖拽 + 滚轮（含横向）+ 惯性 + 边界回弹（可选）+ 滚动条 + 内容裁剪 + 键盘滚动 | `FilterList#addMask`（WebGL 裁剪），备选相机视口方案 |
 | `Repeat` | 列表/网格数据渲染、键控复用、虚拟化 | `Container` + 布局引擎 |
 | `Modal` | 遮罩 + 对话框布局 + 焦点陷阱 + ESC 关闭 + 多层级（Phase 1） | `StackArranger` + `FocusManager` + `ModalStack` |
