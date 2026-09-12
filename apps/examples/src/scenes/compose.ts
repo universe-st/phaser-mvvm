@@ -18,10 +18,11 @@
 
 import Phaser from 'phaser';
 import { computed, ref } from '@phaser-mvvm/core';
-import { setTheme, type Widget } from '@phaser-mvvm/phaser';
-import type { PanelOptions, Repeat, ScrollView } from '@phaser-mvvm/widgets';
+import { setTheme, themeListenerCount, type Widget } from '@phaser-mvvm/phaser';
+import type { BranchWidget, PanelOptions, Repeat, ScrollView } from '@phaser-mvvm/widgets';
 import {
   Absolute,
+  Branch,
   Button,
   Column,
   Divider,
@@ -29,6 +30,7 @@ import {
   Image,
   List,
   Panel,
+  Rect,
   render,
   Row,
   Scroll,
@@ -108,6 +110,9 @@ export class ComposeScene extends Phaser.Scene {
   private readonly highlighted = ref(false);
   /** Drives the `hideMode: 'keep'` demo: hidden, but its slot stays. */
   private readonly keepShown = ref(true);
+  /** Which branch the `Branch()` demo shows ('a' | 'b' | 'missing'). */
+  private readonly branchKey = ref('a');
+  private readonly branchClicks = ref(0);
 
   private readonly emailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email.value));
 
@@ -119,6 +124,8 @@ export class ComposeScene extends Phaser.Scene {
   private sectionHost: Widget | null = null;
   private listWidget: Repeat<SampleRow> | null = null;
   private scrollWidget: ScrollView | null = null;
+  /** The `Branch()` widget of the flow section, rebuilt with the section. */
+  private branchWidget: BranchWidget | null = null;
 
   /** Controls whose page coordinates are republished every frame (`pt.<key>`). */
   private readonly tracked = new Map<string, Widget>();
@@ -201,6 +208,7 @@ export class ComposeScene extends Phaser.Scene {
 
   override update(): void {
     this.publishControls();
+    this.publishBranch();
     this.publish('rows', this.rows.value.length);
     if (this.listWidget) {
       this.publish('rows.rendered', this.listWidget.renderedCount);
@@ -449,16 +457,116 @@ export class ComposeScene extends Phaser.Scene {
         this.track('flow.afterKeep', Text('后（位置不应变化）', { tone: 'muted' }));
       });
 
-      // Switch on state: the branch that runs at build time is the branch that exists.
+      // Switch on state at *build* time: the branch that runs is the branch that exists, and the
+      // other one is never constructed. Good for "this page is built one way or the other"; for a
+      // switch that has to happen *while the page is alive*, see `Branch()` below.
       switch (this.section.value) {
         case 'flow':
-          Text('当前就是 Flow 分区（switch 也照常写）', { tone: 'muted' });
+          Text('当前就是 Flow 分区（build 期的 switch 也照常写）', { tone: 'muted' });
           break;
         default:
           Text('其他分区', { tone: 'muted' });
           break;
       }
+
+      this.card(
+        'Branch · 结构切换',
+        'key 一变就销毁旧分支、建新分支（不是改 visible）；未知 key 清空并警告，不崩',
+        () => {
+          this.buildBranchDemo();
+        },
+      );
     });
+  }
+
+  /**
+   * The `Branch()` demo: three keys, two of which have a branch.
+   *
+   * The interesting one is `missing`: it selects a key the map does not have, which must clear the
+   * branch and print one warning rather than call `Object.prototype.constructor` (see
+   * `branch-plan.ts`).
+   */
+  private buildBranchDemo(): void {
+    Row({ gap: 8, alignItems: 'center', wrap: true }, () => {
+      for (const [key, label] of [
+        ['a', '分支 A'],
+        ['b', '分支 B'],
+        ['multi', '三个根'],
+        ['missing', '未知 key'],
+      ] as const) {
+        this.track(
+          `branch.${key}`,
+          Button(label, {
+            variant: this.branchKey.value === key ? 'primary' : 'secondary',
+            size: 'sm',
+            name: `branch.${key}`,
+            onClick: () => {
+              this.branchKey.value = key;
+            },
+          }),
+        );
+      }
+      this.track(
+        'branch.after',
+        Text(() => `branch=${this.branchKey.value}`, { tone: 'muted', name: 'branch.after' }),
+      );
+    });
+
+    this.branchWidget = Branch(
+      () => this.branchKey.value,
+      {
+        // Structurally different on purpose: different container, different widget count, and one
+        // child of each that is *tracked* so `st.branch.a.inner=gone` proves the old branch died.
+        a: () => {
+          Panel(
+            { direction: 'vertical', gap: 6, padding: 10, variant: 'surfaceAlt', radius: 8 },
+            () => {
+              this.track(
+                'branch.a.inner',
+                Button(() => `分支 A 的按钮 · ${this.branchClicks.value}`, {
+                  variant: 'primary',
+                  size: 'sm',
+                  name: 'branch.a.inner',
+                  onClick: () => {
+                    this.branchClicks.value += 1;
+                  },
+                }),
+              );
+              Text('分支 A 只有一个按钮。', { tone: 'muted', name: 'branch.a.note' });
+            },
+          );
+        },
+        b: () => {
+          // One root, like a page: a grid of tiles plus a field inside a panel.
+          Panel(
+            { direction: 'vertical', gap: 8, padding: 10, variant: 'surfaceAlt', radius: 8 },
+            () => {
+              Grid({ columns: 4, columnGap: 6, rowGap: 6, width: 'fill' }, () => {
+                for (let index = 0; index < 4; index += 1) {
+                  Rect({
+                    height: 24,
+                    color: this.mvvm.theme.colors.primary,
+                    name: `branch.b.tile${index}`,
+                  });
+                }
+              });
+              this.track(
+                'branch.b.inner',
+                TextField({ placeholder: '分支 B 里的输入框', width: 240, name: 'branch.b.inner' }),
+              );
+            },
+          );
+        },
+        // Three roots on purpose: `Branch` uses the same entry rule as a page, so they are wrapped in
+        // a vertical container with one development warning instead of being rejected.
+        multi: () => {
+          Text('第一个根', { name: 'branch.multi.one' });
+          Divider({});
+          Text('第三个根', { tone: 'muted', name: 'branch.multi.three' });
+        },
+      },
+      { name: 'branch' },
+    );
   }
 
   private buildText(): void {
@@ -1008,6 +1116,38 @@ export class ComposeScene extends Phaser.Scene {
     );
   }
 
+  /**
+   * The `Branch()` demo's readouts: which branch is up, how many times it was built, what it produced,
+   * and whether the branch that was replaced really died.
+   *
+   * Published per frame because the switch happens on a frame boundary (the binding is frame-aligned),
+   * so a check that clicked the button and read `#demo-state` immediately would otherwise see the
+   * *previous* branch.
+   */
+  private publishBranch(): void {
+    const branch = this.branchWidget;
+    if (!branch || branch.isDestroyed) {
+      return;
+    }
+    // A destroyed control must say so, for `pt.*` as well as `st.*`: `#demo-state` is one DOM line that
+    // keeps the last value of every key, so without this a check that clicks `pt.branch.b.inner` while
+    // branch A is on screen would aim at stale coordinates and hit whatever is there now.
+    for (const [key, widget] of this.tracked) {
+      if (key.startsWith('branch.') && widget.isDestroyed) {
+        this.publish(`st.${key}`, 'gone');
+        this.publish(`pt.${key}`, 'gone');
+      }
+    }
+    const built = branch.lastBuild;
+    this.publish('branch.key', branch.activeKey ?? 'none');
+    this.publish('branch.builds', branch.builds);
+    this.publish('branch.widgets', built?.widgets ?? 0);
+    this.publish('branch.roots', built?.roots ?? 0);
+    const replaced = branch.lastReplaced;
+    this.publish('branch.destroyed', replaced ? (replaced.isDestroyed ? 1 : 0) : -1);
+    this.publish('branch.clicks', this.branchClicks.value);
+  }
+
   /** Writes a value into `#demo-state` only when it changed (keeps the DOM writes cheap). */
   private publish(key: string, value: string | number | boolean): void {
     const text = String(value);
@@ -1036,6 +1176,30 @@ export class ComposeScene extends Phaser.Scene {
         hoisted: this.hoisted.value,
         rows: this.rows.value.length,
         parity: this.parity.value,
+      }),
+      /** `Branch()` state, plus the counters a leak check needs around a switch. */
+      branch: () => {
+        const branch = this.branchWidget;
+        const built = branch?.lastBuild ?? null;
+        return {
+          key: branch?.activeKey ?? 'none',
+          builds: branch?.builds ?? 0,
+          widgets: built?.widgets ?? 0,
+          roots: built?.roots ?? 0,
+          depth: built?.depth ?? 0,
+          previousDestroyed: branch?.lastReplaced ? branch.lastReplaced.isDestroyed : null,
+          clicks: this.branchClicks.value,
+        };
+      },
+      setBranch: (key: string) => {
+        this.branchKey.value = key;
+      },
+      counts: () => ({
+        widgets: countWidgets(this.sectionHost),
+        themeListeners: themeListenerCount(),
+        focusables: this.mvvm.focus.focusables.length,
+        pointerTargets: this.mvvm.input.widgets.length,
+        a11yNodes: this.mvvm.a11y.count,
       }),
       geometry: () => ({
         page: rectOf(this.page),

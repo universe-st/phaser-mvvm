@@ -25,6 +25,8 @@ export {
 export { Image, Image as UIImage, type ImageOptions } from './Image';
 export { Spacer, type SpacerOptions } from './Spacer';
 export { Divider, type DividerOptions, type DividerOrientation } from './Divider';
+export { branch, BranchWidget, type BranchOptions } from './Branch';
+export { planBranch, type BranchBuilder, type BranchKey, type BranchPlan } from './branch-plan';
 export { TextField, type TextFieldOptions } from './TextField';
 export { Slider, SLIDER_EVENTS, type SliderOptions } from './Slider';
 export { clampSliderValue, sliderFraction, sliderValueFromPosition } from './slider-geometry';

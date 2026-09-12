@@ -312,6 +312,7 @@ this.mvvm.mount(page);
 - **选项词汇不变**：每个 composable 收的就是对应控件的选项对象，DSL 只改结构、不新增一层配置；工厂 API（`this.add.ui*`、`vbox/hbox/…`）继续可用且不被弃用。
 - **作用域机制**：`packages/phaser/src/uiscope.ts`（纯逻辑、无 Phaser 运行时依赖、可在 Node 单测）提供 `runInUiScope`/`withUiParent`/`emitWidget`/`buildUiSubtree`；自定义控件可据此加入 DSL 树。
 - **反应式参数**：数据槽位（文本、输入框 value）接受常量 / `Ref` / getter；`Ref` 在可写控件上是双向绑定（IME 组合期暂停写回，沿用 M5 语义）。外观槽位 `tone`（Label）、`variant`/`disabled`/`loading`（Button）同样接受 `Ref`/getter（按帧重绘，不重建节点）；所有 composable 还支持 `visible`（常量 / `Ref` / getter），隐藏即退出布局流，等价于 Compose 的 `if`。
+- **结构性切换**：`visible` 保留节点只藏起来；换成**另一棵树**时用 `Branch(select, { key: () => {…} })`（第 69 轮）：按 key 建一个分支，切 key 时销毁旧分支（控件/绑定/订阅/文字纹理）再建新分支，入口规则与页面一致（0 根报错、多根警告后包一层容器），未知 key 清空并警告而不是崩（`branch-plan.ts` 的 `hasOwnProperty` 查询有 Node 单测）。它把 `UIScene.setContent()` 那一套下移到页面内部，见 [`docs/ACCEPTANCE-compose-dsl.md`](./ACCEPTANCE-compose-dsl.md) §3.1。
 - **验收**：`#/compose` 场景用 DSL 搭建全部控件与容器，并含 **parity 演示**（同一卡片用工厂 API 与 DSL 各搭一次，逐节点比对 `appliedRect`），实测 `parity=ok`（见 [`docs/ACCEPTANCE-compose-dsl.md`](./ACCEPTANCE-compose-dsl.md)）。
 - **里程碑**：不新增里程碑编号，属于 M4/M6 之后的使用层演进（M8 起仍未开始）。
 

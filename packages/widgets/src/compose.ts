@@ -64,6 +64,8 @@ import {
   type ButtonOptions,
   type ButtonVariant,
 } from './Button';
+import { BranchWidget } from './Branch';
+import type { BranchBuilder, BranchKey } from './branch-plan';
 import { Divider as DividerWidget, type DividerOptions } from './Divider';
 import { Image as ImageWidget, type ImageOptions } from './Image';
 import { Label, type LabelOptions, type LabelTone } from './Label';
@@ -257,6 +259,57 @@ export function Scroll(
   emitWidget(widget);
   if (args.content) {
     widget.setContent(buildUiSubtree(scene, args.content, 'Scroll()'));
+  }
+  return widget;
+}
+
+/**
+ * Shows **one of several views** and rebuilds when the key changes — the structural conditional.
+ *
+ * `visible: () => …` keeps every node and flips a flag, which is right for "this warning appears when
+ * the name is too short" and wrong for "this panel is a different tree on each tab" (all the
+ * alternatives would be built, and only one shown). `Branch` builds the selected branch and destroys
+ * the one you left, with the same entry rule as a page (`buildUiPage`: zero roots is an error, several
+ * roots are wrapped with a warning).
+ *
+ * ```ts
+ * Branch(
+ *   () => this.tab.value,          // a ref or a getter; a constant builds once and never switches
+ *   {
+ *     profile: () => { … },
+ *     settings: () => { … },
+ *   },
+ * );
+ * ```
+ *
+ * A key with no branch is not a crash: the branch on screen is cleared and one development warning
+ * names the key. State that must survive a switch belongs on the scene/ViewModel, not in the branch's
+ * closure.
+ */
+export function Branch<K extends string | number>(
+  select: ReactiveSource<K>,
+  branches: Readonly<Record<string, BranchBuilder | undefined>>,
+  options: BoxWidgetOptions & DslOptions = {},
+): BranchWidget {
+  const { visible, rest } = splitDsl(options);
+  const scene = currentUiScene();
+  const widget = new BranchWidget(scene, { ...rest, branches });
+  scene.add.existing(widget);
+  applyDslOptions(widget, { visible });
+  emitWidget(widget);
+
+  // A `ref`/getter is bound frame-aligned like every other data slot, so the switch happens on the
+  // frame the value flips; a constant is built once, here.
+  if (isReactiveSource(select)) {
+    bindValue<K>(
+      widget,
+      () => readReactive(select),
+      (key) => {
+        widget.setBranch(key as BranchKey);
+      },
+    );
+  } else {
+    widget.setBranch(readReactive(select));
   }
   return widget;
 }

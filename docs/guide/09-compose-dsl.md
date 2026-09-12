@@ -175,6 +175,38 @@ Text('仅在开启时出现', { visible: () => on.value });
 
 `#/compose` 的 `Flow` 分区把两种写法都做成了可点按的演示（实测：关闭时同一行里后面的分隔线 x 由 224 移到 88）。
 
+**第三种：结构性切换（`Branch`）**。`visible` 保留节点、只藏起来；如果两个分支要**换成完全不同的树**（不同容器、不同控件种类），把它们都建出来再藏一个就浪费了。这时用 `Branch`——按 key 建**一个**分支，切 key 时把旧分支**销毁**、建新分支：
+
+```ts
+Branch(
+  () => tab.value, // ref 或 getter；传常量就是建一次、永不切换
+  {
+    profile: () => {
+      Panel({ padding: 12 }, () => {
+        Text('资料页');
+        TextField({ value: name });
+      });
+    },
+    settings: () => {
+      Row({ gap: 8 }, () => {
+        Slider({ value: volume });
+        Button('重置', { onClick: reset });
+      });
+    },
+  },
+);
+```
+
+三件事按页面的规则办（因为它就是"一个页面的入口"，只是小一号）：
+
+- **入口规则相同**：0 个根报错、多个根警告后包一层容器（`#/compose` 的 `分支 三个根` 按钮就是这个用例）；
+- **key 没有对应分支不会崩**：清空当前分支并打一条开发期警告（内部用的是 `hasOwnProperty` 查询，所以 `constructor`/`toString`/`__proto__` 这类 key 不会被误当成分支调用）；
+- **状态放场景/ViewModel**：切分支会销毁分支里的一切（控件、绑定、订阅、文字纹理），焦点、指针目标与无障碍镜像会重新收集——**被销毁的焦点控件会被释放**（实测：焦点在分支 A 的按钮上时切到 B，`focus=none`，且镜像节点与指针目标里都不再有它）。
+
+想读回状态（或写测试）就用 widget 自己的字段：`activeKey`、`builds`、`lastBuild`、`lastReplaced`。
+
+> `#/compose` 的 `Flow` 分区有完整演示：四个按钮在 A / B / 三个根 / 未知 key 之间切换，`#demo-state` 逐帧发布 `branch.key`/`branch.builds`/`branch.widgets`/`branch.roots`/`branch.destroyed`。
+
 ### 4.2 外观也能是反应式的
 
 除了数据，几个最常用的**外观槽位**同样接受 `Ref`/getter，改动会按帧重绘，而不是重建节点：

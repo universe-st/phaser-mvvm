@@ -64,18 +64,48 @@ this.mvvm.mount(page);
 
 **分区清单与实测结果**（`window.compose.show(id)` 切换，逐一截图；尺寸为 `#status` 中该分区**布局完成后**的实测值，`x.5` 来自 dpr=2 的像素对齐）：
 
-| 分区      | 覆盖内容                                                                            | 实测（`section` 主机尺寸 / 节点数） |
-| --------- | ----------------------------------------------------------------------------------- | ----------------------------------- |
-| `text`    | 常量、ref、getter、tone、align、`maxLines`+`ellipsis`、`alignSelf`                  | 928×248 / 18                        |
-| `buttons` | 4 变体 × 3 尺寸、disabled、loading、toggle、图标（含纯图标按钮）                    | 928×180.5 / 20                      |
-| `inputs`  | `TextField`（ref 双向、getter+`onValueChange`、number、password、校验）、`TextArea` | 928×462.5 / 16                      |
-| `decor`   | Panel 6 变体、elevation、Divider 横/纵、Spacer flex/固定、Image 三种 fit            | 928×340 / 35                        |
-| `box`     | `justifyContent` 5 种、`alignItems`、`wrap`                                         | 928×512.5 / 73                      |
-| `grid`    | 固定列、`columns:'auto'`+`minColumnWidth`、`gridColumnSpan`                         | 928×363 / 38                        |
-| `stack`   | `align` 三种 + `Absolute` 角标                                                      | 928×280.5 / 20                      |
-| `params`  | `width` 关键字、`50%`、`grow`、`min/max`、`aspectRatio`、`alignSelf`、`order`       | 928×284.5 / 27                      |
-| `list`    | keyed `List` + 虚拟化（200 行）+ add/remove 按钮                                    | 928×388.5 / 31                      |
-| `parity`  | 同一卡片：工厂 API vs DSL，逐节点比对 `appliedRect`                                 | 928×206.5 / 15                      |
+| 分区      | 覆盖内容                                                                                    | 实测（`section` 主机尺寸 / 节点数） |
+| --------- | ------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `flow`    | `if`/`for`/build 期 `switch`、`visible` 反应式条件、`hideMode: 'keep'`、`Branch()` 结构切换 | 1136×422.5 / 41                     |
+| `text`    | 常量、ref、getter、tone、align、`maxLines`+`ellipsis`、`alignSelf`                          | 928×248 / 18                        |
+| `buttons` | 4 变体 × 3 尺寸、disabled、loading、toggle、图标（含纯图标按钮）                            | 928×180.5 / 20                      |
+| `inputs`  | `TextField`（ref 双向、getter+`onValueChange`、number、password、校验）、`TextArea`         | 928×462.5 / 16                      |
+| `decor`   | Panel 6 变体、elevation、Divider 横/纵、Spacer flex/固定、Image 三种 fit                    | 928×340 / 35                        |
+| `box`     | `justifyContent` 5 种、`alignItems`、`wrap`                                                 | 928×512.5 / 73                      |
+| `grid`    | 固定列、`columns:'auto'`+`minColumnWidth`、`gridColumnSpan`                                 | 928×363 / 38                        |
+| `stack`   | `align` 三种 + `Absolute` 角标                                                              | 928×280.5 / 20                      |
+| `params`  | `width` 关键字、`50%`、`grow`、`min/max`、`aspectRatio`、`alignSelf`、`order`               | 928×284.5 / 27                      |
+| `list`    | keyed `List` + 虚拟化（200 行）+ add/remove 按钮                                            | 928×388.5 / 31                      |
+| `parity`  | 同一卡片：工厂 API vs DSL，逐节点比对 `appliedRect`                                         | 928×206.5 / 15                      |
+
+### 3.1 第 69 轮追加：`Branch`（结构性切换）
+
+`visible` 保留节点、只藏起来；**换成另一棵树**要用 `Branch()`：按 key 建一个分支，切 key 时销毁旧分支（连同它的绑定、主题订阅、文字纹理），再建新分支。演示在 `Flow` 分区的最后一张卡片里（四个按钮：`分支 A` / `分支 B` / `三个根` / `未知 key`），`#/compose` 逐帧发布 `branch.key`/`branch.builds`/`branch.widgets`/`branch.roots`/`branch.destroyed`，`window.compose.branch()`/`setBranch(k)`/`counts()` 也能直接读。
+
+**实测（一次干净的 A → B → 三个根 → 未知 key → A 循环；`window.compose.setBranch(k)` + 真实鼠标点击两种驱动都试过）**：
+
+| key         | 触发 | `builds` | 分支内控件 | 分支根数 | 旧分支已销毁 | 分区高度 | `counts`（控件/主题订阅/焦点/指针/镜像）     |
+| ----------- | ---- | -------- | ---------- | -------- | ------------ | -------- | -------------------------------------------- |
+| `a`（起始） | —    | 1        | 3          | 1        | —            | 469      | 41 / 64 / 20 / 31 / 20                       |
+| `b`         | 点击 | 2        | 7          | 1        | ✅ `true`    | **484**  | 45 / 68 / 20 / 31 / 20                       |
+| `multi`     | 点击 | 3        | 3          | **3**    | ✅ `true`    | **436**  | 42 / 65 / 19 / 29 / 19                       |
+| `missing`   | 点击 | 4        | **0**      | 0        | ✅ `true`    | **396**  | 38 / 61 / 19 / 29 / 19                       |
+| `a`（回到） | 点击 | 5        | 3          | 1        | ✅ `true`    | 469      | **41 / 64 / 20 / 31 / 20**（与起始逐项相同） |
+
+**判据**：
+
+| #   | 断言                 | 实测                                                                                                                                                                                                         |
+| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| B1  | key 变了才重建       | 点分支 A 里面的按钮两次：`builds` 仍是 **1**（分支没有被重建），只有 `branch.clicks` 从 0 → 2                                                                                                                |
+| B2  | 旧分支真的被销毁     | 每次切换后 `previousDestroyed=true`，且被销毁控件在焦点集合、指针目标、无障碍镜像里都不再出现（`focusablesIncludeInner=false`）                                                                              |
+| B3  | 焦点被释放而不是悬空 | 焦点在分支 A 的按钮上时切到 B：`focus=none`，且 DOM 里查不到 `branch.a.inner` 的镜像节点（换成 B 自己的节点，总数仍是 20）                                                                                   |
+| B4  | 布局跟着分支走       | 分区高度 **469 → 484 → 436 → 396 → 469**（B 更高、未知 key 最矮），A 往返后逐像素回到 469                                                                                                                    |
+| B5  | 多根按页面的规则处理 | `三个根` 分支 `roots=3`：控制台一条 `wrapped in a vertical Column` 警告，页面照常显示                                                                                                                        |
+| B6  | 未知 key 不崩        | `missing` 分支清空（`widgets=0`）并打一条指名警告（列出可用 key）；内部用 `hasOwnProperty` 查询，`constructor`/`toString`/`__proto__` 不会被误当分支调用（`packages/widgets/test/branch-plan.test.ts` 8 例） |
+| B7  | 反复切换不泄漏       | 一整圈回到 A 后 `counts` 与起始逐项相同（41 / 64 / 20 / 31 / 20）                                                                                                                                            |
+| B8  | 触摸同权             | CDP 触摸仿真下 tap `分支 B` → tap `未知 key` → tap `分支 A`：`builds` 1→2→3、key 依次变化，与鼠标一致                                                                                                        |
+| B9  | 探针不撒谎           | 分支被销毁后 `pt.branch.a.inner=gone`、`st.branch.a.inner=gone`（否则 `#demo-state` 会一直留着最后一帧的坐标，验收会点到别的东西上）                                                                         |
+| B10 | dev 轨迹 / 发布静默  | `branch: branch -> b (7 widget(s), 1 root(s), 2 build(s) so far)`；`未知 key` 时 `branch: cleared (no branch for key "missing")`                                                                             |
 
 **交互断言（Playwright MCP 真实鼠标/键盘）**：
 
