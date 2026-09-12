@@ -127,7 +127,7 @@ export function applyInertia(velocity: number, deceleration: number, deltaMs: nu
 export interface ThumbGeometry {
   /** `false` when there is nothing to scroll: the caller hides the scrollbar. */
   visible: boolean;
-  /** Fraction of the track where the thumb starts (0…1). */
+  /** Offset of the thumb inside the track, in pixels (measured from the track's start). */
   position: number;
   /** Thumb length in pixels (`0` when hidden). */
   length: number;

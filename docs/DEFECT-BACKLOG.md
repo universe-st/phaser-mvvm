@@ -7,7 +7,7 @@
 
 状态图例：`已修复` / `待修`（确认成立、未修）/ `待验证`（疑似，尚未证实）。
 
-**第 2 轮更新**：L1–L8 与 W1、W2 已修复（证据见 [`ACCEPTANCE-layout-defects.md`](./ACCEPTANCE-layout-defects.md)）；表中保留了原始描述与修法以便追溯，剩余待修项为 W3（纯文档）、W4 与 §3 的疑似项。
+**第 2 轮更新**：L1–L8、W1–W3 已修复，§3 的 V5（模板二次反转义）与 V6（转换器名字 trim）也已确认并修复；证据见 [`ACCEPTANCE-layout-defects.md`](./ACCEPTANCE-layout-defects.md)。表中保留原始描述与修法以便追溯，剩余未处理项为 W4 与 §3 其余疑似项。
 
 ---
 
@@ -30,20 +30,23 @@
 | --- | ------ | ------ | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | W1  | 已修复 | MED    | `Repeat.ts:554-563`（+`376-391`、`repeat-plan.ts:190-193`） | 自身与父容器高度都未解析时 `viewportSize()` 返回 0 → 虚拟窗口塌成 `overscan` 行（`overscan: 0` 时 0 行），但 `maxScrollOffset` 仍声称整表可滚，且**无告警**（指南 §7 的最小示例就踩这个坑） | 视口为 0 时告警，并回退到最近的非零祖先高度/外层 `ScrollView` 视口                    |
 | W2  | 已修复 | MED    | `ScrollView.ts:585-592/595-618/416-434`                     | 内容范围重算后从不重新 clamp：滚到底再删行/放大视口 → `currentY > limitY` 停在越界位置（空白），`thumbGeometry` 又把 progress 夹到 [0,1] 掩盖问题                                           | `onRectChanged` 先测量再 clamp；`sync()` 刷新后在非拖拽/非惯性时重新 clamp + 应用偏移 |
-| W3  | 待修   | LOW    | `scroll-plan.ts:127-134`                                    | `ThumbGeometry.position` 文档写「轨道比例 0…1」，实现与使用都是像素                                                                                                                         | 改文档或改名 `positionPx`                                                             |
+| W3  | 已修复 | LOW    | `scroll-plan.ts:127-134`                                    | `ThumbGeometry.position` 文档写「轨道比例 0…1」，实现与使用都是像素（已改为「像素」）                                                                                                       | 改文档或改名 `positionPx`                                                             |
 | W4  | 待验证 | 待验证 | `ScrollView.ts:602-605`                                     | `height = target.maxOffset + viewport.height` 混用了 Repeat 自身视口与 ScrollView 视口，二者不等时 `contentHeight`/`limitY` 可能失真（末行不可达或滚出空白）                                | 需在渲染环境实测后判定                                                                |
 
-## 3. 待验证（疑似，尚未证实，勿当缺陷处理）
+## 3. 疑似项（第 2 轮已处理 V5、V6）
 
-| #   | 位置                                                    | 疑点                                                                                                                                              |
-| --- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| V1  | `input.ts` `resolveTarget` / `ScrollView.containsPoint` | 命中测试用 `pointer.worldX/Y`（相机感知）比对场景空间坐标，相机被 scroll/zoom 时失效（插件默认相机是静止的，故未复现）                            |
-| V2  | `ScrollView.enableClip`                                 | Phaser `Filters` 组件销毁时未显式 `filters.destroy()`，`addMask` 的 Mask filter 未见释放路径（共享 `__WHITE` 纹理，未观察到 GPU 泄漏）            |
-| V3  | `ScrollView.ts:830`                                     | 最内层不可滚动的 `ScrollView` 也 `preventDefault()`，指针在其上时页面无法滚动（注释显示可能是有意设计，待产品确认）                               |
-| V4  | `binding.ts` `bindCommand` / 直接赋值 `onActivate`      | 挂载后新绑定的命令不会被输入路由收集（路由器只在结构变化时刷新）；现有控件都带 `focusable/interactive/blockPointer` 标记故未复现                  |
-| V5  | `template.ts:216-238`                                   | 转换器字符串字面量二次反转义：`{{ p \| default('C:\\new') }}` 把 `\n` 变成换行（单测已能复现该函数行为，但对模板整体未定为缺陷）                  |
-| V6  | `converter.ts:103-139`                                  | `registerConverter` 会 trim 名字，`hasConverter`/`unregisterConverter`/`applyConverter` 不会 → `' money '` 注册后查不到（读码确认，未写复现用例） |
-| V7  | `template.ts`                                           | `}}` 出现在引号内的转换器参数里会截断占位符（报 `TemplateSyntaxError`，是「响亮的错误」而非静默错误）                                             |
+> V5（转换器字符串字面量二次反转义）与 V6（`registerConverter` trim 不一致）在第 2 轮确认成立并修复，回归用例见 `packages/core/test/binding.test.ts`（`converter registry · name handling`、`template literals · escaping`）；W3（`ThumbGeometry.position` 文档）已改为「像素」。
+> 下面保留原始描述；未标注的条目仍未证实，勿按缺陷处理。
+
+| #   | 位置                                                    | 疑点                                                                                                                                                          |
+| --- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| V1  | `input.ts` `resolveTarget` / `ScrollView.containsPoint` | 命中测试用 `pointer.worldX/Y`（相机感知）比对场景空间坐标，相机被 scroll/zoom 时失效（插件默认相机是静止的，故未复现）                                        |
+| V2  | `ScrollView.enableClip`                                 | Phaser `Filters` 组件销毁时未显式 `filters.destroy()`，`addMask` 的 Mask filter 未见释放路径（共享 `__WHITE` 纹理，未观察到 GPU 泄漏）                        |
+| V3  | `ScrollView.ts:830`                                     | 最内层不可滚动的 `ScrollView` 也 `preventDefault()`，指针在其上时页面无法滚动（注释显示可能是有意设计，待产品确认）                                           |
+| V4  | `binding.ts` `bindCommand` / 直接赋值 `onActivate`      | 挂载后新绑定的命令不会被输入路由收集（路由器只在结构变化时刷新）；现有控件都带 `focusable/interactive/blockPointer` 标记故未复现                              |
+| V5  | `template.ts:216-238`                                   | **已修复**：转换器字符串字面量曾二次反转义（先解 `\\` 再解 `\n`），`{{ p \| default('C:\\new') }}` 会渲染成换行；现在单趟解转义，回归用例见 `binding.test.ts` |
+| V6  | `converter.ts:103-139`                                  | **已修复**：四个入口统一使用 trim 后的名字（此前 `registerConverter(' money ')` 注册的转换器查不到、也用不了）                                                |
+| V7  | `template.ts`                                           | `}}` 出现在引号内的转换器参数里会截断占位符（报 `TemplateSyntaxError`，是「响亮的错误」而非静默错误）                                                         |
 
 ## 4. 覆盖率缺口（不是缺陷，但值得补门禁）
 

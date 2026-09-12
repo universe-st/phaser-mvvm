@@ -212,6 +212,15 @@ function splitTopLevel(source: string, separator: string): string[] {
   return parts;
 }
 
+/** The escape sequences a quoted converter argument understands. */
+const LITERAL_ESCAPES: Record<string, string> = {
+  '"': '"',
+  "'": "'",
+  '\\': '\\',
+  n: '\n',
+  t: '\t',
+};
+
 /** Parses a converter argument: string, number, boolean, null, or a bare word as a string. */
 function parseLiteral(source: string): unknown {
   const text = source.trim();
@@ -220,11 +229,13 @@ function parseLiteral(source: string): unknown {
   }
   const quote = text[0];
   if ((quote === '"' || quote === "'") && text.length >= 2 && text.endsWith(quote)) {
-    return text
-      .slice(1, -1)
-      .replace(/\\(["'\\])/g, '$1')
-      .replace(/\\n/g, '\n')
-      .replace(/\\t/g, '\t');
+    // One pass, one lookup: unescaping `\\` first and `\\n` afterwards read a literal backslash-n as an
+    // escape sequence a second time, so `{{ p | default('C:\\new') }}` rendered a line break instead of
+    // the text the author wrote.
+    return text.slice(1, -1).replace(/\\(["'\\nt])/g, (match, escaped: string) => {
+      const replacement = LITERAL_ESCAPES[escaped];
+      return replacement === undefined ? match : replacement;
+    });
   }
   if (text === 'true') return true;
   if (text === 'false') return false;

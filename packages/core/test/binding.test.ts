@@ -661,3 +661,39 @@ describe('createBinding', () => {
     expect(seen.map((entry) => entry.id)).toEqual([1, 2]);
   });
 });
+
+describe('converter registry · name handling', () => {
+  it('trims the name consistently across register, lookup, apply and unregister', () => {
+    registerConverter('  moneyish  ', (value) => `$${String(value)}`);
+
+    expect(hasConverter('  moneyish  ')).toBe(true);
+    expect(hasConverter('moneyish')).toBe(true);
+    expect(applyConverter('  moneyish  ', 3)).toBe('$3');
+    expect(unregisterConverter(' moneyish ')).toBe(true);
+    expect(hasConverter('moneyish')).toBe(false);
+  });
+
+  it('reports an unknown converter with the trimmed name', () => {
+    expect(() => applyConverter('  nope  ', 1)).toThrow(/Unknown converter "nope"/);
+  });
+});
+
+describe('template literals · escaping', () => {
+  it('unescapes a converter argument in one pass, so a literal backslash survives', () => {
+    // The template text is `{{ value | default('C:\\new') }}`: an escaped backslash followed by `n`.
+    const template = compileTemplate("{{ value | default('C:\\\\new') }}");
+    const text = template.format(() => null);
+
+    // The old two-pass unescape turned that into a real newline; the argument has to come back out
+    // exactly as the author wrote it (one backslash, then the letter n).
+    expect(text).toBe('C:\\new');
+    expect(text).toHaveLength(6);
+  });
+
+  it('still understands the escapes a quoted argument supports', () => {
+    const template = compileTemplate("{{ value | default('a\\nb\\tc\\'d') }}");
+    const text = template.format(() => undefined);
+
+    expect(text).toBe("a\nb\tc'd");
+  });
+});

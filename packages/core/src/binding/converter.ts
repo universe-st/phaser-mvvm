@@ -99,6 +99,17 @@ export const BUILT_IN_CONVERTERS = [
   'date',
 ] as const;
 
+/**
+ * Normalises a converter name.
+ *
+ * Registration trimmed the name while the lookups did not, so `registerConverter(' money ', fn)` made
+ * a converter that `hasConverter(' money ')` denied and `applyConverter(' money ', …)` could not find.
+ * Every entry point now agrees on the trimmed form.
+ */
+function converterKey(name: string): string {
+  return name.trim();
+}
+
 /** Registers (or replaces) a converter. */
 export function registerConverter(name: string, fn: Converter): void {
   if (typeof name !== 'string' || name.trim().length === 0) {
@@ -107,17 +118,17 @@ export function registerConverter(name: string, fn: Converter): void {
   if (typeof fn !== 'function') {
     throw new TypeError(`registerConverter("${name}") expects a function`);
   }
-  converters.set(name.trim(), fn);
+  converters.set(converterKey(name), fn);
 }
 
 /** Removes a converter; returns `true` when one was registered under that name. */
 export function unregisterConverter(name: string): boolean {
-  return converters.delete(name);
+  return converters.delete(converterKey(name));
 }
 
 /** `true` when a converter is registered under `name`. */
 export function hasConverter(name: string): boolean {
-  return converters.has(name);
+  return converters.has(converterKey(name));
 }
 
 /** Registered converter names, in registration order. */
@@ -127,10 +138,10 @@ export function converterNames(): string[] {
 
 /** Applies a converter by name; throws for an unknown name (a typo must not fail silently). */
 export function applyConverter(name: string, value: unknown, ...args: unknown[]): unknown {
-  const converter = converters.get(name);
+  const converter = converters.get(converterKey(name));
   if (converter === undefined) {
     throw new Error(
-      `Unknown converter "${name}". Registered converters: ${
+      `Unknown converter "${name.trim()}". Registered converters: ${
         converterNames().join(', ') || '(none)'
       }`,
     );
