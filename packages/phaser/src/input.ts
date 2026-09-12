@@ -188,6 +188,19 @@ export function isHoverPointer(pointer: HoverPointerState | null | undefined): b
 }
 
 /**
+ * Whether the press that just ended leaves a hover behind.
+ *
+ * A *mouse* press does: the cursor is still on the widget, and restoring hover immediately is what
+ * keeps a click from flickering (`syncPointerState` would otherwise re-derive it one frame later).
+ * A *touch* press does not: there is no cursor, the finger is gone, and the widget is drawn with the
+ * hover look only until the next poll clears it — measured on a real touch sequence as a one-frame
+ * flash of `hover` on top of the `focused` state the tap should leave behind.
+ */
+export function keepsHoverAfterPress(pointer: { wasTouch?: boolean } | null | undefined): boolean {
+  return pointer?.wasTouch !== true;
+}
+
+/**
  * True when `node` is `ancestor` itself or one of its descendants in the container chain.
  *
  * This is the containment test behind input capture: events that reach a widget outside the capture
@@ -665,10 +678,11 @@ export class InputRouter {
       this.onActivate?.(widget, 'pointer');
     }
 
-    // `resetInteraction` cleared hover above; a click leaves the pointer inside the widget, so the
+    // `resetInteraction` cleared hover above; a mouse click leaves the cursor inside the widget, so the
     // hover state has to be restored right away (the next frame's poll would do it a frame later,
-    // which is visible as a flicker on a click).
-    if (widget.enabled && this.resolveTarget(pointer) === widget) {
+    // which is visible as a flicker on a click). A *touch* has no cursor to leave behind - see
+    // `keepsHoverAfterPress`.
+    if (widget.enabled && keepsHoverAfterPress(pointer) && this.resolveTarget(pointer) === widget) {
       widget.setHovered(true);
       this.hoveredWidget = widget;
     }

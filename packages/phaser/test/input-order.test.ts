@@ -18,6 +18,7 @@ import {
   isClickGesture,
   isHoverPointer,
   isWithinTree,
+  keepsHoverAfterPress,
   pointerInWidgetSpace,
   shouldFocusOnPress,
 } from '../src/input';
@@ -327,5 +328,20 @@ describe('pointerInWidgetSpace · the router and Phaser agree on where the point
   it('treats a missing camera as unscrolled instead of producing NaN', () => {
     const loose = { x: 10, y: 20, worldX: 10, worldY: 20, camera: null };
     expect(pointerInWidgetSpace(loose, pinned, null)).toEqual({ x: 10, y: 20 });
+  });
+});
+
+/* ------------------------------------------------------------------ touch presses */
+
+describe('keepsHoverAfterPress · a tap must not leave a hover behind', () => {
+  it('keeps the hover for a mouse press', () => {
+    expect(keepsHoverAfterPress({ wasTouch: false })).toBe(true);
+    expect(keepsHoverAfterPress({})).toBe(true);
+    expect(keepsHoverAfterPress(null)).toBe(true);
+  });
+
+  it('drops it for a touch press', () => {
+    // Phaser marks the touch pointer (`pointer1`) with `wasTouch = true`; the mouse pointer never is.
+    expect(keepsHoverAfterPress({ wasTouch: true })).toBe(false);
   });
 });

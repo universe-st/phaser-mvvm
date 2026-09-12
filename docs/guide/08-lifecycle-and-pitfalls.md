@@ -171,6 +171,19 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 | 列表滚不动？          | 滚动由 `ScrollView` 负责；`Repeat` 只决定挂载窗口（05 §8）    |
 | 内外层一起滚？        | 只在「最内层视口」处理手势；自定义滚动要照抄这个判定          |
 
+### 4.6 「触摸（移动端）不对」
+
+| 检查项                                           | 结论 / 修法                                                                                                                                   |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 触摸点了没反应，鼠标却正常？                     | Phaser 的触摸指针是 `pointers[1]`，需要 `activePointers ≥ 1`（默认值就是 1）；只有真机/模拟出的 `TouchEvent` 才会驱动它，鼠标事件不会         |
+| 触摸抬起后控件一直亮着（像 hover）？             | 这是本轮修掉的缺陷 V11：`handleUp` 曾无条件恢复 hover。框架现在只在**鼠标**按压后恢复；自定义控件不要自己在 `pointerup` 里 `setHovered(true)` |
+| 想区分鼠标与触摸（例如只在鼠标下显示悬停提示）？ | 读 `pointer.wasTouch`（框架内部用的就是这个标记：`isHoverPointer`）。`wasTouch === true` 的指针不参与轮询式 hover                             |
+| 需要双指手势（缩放、双指滚动）？                 | 目前**未实现**：`activePointers` 默认 1，框架也没有 pinch/rotate 语义；多指请自行在 Phaser 层实现（见 `docs/ACCEPTANCE-touch.md` §5）         |
+| 真机上列表滚动会和页面滚动打架？                 | `ScrollView` 会 `preventDefault`（backlog V3 记录了"最内层不可滚动时也拦截"的取舍）；真机验收前先确认这一条是否符合预期                       |
+| 软键盘弹出后布局错位？                           | `Scale.RESIZE` 下视口变化会触发重新布局，但**尚未在移动端模拟器里验收过**（见 `docs/ACCEPTANCE-touch.md` §5）                                 |
+
+> 触摸的完整状态矩阵与驱动方式（CDP `Input.dispatchTouchEvent` 配方）见 [`ACCEPTANCE-touch.md`](../ACCEPTANCE-touch.md)。
+
 ### 4.5 「内存涨 / 越跑越卡」
 
 | 检查项                                | 结论 / 修法                                             |

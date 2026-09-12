@@ -405,6 +405,36 @@ export class HudScene extends Phaser.Scene {
         pointer.y = previous.y;
         return hits.length;
       },
+      /**
+       * Raw pointer state, for the touch acceptance run: a tap on a real device arrives twice — as a
+       * touch pointer *and* as the browser's compatibility mouse events. Reading both separates "the
+       * touch worked" from "the synthetic mouse event moved the hover".
+       */
+      pointers: () => {
+        const manager = this.input.manager;
+        const describe = (pointer: Phaser.Input.Pointer | null, label: string) => {
+          if (!pointer) {
+            return { label, active: false };
+          }
+          const event = pointer.event as
+            (MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }) | undefined;
+          return {
+            label,
+            active: pointer.active,
+            wasTouch: pointer.wasTouch,
+            x: Math.round(pointer.x),
+            y: Math.round(pointer.y),
+            moveTime: Math.round(pointer.moveTime),
+            event: event ? event.type : 'none',
+            synthetic: event?.sourceCapabilities?.firesTouchEvents === true,
+          };
+        };
+        return {
+          mouse: describe(manager.mousePointer, 'mouse'),
+          touch: describe(manager.pointers[1] ?? null, 'pointer1'),
+          pointerCount: manager.pointers.length,
+        };
+      },
       focus: () => this.mvvm.focus.focusedWidget?.name || 'none',
       focusables: () => this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
       geometry: () => ({
