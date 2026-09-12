@@ -85,8 +85,8 @@
  */
 
 import type { BoxConstraints } from './constraint';
-import type { Insets, Rect, Size } from './geom';
-import { alignOffset, distribute } from './internal';
+import { clamp, type Insets, type Rect, type Size } from './geom';
+import { axisMaxOf, axisMinOf, alignOffset, distribute } from './internal';
 import { alignSelfOf, crossAxisOf, mainAxisOf, resolveLength } from './params';
 import type { Align, Axis, Justify } from './params';
 import type { ArrangerContext, BoxLayoutOptions, LayoutChild } from './types';
@@ -343,9 +343,21 @@ function placeLine(
     const align = alignSelfOf(child.params.alignSelf, flow.alignItems);
     const outerMain = flow.mains[i] as number;
     // `'stretch'` fills the line; so does a cross-axis `fill` item, whose length resolves against
-    // the container's content box rather than against the line it lands in.
-    const outerCross =
+    // the container's content box rather than against the line it lands in. Both are clamped by the
+    // child's own cross-axis min/max — the measure pass clamps the same way, and letting the arrange
+    // pass hand out a bigger box would make `maxWidth` a no-op inside a stretching container (and
+    // make the two passes disagree about the child's size).
+    let outerCross =
       align === 'stretch' || ctx.isFill(child, crossAxis) ? lineCross : (flow.crosses[i] as number);
+    if (align === 'stretch' || ctx.isFill(child, crossAxis)) {
+      const crossMargins = marginStart(crossAxis, margin) + marginEnd(crossAxis, margin);
+      outerCross =
+        clamp(
+          outerCross - crossMargins,
+          axisMinOf(child.params, crossAxis),
+          axisMaxOf(child.params, crossAxis),
+        ) + crossMargins;
+    }
     const borderMain = Math.max(0, outerMain - marginStart(axis, margin) - marginEnd(axis, margin));
     const borderCross = Math.max(
       0,

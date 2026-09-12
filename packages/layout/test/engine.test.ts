@@ -142,7 +142,7 @@ describe('engine: measurement cache', () => {
     expectSize(second.size, 40, 20);
   });
 
-  it('drops one subtree from the cache with reset(node)', () => {
+  it('drops the whole subtree from the cache with reset(node)', () => {
     const { root } = tree();
     const engine = new LayoutEngine({ snapMode: 'none' });
     layout(root, loose(300, 300), engine);
@@ -152,8 +152,10 @@ describe('engine: measurement cache', () => {
     layout(root, loose(300, 300), engine);
     const after = counters(engine);
 
-    expect(delta(before, after, 'measureCalls')).toBe(1);
-    expect(delta(before, after, 'cacheHits')).toBe(2);
+    // "Subtree" means the node *and* its descendants: a global font change invalidates every measured
+    // text, so leaving the children's cache entries in place would keep their stale sizes forever.
+    expect(delta(before, after, 'measureCalls')).toBe(5);
+    expect(delta(before, after, 'cacheHits')).toBe(0);
   });
 
   it('drops every cache with reset()', () => {
@@ -166,7 +168,134 @@ describe('engine: measurement cache', () => {
     layout(root, loose(300, 300), engine);
     const after = counters(engine);
 
-    expect(delta(before, after, 'measureCalls')).toBe(3);
+    expect(delta(before, after, 'measureCalls')).toBe(5);
+  });
+
+  it('re-arranges after reset() even when no revision changed', () => {
+    // What an external font/theme change looks like: the content size moved, the revision did not.
+    const child = auto(40, 20);
+    const root = box('vertical', [child], { width: 200 });
+    const engine = new LayoutEngine({ snapMode: 'none' });
+    layout(root, tight(200, 100), engine);
+    // The box stretches its children across the cross axis, so only the height tracks the content.
+    expectRect(child, 0, 0, 200, 20);
+
+    child.contentSize.height = 50;
+    engine.reset();
+    layout(root, tight(200, 100), engine);
+
+    expectRect(child, 0, 0, 200, 50);
+  });
+
+  it('re-arranges a subtree after reset(node)', () => {
+    const child = auto(40, 20);
+    const root = box('vertical', [child], { width: 200 });
+    const engine = new LayoutEngine({ snapMode: 'none' });
+    layout(root, tight(200, 100), engine);
+
+    child.contentSize.height = 50;
+    engine.reset(root);
+    layout(root, tight(200, 100), engine);
+
+    expectRect(child, 0, 0, 200, 50);
+  });
+
+  it('keys the cache by the percentage base as well as the constraint', () => {
+    // The same constraint resolves `50%` differently against a different containing block, so a cache
+    // entry that ignores the base answers the second call with the first call's width.
+    const half = auto(0, 0, { width: '50%', height: 10 });
+    const root = box('vertical', [half]);
+    const engine = new LayoutEngine({ snapMode: 'none' });
+
+    const wide = engine.layout(root, unbounded(), { width: 400, height: 300 });
+    const narrow = engine.layout(root, unbounded(), { width: 100, height: 300 });
+
+    expectSize(wide, 200, 10);
+    expectSize(narrow, 50, 10);
+  });
+
+  it('keeps an invalidation raised during the pass for the next pass', () => {
+    const first = auto(40, 20);
+    const second = auto(40, 10);
+    const root = box('vertical', [first, second]);
+    const engine = new LayoutEngine({ snapMode: 'none' });
+    layout(root, loose(300, 300), engine);
+
+    // `second` re-arranges during the pass (its content grew), and its `applyRect` invalidates the
+    // sibling that was already arranged earlier in that same pass - a watcher reached from `applyRect`
+    // behaves exactly like this. Nothing bumps `first.revision`: only the mark can save it.
+    const originalApply = second.applyRect.bind(second);
+    let invalidated = false;
+    second.applyRect = (rect) => {
+      originalApply(rect);
+      if (!invalidated) {
+        invalidated = true;
+        first.contentSize.height = 60;
+        engine.invalidate(first);
+      }
+    };
+    second.contentSize.height = 30;
+    engine.invalidate(second);
+
+    layout(root, loose(300, 300), engine);
+
+    // The mark has to survive the pass that was already running, otherwise the host sees "no pending
+    // work" and never runs the pass that would heal `first`.
+    expect(engine.hasDirtyNodes).toBe(true);
+    expect(engine.isDirty(first)).toBe(true);
+
+    second.applyRect = originalApply;
+    layout(root, loose(300, 300), engine);
+
+    expectRect(first, 0, 0, 40, 60);
+    expect(engine.hasDirtyNodes).toBe(false);
+  });
+
+  it('does not let a caller corrupt the cache through the returned size', () => {
+    const child = auto(40, 20);
+    const engine = new LayoutEngine({ snapMode: 'none' });
+    const first = layout(child, loose(100, 100), engine);
+    first.size.width = 999;
+
+    const second = layout(child, loose(100, 100), engine);
+
+    expectSize(second.size, 40, 20);
+  });
+
+  it('treats a non-finite length as auto instead of spreading NaN into the rect', () => {
+    const child = auto(40, 20, { width: Number.NaN });
+    const root = box('vertical', [child], { width: Number.POSITIVE_INFINITY });
+
+    const { size } = layout(root, loose(300, 300));
+
+    // `width: NaN` and a non-finite container width are authoring mistakes; both fall back to the
+    // measured content size, so every rect stays finite (hit testing and rendering depend on that).
+    expectSize(size, 40, 20);
+    expect(rectOf(child).width).toBeCloseTo(40, 6);
+    expect(rectOf(root).width).toBeCloseTo(40, 6);
+  });
+
+  it('clamps a non-positive dpr to 1', () => {
+    const child = auto(40, 20);
+    const engine = new LayoutEngine({ dpr: 0 });
+    layout(child, loose(100, 100), engine);
+
+    expect(engine.dpr).toBe(1);
+    expectRect(child, 0, 0, 40, 20);
+  });
+
+  it('releases the pooled contexts, so a detached subtree is not retained', () => {
+    const chain = box('vertical', [box('vertical', [box('vertical', [auto(10, 10)])])]);
+    const engine = new LayoutEngine({ snapMode: 'none' });
+    layout(chain, loose(100, 100), engine);
+
+    const pool = (engine as unknown as { contextPool: { node: unknown }[] }).contextPool;
+    // The pool is indexed by nesting depth, so it holds one context per level — not one per visited
+    // container — and every released context has dropped its strong references.
+    expect(pool.length).toBeLessThanOrEqual(4);
+    for (const ctx of pool) {
+      expect(ctx.node).toBeNull();
+    }
   });
 });
 

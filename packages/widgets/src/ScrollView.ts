@@ -588,6 +588,13 @@ export class ScrollView extends Widget {
       this.stepInertia(deltaMs);
     } else if (this.bounceEnabled && !this.dragging && this.outOfRange()) {
       this.springBack();
+    } else if (!this.dragging && this.outOfRange()) {
+      // The limits are recomputed here every frame, but the offset used to be clamped only when it
+      // *moved*: a viewport that grew (window resize) or content that shrank (rows removed) left the
+      // view parked past its end, showing blank space until the user scrolled again. `setOffset()`
+      // clamps, re-applies the offsets and emits `scroll`; it is a no-op once back in range, and with
+      // rubber-band enabled `springBack()` above owns this case instead.
+      this.setOffset(this.currentX, this.currentY);
     }
   }
 

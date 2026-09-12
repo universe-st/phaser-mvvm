@@ -4,7 +4,7 @@
  */
 
 import type { Rect, Size } from './geom';
-import type { Align, Justify, LengthUnit } from './params';
+import type { Align, Justify, LengthUnit, ResolvedParams } from './params';
 import { resolveLength } from './params';
 
 export interface Distribution {
@@ -61,6 +61,23 @@ export function resolveOffset(unit: LengthUnit | null, base: number): number | n
   }
   const value = resolveLength(unit, base);
   return value === null ? null : value;
+}
+
+/**
+ * Effective `min` of a child's border box on one axis, including the clamps of a
+ * `{ value, min, max }` length. Allocation-free so the arrange hot path can call it per child.
+ */
+export function axisMinOf(params: ResolvedParams, axis: 'horizontal' | 'vertical'): number {
+  return axis === 'horizontal'
+    ? Math.max(params.minWidth, params.widthMin)
+    : Math.max(params.minHeight, params.heightMin);
+}
+
+/** Effective `max` of a child's border box on one axis; see `axisMinOf`. */
+export function axisMaxOf(params: ResolvedParams, axis: 'horizontal' | 'vertical'): number {
+  return axis === 'horizontal'
+    ? Math.min(params.maxWidth, params.widthMax)
+    : Math.min(params.maxHeight, params.heightMax);
 }
 
 /** The border-box size of a child, given its resolved outer (margin-box) size. */

@@ -74,8 +74,8 @@
  */
 
 import type { BoxConstraints } from './constraint';
-import type { Rect, Size } from './geom';
-import { alignOffset } from './internal';
+import { clamp, type Rect, type Size } from './geom';
+import { alignOffset, axisMaxOf, axisMinOf } from './internal';
 import type { Align } from './params';
 import type { ArrangerContext, GridLayoutOptions, LayoutChild } from './types';
 import { orderedFlowChildren } from './box';
@@ -395,10 +395,28 @@ function placeInCell(
   const outer = ctx.resolveOuterSize(child);
   // `'stretch'` fills the cell; so does a `fill` item, whose length resolves against the grid's
   // content box rather than against the cell it lands in (the cell is its containing block).
-  const outerWidth =
-    justify === 'stretch' || ctx.isFill(child, 'horizontal') ? cell.width : outer.width;
-  const outerHeight =
-    align === 'stretch' || ctx.isFill(child, 'vertical') ? cell.height : outer.height;
+  // Stretched/filled cells are clamped by the child's own min/max on that axis, exactly like the
+  // measure pass does, so a `maxWidth` keeps working inside a stretching grid.
+  const fillWidth = justify === 'stretch' || ctx.isFill(child, 'horizontal');
+  const fillHeight = align === 'stretch' || ctx.isFill(child, 'vertical');
+  const outerWidth = fillWidth
+    ? clamp(
+        cell.width - margin.left - margin.right,
+        axisMinOf(child.params, 'horizontal'),
+        axisMaxOf(child.params, 'horizontal'),
+      ) +
+      margin.left +
+      margin.right
+    : outer.width;
+  const outerHeight = fillHeight
+    ? clamp(
+        cell.height - margin.top - margin.bottom,
+        axisMinOf(child.params, 'vertical'),
+        axisMaxOf(child.params, 'vertical'),
+      ) +
+      margin.top +
+      margin.bottom
+    : outer.height;
 
   ctx.placeChild(child, {
     x: alignOffset(cell.x, cell.width, outerWidth, justify) + margin.left,

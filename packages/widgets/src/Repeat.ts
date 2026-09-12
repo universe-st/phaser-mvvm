@@ -249,6 +249,7 @@ export class Repeat<Item> extends Widget {
    */
   protected override onRectChanged(rect: Rect): void {
     super.onRectChanged(rect);
+    this.arrangedOnce = true;
     if (!this.virtualized) {
       return;
     }
@@ -552,14 +553,47 @@ export class Repeat<Item> extends Widget {
   }
 
   /** Visible size of the list: the smaller of the repeat's own box and its parent's. */
+  /** Set by the first `applyRect`, so "no height" can be told apart from "not arranged yet". */
+  private arrangedOnce = false;
+
   private viewportSize(): number {
     const own = this.rect.height;
-    const parent = this.parent as { appliedRect?: { height: number } } | null;
+    const parent = this.parent as { appliedRect?: { height: number }; parent?: unknown } | null;
     const fromParent = parent?.appliedRect?.height ?? 0;
     if (own > 0 && fromParent > 0) {
       return Math.min(own, fromParent);
     }
-    return Math.max(own, fromParent);
+    if (own > 0 || fromParent > 0) {
+      return Math.max(own, fromParent);
+    }
+
+    // Neither this list nor its layout parent has a height yet. Rather than silently mounting only
+    // `overscan` rows (or none at all with `overscan: 0`) while `maxOffset` still advertises the whole
+    // list, walk up to the first ancestor that knows how tall it is — usually the enclosing
+    // `ScrollView`, whose viewport is the honest answer for "how much is visible".
+    let ancestor = (parent?.parent ?? null) as {
+      appliedRect?: { height: number };
+      parent?: unknown;
+    } | null;
+    while (ancestor) {
+      const height = ancestor.appliedRect?.height ?? 0;
+      if (height > 0) {
+        return height;
+      }
+      ancestor = (ancestor.parent ?? null) as typeof ancestor;
+    }
+
+    // Warned only once the list has actually been through a layout pass: a freshly built list is
+    // legitimately 0×0 until its first arrange, and the frame-flush that mounts the first window can
+    // run before that. A list that is *still* 0 after being arranged is the real mistake.
+    if (this.arrangedOnce) {
+      warn(
+        'Repeat: the virtualised list has no resolved height (own rect and every ancestor are 0), so ' +
+          'the mounted window falls back to the overscan rows. Give the list a definite height, or put ' +
+          'it inside a ScrollView with one.',
+      );
+    }
+    return 0;
   }
 }
 

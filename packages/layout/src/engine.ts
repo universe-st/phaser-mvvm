@@ -3,8 +3,13 @@
  *
  * Design notes
  * ------------
- * - A node's measured size is a pure function of `(constraint, node.revision)`, which makes the
- *   measurement cache sound. The cache is per node and keyed by the constraint.
+ * - A node's measured size is a pure function of `(constraint, percent base, node.revision)`, which
+ *   makes the measurement cache sound. The cache is per node and keyed by the constraint *and* the
+ *   containing block, because the same constraint resolves percentages differently against a
+ *   different base.
+ * - Dirty marks are consumed at the *start* of a pass, so an `invalidate()` raised while the pass
+ *   runs (from `measureContent`, `applyRect` or a synchronous watcher) survives into the next pass
+ *   instead of being wiped by the pass that never saw it.
  * - `invalidate(node)` walks up the parent chain marking nodes dirty; clean nodes with an
  *   unchanged rect are skipped entirely, so a small change costs O(depth + changed subtree)
  *   instead of O(tree).
@@ -59,6 +64,11 @@ export interface LayoutEngineStats {
 interface CacheEntry {
   revision: number;
   size: Size;
+}
+
+/** A snapped rect plus the `reset()` generation it was produced in (see `placeChildOf`). */
+interface AppliedRect extends Rect {
+  generation: number;
 }
 
 /** Only this many distinct constraints are cached per node; prevents unbounded growth. */
@@ -132,7 +142,7 @@ export class LayoutEngine {
 
   private caches = new WeakMap<LayoutNode, Map<string, CacheEntry>>();
   private readonly records = new WeakMap<LayoutNode, ChildRecord[]>();
-  private readonly appliedRects = new WeakMap<LayoutNode, Rect>();
+  private readonly appliedRects = new WeakMap<LayoutNode, AppliedRect>();
   private readonly dirty = new WeakSet<LayoutNode>();
   private readonly dirtyPending: LayoutNode[] = [];
   /**
@@ -144,16 +154,35 @@ export class LayoutEngine {
    * relaxes the *arrange* skip in `placeChildOf()`, which is what lets the walk reach the boundary
    * at all.
    *
-   * A plain `Set` rather than a `WeakSet`: it is dropped at the end of every pass (`clearDirty()`),
-   * so it holds references only between an invalidation and the pass that consumes it - the same
-   * lifetime `dirtyPending` already has.
+   * A plain `Set` rather than a `WeakSet`: it is emptied when a pass starts (`beginPass()`), so it
+   * holds references only between an invalidation and the pass that consumes it - the same lifetime
+   * `dirtyPending` already has.
    */
   private readonly dirtyPath = new Set<LayoutNode>();
   private readonly contextPool: EngineContext[] = [];
+
+  /**
+   * Marks consumed by the pass that is running right now.
+   *
+   * The measure cache and the arrange skip read these instead of `dirty`/`dirtyPath`, which are the
+   * marks waiting for the *next* pass. Keeping the two apart is what makes an in-pass `invalidate()`
+   * both effective (it is honoured by the next pass) and non-destructive (this pass keeps the marks it
+   * started with).
+   */
+  private readonly activeDirty = new Set<LayoutNode>();
+  private readonly activeDirtyPath = new Set<LayoutNode>();
+
+  /** Bumped by a global `reset()`; a stored rect from an older generation never satisfies a skip. */
+  private generation = 0;
+
   private contextDepth = 0;
+  private passRunning = false;
 
   constructor(options: LayoutEngineOptions = {}) {
-    this.dpr = options.dpr ?? 1;
+    // A non-positive/non-finite dpr turns every snapped rect into `NaN` (`Math.round(v * dpr) / dpr`),
+    // so it is clamped to the safe default instead of being propagated.
+    const dpr = options.dpr ?? 1;
+    this.dpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
     this.snapMode = options.snapMode ?? 'round';
   }
 
@@ -165,17 +194,56 @@ export class LayoutEngine {
    */
   layout(root: LayoutNode, constraint: BoxConstraints, percentBase?: Size): Size {
     this.stats.passes++;
-    this.contextDepth = 0;
 
-    const base = percentBase ?? percentBaseOf(constraint);
-    const rootSize = this.measureNode(root, constraint, base);
+    // A nested pass (a widget laying out a subtree from inside `measureContent`/`applyRect`) belongs
+    // to the outer pass: consuming marks there would move work out from under the pass already
+    // running.
+    const outermost = !this.passRunning;
+    if (outermost) {
+      this.passRunning = true;
+      this.beginPass();
+    }
 
-    this.contextDepth = 0;
-    const rootRect: Rect = { x: 0, y: 0, width: rootSize.width, height: rootSize.height };
-    this.arrangeRoot(root, rootRect);
+    try {
+      this.contextDepth = 0;
+      const base = percentBase ?? percentBaseOf(constraint);
+      const rootSize = this.measureNode(root, constraint, base);
 
-    this.clearDirty();
-    return rootSize;
+      this.contextDepth = 0;
+      const rootRect: Rect = { x: 0, y: 0, width: rootSize.width, height: rootSize.height };
+      this.arrangeRoot(root, rootRect);
+
+      // Copied out: the cached size object belongs to the cache, and a caller mutating it would
+      // poison every later pass that hits the same cache entry.
+      return { width: rootSize.width, height: rootSize.height };
+    } finally {
+      if (outermost) {
+        this.passRunning = false;
+      }
+    }
+  }
+
+  /**
+   * Consumes the marks collected since the last pass.
+   *
+   * Anything raised *while* the pass runs stays in `dirty`/`dirtyPath`, so `hasDirtyNodes` reports it
+   * and the host runs one more pass; previously every mark was cleared at the end of a pass, so an
+   * in-pass invalidation disappeared without a trace and left permanently stale geometry.
+   */
+  private beginPass(): void {
+    this.activeDirty.clear();
+    for (let i = 0; i < this.dirtyPending.length; i++) {
+      const node = this.dirtyPending[i] as LayoutNode;
+      this.activeDirty.add(node);
+      this.dirty.delete(node);
+    }
+    this.dirtyPending.length = 0;
+
+    this.activeDirtyPath.clear();
+    for (const node of this.dirtyPath) {
+      this.activeDirtyPath.add(node);
+    }
+    this.dirtyPath.clear();
   }
 
   /**
@@ -231,14 +299,43 @@ export class LayoutEngine {
     return this.dirtyPending.length > 0;
   }
 
-  /** Drops cached measurements for a subtree (used when fonts/themes change globally). */
+  /**
+   * Drops cached measurements for a subtree (used when fonts/themes change globally).
+   *
+   * Dropping the cache alone is not enough: a node whose content *size* changed without a revision
+   * bump (exactly what an external font change does) still looks "clean" to the arrange skip and would
+   * keep its old rect forever. A subtree reset therefore marks the subtree dirty too, and the global
+   * form bumps the generation so every stored rect has to be produced again by the next pass.
+   */
   reset(node?: LayoutNode): void {
-    if (node) {
-      this.caches.delete(node);
+    if (!node) {
+      // A WeakMap cannot be cleared, so re-point it and let the old one be collected.
+      this.caches = new WeakMap();
+      this.generation++;
       return;
     }
-    // A WeakMap cannot be cleared, so re-point it and let the old one be collected.
-    this.caches = new WeakMap();
+    this.dropCachesIn(node);
+    this.markSubtreeDirty(node);
+    this.invalidate(node);
+  }
+
+  /** Deletes the measurement cache of `node` and of every descendant. */
+  private dropCachesIn(node: LayoutNode): void {
+    this.caches.delete(node);
+    for (let i = 0; i < node.children.length; i++) {
+      this.dropCachesIn(node.children[i] as LayoutNode);
+    }
+  }
+
+  /** Marks `node` and every descendant dirty, so both passes recompute the subtree. */
+  private markSubtreeDirty(node: LayoutNode): void {
+    if (!this.dirty.has(node)) {
+      this.dirty.add(node);
+      this.dirtyPending.push(node);
+    }
+    for (let i = 0; i < node.children.length; i++) {
+      this.markSubtreeDirty(node.children[i] as LayoutNode);
+    }
   }
 
   // ---------------------------------------------------------------- measure pass
@@ -274,9 +371,12 @@ export class LayoutEngine {
     };
     enforce(own);
 
-    const dirty = this.dirty.has(node);
+    const dirty = this.activeDirty.has(node) || this.dirty.has(node);
     const cache = this.cacheFor(node);
-    const key = constraintsKey(own);
+    // The key carries the containing block: `width: '50%'` resolved against a 400px base is a
+    // different answer from the same constraint resolved against a 100px base, and `layout()` exposes
+    // the base as a parameter.
+    const key = cacheKeyOf(own, base);
     const cached = cache.get(key);
     if (cached && !dirty && cached.revision === node.revision) {
       this.stats.cacheHits++;
@@ -317,6 +417,8 @@ export class LayoutEngine {
           }
         }
       }
+      // Released only now: the absolute pass above still walks this context's child records.
+      this.releaseContext(ctx);
       contentWidth = clamp(measured.width, content.minWidth, content.maxWidth);
       contentHeight = clamp(measured.height, content.minHeight, content.maxHeight);
     } else {
@@ -482,6 +584,7 @@ export class LayoutEngine {
     ctx.contentSize.height = ctx.rect.height;
 
     this.arrangeContainer(node.container, ctx);
+    this.releaseContext(ctx);
   }
 
   placeChildOf(_ctx: EngineContext, child: LayoutChild, rect: Rect): void {
@@ -490,11 +593,16 @@ export class LayoutEngine {
 
     const target = this.snap(rect);
     const applied = this.appliedRects.get(child.node);
+    const stale =
+      this.activeDirty.has(child.node) ||
+      this.activeDirtyPath.has(child.node) ||
+      this.dirty.has(child.node) ||
+      this.dirtyPath.has(child.node);
     if (
       applied &&
-      rectEquals(applied, target) &&
-      !this.dirty.has(child.node) &&
-      !this.dirtyPath.has(child.node)
+      applied.generation === this.generation &&
+      !stale &&
+      rectEquals(applied, target)
     ) {
       this.stats.skippedSubtrees++;
       return;
@@ -502,12 +610,14 @@ export class LayoutEngine {
 
     if (applied) {
       copyRect(applied, target);
+      applied.generation = this.generation;
     } else {
       this.appliedRects.set(child.node, {
         x: target.x,
         y: target.y,
         width: target.width,
         height: target.height,
+        generation: this.generation,
       });
     }
 
@@ -610,14 +720,20 @@ export class LayoutEngine {
     return ctx;
   }
 
-  private clearDirty(): void {
-    for (let i = 0; i < this.dirtyPending.length; i++) {
-      this.dirty.delete(this.dirtyPending[i] as LayoutNode);
+  /**
+   * Returns a measured/arranged container's context to the pool.
+   *
+   * The pool is indexed by depth, so the slot is reused by the next container at the same nesting
+   * level; the strong references to the node and its child records are dropped here. Keeping them made
+   * the pool a grow-only list that pinned every node of the last pass for the lifetime of the engine,
+   * which is exactly what the `WeakMap`s used for caches and rects are there to prevent.
+   */
+  private releaseContext(ctx: EngineContext): void {
+    if (this.contextDepth > 0) {
+      this.contextDepth--;
     }
-    this.dirtyPending.length = 0;
-    // `dirtyPath` is per pass: leftovers would keep forcing the arrange walk through ancestors that
-    // no longer have anything to place.
-    this.dirtyPath.clear();
+    ctx.node = null;
+    ctx.children = [];
   }
 }
 
@@ -630,12 +746,17 @@ function resolveOwnLength(
   paramMax: number,
 ): number | null {
   const resolved = resolveLength(unit, base);
-  if (resolved === null) {
+  if (resolved === null || !Number.isFinite(resolved)) {
     return null;
   }
   const min = Math.max(lengthMin, paramMin);
   const max = Math.min(lengthMax, paramMax);
   return clamp(resolved, min, max);
+}
+
+/** Cache key: the node's own constraint plus the containing block its percentages resolve against. */
+function cacheKeyOf(own: BoxConstraints, base: Size): string {
+  return `${constraintsKey(own)}|${base.width}x${base.height}`;
 }
 
 function percentBaseOf(constraint: BoxConstraints): Size {

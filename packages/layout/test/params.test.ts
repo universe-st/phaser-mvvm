@@ -392,3 +392,25 @@ describe('params: mergeParams (partial patch)', () => {
     expect(next).toMatchObject({ left: 1, top: 20, right: 3, bottom: 4, position: 'absolute' });
   });
 });
+
+describe('params: non-finite values', () => {
+  it('falls back to the defaults for NaN and Infinity bounds', () => {
+    const resolved = normalizeParams({
+      width: Number.NaN,
+      minWidth: Number.NaN,
+      maxWidth: Number.POSITIVE_INFINITY,
+    });
+
+    expect(resolved.width).toBe('auto');
+    expect(resolved.minWidth).toBe(0);
+    expect(resolved.maxWidth).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('sanitises the clamps of a { value, min, max } length', () => {
+    const resolved = normalizeParams({ width: { value: 'fill', min: Number.NaN, max: Infinity } });
+
+    expect(resolved.widthMin).toBe(0);
+    expect(resolved.widthMax).toBe(Number.POSITIVE_INFINITY);
+    expect(resolved.heightMin).toBe(0);
+  });
+});

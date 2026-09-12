@@ -140,7 +140,8 @@ LayoutParams {
   - `StackArranger`：子节点层叠（z 由 depth 决定），用于对话框/遮罩/角标。
   - `AbsoluteArranger`：`position: 'absolute'` 子节点按 `x/y/right/bottom/anchor` 定位，脱离文档流。
   - `FitArranger`：等比缩放适配（把设计尺寸的子树塞进目标框）。
-- **缓存的正确性**：测量结果以 **(约束, 内容修订号)** 为键缓存。内容（文本、子节点、样式、主题）变化时递增修订号；约束变化自动失效。排布总是重算（成本低）。
+- **缓存的正确性**：测量结果以 **(约束, 百分比基准, 内容修订号)** 为键缓存。内容（文本、子节点、样式、主题）变化时递增修订号；约束或基准变化自动失效（基准即 `layout(root, constraint, percentBase)` 的 `percentBase` 与容器 `contentSize`，百分比/`fill` 依赖它，缺了它就会读到别的包含块下的旧答案）。排布**增量重算**：干净且矩形未变的子树会被跳过（`stats.skippedSubtrees`），被标脏或位于 `dirtyPath` 上的子树一定重排。
+- **脏标记的消费时机**：每趟 pass 开始时消费上一轮累积的脏标记；pass 运行期间（`measureContent`/`applyRect`/同步 watcher 中）新产生的 `invalidate()` 保留到下一趟，不会被本趟清掉。
 - **脏传播与重布局边界**：`markNeedsLayout()` 向上冒泡时，遇到「尺寸不受父约束影响的节点」（固定尺寸 / 内容自适应且约束未变）即停止 —— 形成 relayout boundary（Flutter 同款思路），这是万级节点也能保持 O(变化量) 的关键。
 - **像素对齐**：内部保留亚像素位置；在 `arrange` 末尾对**文本与细线**做 DPR 感知的取整（可配置 `snapTextToPixel`、`roundPixels`），兼顾清晰度与整体齐整。
 - **零分配目标**：`Rect/Constraint` 用对象池；排布路径不产生临时闭包/数组。

@@ -181,7 +181,9 @@ this.add.hbox({ gap: 12, alignItems: 'center', justifyContent: 'space-between', 
 | `alignContent`   | 换行后多行之间的交叉轴分配                                                     | `start`    |
 | `reverse`        | 反转视觉顺序                                                                   | `false`    |
 
-> **最常见的意外**：`vbox` 的默认 `alignItems` 是 `stretch`，所以子节点**默认横向占满整行**。如果你想让一个 `Label` 只占它文字的宽度，写 `alignSelf: 'start'`（或给容器 `alignItems: 'start'`）；想让长文本按某个宽度换行，直接给 `Label` 写 `width`。
+> **最常见的意外**：`vbox` 的默认 `alignItems` 是 `stretch`，所以子节点**默认横向占满整行**。如果你想让一个 `Label` 只占它文字的宽度，写 `alignSelf: 'start'`（或给容器 `alignItems: 'start'`）；想让长文本按某个宽度换行，直接给 `Label` 写 `width`（配合 `alignSelf: 'start'`，否则 `stretch` 仍然优先）。
+>
+> `stretch` 与 `fill` 都会让子节点拿到整行/整格的长度，但仍然受子节点自己的 `minWidth`/`maxWidth`（以及 `{ value, min, max }` 里的额外钳制）约束 —— 两趟测量与排布对同一个子节点的尺寸必须一致，所以 `maxWidth` 在拉伸容器里也照样生效。
 
 换行（`wrap: true`）的几何：**按主轴换行，行沿交叉轴堆叠**。所以 `direction: 'vertical'` + `wrap` 会产生「一列一列」的效果（每列内是纵向排列），需要「一行一行」请用 `hbox` + `wrap`。
 
@@ -417,17 +419,18 @@ console.log(widget.name, widget.appliedRect);
 
 ## 15. 常见布局错误对照表
 
-| 现象                                | 原因                                                           | 修法                                                       |
-| ----------------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------- |
-| 子节点横向意外占满整行              | `vbox` 默认 `alignItems: 'stretch'`                            | 给子节点 `alignSelf: 'start'` 或容器 `alignItems: 'start'` |
-| 长文本不换行/不省略                 | `Label` 被 stretch 到很宽，或 `wrap: false`；也可能宽度不确定  | 给 `Label` 明确的 `width`，或 `maxLines` + `ellipsis`      |
-| `width: '50%'` 没效果               | 父容器该轴尺寸不确定（`auto`），百分比无法解析 → 退化为 `auto` | 让父级有确定宽度（数字或 `'fill'`，且一路有确定基准）      |
-| `minWidth: '50%'` 之后元素消失/变 0 | 上下限以基准 `0` 解析百分比                                    | 上下限只写数字                                             |
-| 内容比容器高，后面的东西重叠        | 普通容器会夹住子节点；想溢出请用 `ScrollView`（`scroll` 端口） | 换 `ScrollView`，或让容器高度 `auto`                       |
-| 改了 `layoutParams` 界面不更新      | 绕过 `setLayoutParams`/`markDirty`                             | 用 `setLayoutParams(patch)`                                |
-| 换了数组内容但列表不更新            | `Repeat` 读的是响应式源；直接换普通数组引用不会触发            | 用 `reactive([...])` / `ref([...])` 持有数组（06 章）      |
-| grid 里子节点没填满格子             | `justifyItems`/`alignItems` 被写成 `start`/`center`            | 用默认 `'stretch'`，或写 `width: 'fill'`                   |
-| 绝对定位节点跑到左上角              | 忘了 `position: 'absolute'`（在 `absolute` 容器里也必须写）    | 补上 `position: 'absolute'`                                |
+| 现象                                | 原因                                                            | 修法                                                       |
+| ----------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
+| 子节点横向意外占满整行              | `vbox` 默认 `alignItems: 'stretch'`                             | 给子节点 `alignSelf: 'start'` 或容器 `alignItems: 'start'` |
+| 滚动视图停在空白处                  | 视口变大或内容变短后偏移越界（已修：每帧按最新 limit 重新夹取） | 升级到含该修复的版本；`bounce: true` 时由回弹接管          |
+| 长文本不换行/不省略                 | `Label` 被 stretch 到很宽，或 `wrap: false`；也可能宽度不确定   | 给 `Label` 明确的 `width`，或 `maxLines` + `ellipsis`      |
+| `width: '50%'` 没效果               | 父容器该轴尺寸不确定（`auto`），百分比无法解析 → 退化为 `auto`  | 让父级有确定宽度（数字或 `'fill'`，且一路有确定基准）      |
+| `minWidth: '50%'` 之后元素消失/变 0 | 上下限以基准 `0` 解析百分比                                     | 上下限只写数字                                             |
+| 内容比容器高，后面的东西重叠        | 普通容器会夹住子节点；想溢出请用 `ScrollView`（`scroll` 端口）  | 换 `ScrollView`，或让容器高度 `auto`                       |
+| 改了 `layoutParams` 界面不更新      | 绕过 `setLayoutParams`/`markDirty`                              | 用 `setLayoutParams(patch)`                                |
+| 换了数组内容但列表不更新            | `Repeat` 读的是响应式源；直接换普通数组引用不会触发             | 用 `reactive([...])` / `ref([...])` 持有数组（06 章）      |
+| grid 里子节点没填满格子             | `justifyItems`/`alignItems` 被写成 `start`/`center`             | 用默认 `'stretch'`，或写 `width: 'fill'`                   |
+| 绝对定位节点跑到左上角              | 忘了 `position: 'absolute'`（在 `absolute` 容器里也必须写）     | 补上 `position: 'absolute'`                                |
 
 ---
 

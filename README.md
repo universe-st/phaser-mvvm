@@ -258,15 +258,16 @@ phaser-mvvm/
 
 ## 7. 文档索引
 
-| 文档                                                                 | 内容                                                                                                                                                         |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`docs/PLAN.md`](./docs/PLAN.md)                                     | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3）      |
-| [`docs/guide/`](./docs/guide/README.md)                              | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表 |
-| [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md) | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                      |
-| [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                 | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
-| [`docs/adr/`](./docs/adr/README.md)                                  | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
-| `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                       | 生成的 API 参考                                                                                                                                              |
-| `docs/widget-spec/`（**M10**，尚未创建）                             | 控件规格文档；落地前以 [`docs/guide/`](./docs/guide/README.md) 的控件章节为现行参考                                                                          |
+| 文档                                                                       | 内容                                                                                                                                                         |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`docs/PLAN.md`](./docs/PLAN.md)                                           | **唯一事实来源**：目标/非目标、技术基线与源码调研结论、总体架构、核心设计、API 草案、里程碑 M0–M10、测试与性能预算、风险对策、已冻结决策（§10.1–§10.3）      |
+| [`docs/guide/`](./docs/guide/README.md)                                    | **使用指南（教程式，以已实现代码为准）**：快速开始、布局、全部控件、文本框与表单、列表与滚动、数据绑定与主题、交互与导航、Compose 风格 DSL、生命周期与速查表 |
+| [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)       | 验收记录：Compose DSL、逐控件／逐布局实测、缺陷修复清单                                                                                                      |
+| [`docs/ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md) | 验收记录：布局引擎缺陷批次（缓存键、脏标记时机、`reset`、上下文池、stretch 钳制）与 Playwright 复现证据                                                      |
+| [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)                       | 审计发现的缺陷登记簿（待修／待验证／覆盖率缺口）                                                                                                             |
+| [`docs/adr/`](./docs/adr/README.md)                                        | 架构决策记录（ADR-0001…0008 及索引）；新决策新增编号                                                                                                         |
+| `docs/api/`（**M10**，TypeDoc 生成，尚未创建）                             | 生成的 API 参考                                                                                                                                              |
+| `docs/widget-spec/`（**M10**，尚未创建）                                   | 控件规格文档；落地前以 [`docs/guide/`](./docs/guide/README.md) 的控件章节为现行参考                                                                          |
 
 关键 ADR 速览：包划分 [0001](./docs/adr/0001-package-layout.md)｜两阶段布局 [0002](./docs/adr/0002-two-pass-layout.md)｜layout 零 Phaser 依赖 [0003](./docs/adr/0003-layout-is-renderer-agnostic.md)｜DOM 输入桥 [0004](./docs/adr/0004-dom-input-bridge.md)｜Phaser 依赖方式 [0005](./docs/adr/0005-phaser-dependency.md)｜Phase 1 范围 [0006](./docs/adr/0006-phase1-scope.md)｜Phaser 4 WebGL 约束 [0007](./docs/adr/0007-phaser4-webgl-constraints.md)｜响应式与调度器 [0008](./docs/adr/0008-reactivity-and-scheduler.md)。
 

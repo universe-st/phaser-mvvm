@@ -53,15 +53,14 @@ export function atMost(width = UNBOUNDED, height = UNBOUNDED): BoxConstraints {
 
 /** Keeps `min <= max` on both axes. */
 export function enforce(target: BoxConstraints): BoxConstraints {
+  // One documented policy for a contradictory pair, the same one `geom.clamp()` uses: min wins. A
+  // midpoint used to be returned here, which satisfied neither bound and drifted every time the
+  // constraint passed through `enforce()` again (each nested measure).
   if (target.minWidth > target.maxWidth) {
-    const mid = (target.minWidth + target.maxWidth) / 2;
-    target.minWidth = mid;
-    target.maxWidth = mid;
+    target.maxWidth = target.minWidth;
   }
   if (target.minHeight > target.maxHeight) {
-    const mid = (target.minHeight + target.maxHeight) / 2;
-    target.minHeight = mid;
-    target.maxHeight = mid;
+    target.maxHeight = target.minHeight;
   }
   return target;
 }

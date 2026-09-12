@@ -1068,3 +1068,35 @@ describe('box: nested containers', () => {
     expect(rectOf(a)).toEqual({ x: 0, y: 0, width: 10, height: 10 });
   });
 });
+
+describe('box: stretch honours the child cross-axis clamps', () => {
+  it('keeps maxWidth inside a stretching container', () => {
+    const child = leaf({ width: 40, height: 20, maxWidth: 50 });
+    const root = box('vertical', [child], { width: 200 });
+
+    layout(root, loose(300, 300));
+
+    // Both passes must agree: the measure pass clamps to 50, so the arrange pass hands out 50 too.
+    expect(rectOf(child).width).toBeCloseTo(50, 6);
+  });
+
+  it('keeps minWidth inside a stretching container, overflowing instead of shrinking', () => {
+    const child = leaf({ width: 40, height: 20, minWidth: 120 });
+    const root = box('vertical', [child], { width: 80 });
+
+    layout(root, loose(300, 300));
+
+    // The line is only 80 wide, but the child's own minimum is a floor the container cannot take
+    // away - the same 120 the measure pass computes.
+    expect(rectOf(child).width).toBeCloseTo(120, 6);
+  });
+
+  it('honours a { value, min, max } clamp on a stretched child', () => {
+    const child = leaf({ width: { value: 'fill', max: 60 }, height: 20 });
+    const root = box('vertical', [child], { width: 200 });
+
+    layout(root, loose(300, 300));
+
+    expect(rectOf(child).width).toBeCloseTo(60, 6);
+  });
+});

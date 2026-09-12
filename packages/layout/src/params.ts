@@ -199,7 +199,9 @@ export function isDefiniteUnit(unit: LengthUnit): boolean {
  */
 export function resolveLength(unit: LengthUnit, base = 0): number | null {
   if (typeof unit === 'number') {
-    return unit;
+    // `NaN`/`Infinity` are authoring mistakes, not lengths; treating them as "auto" keeps them from
+    // spreading into rects (where they would silently disable hit testing and rendering).
+    return Number.isFinite(unit) ? unit : null;
   }
   if (unit === 'auto') {
     return null;
@@ -231,9 +233,24 @@ export function resolveAxisLength(
   return clamp(resolved, min, max);
 }
 
+/**
+ * Replaces a non-finite numeric length with `'auto'`.
+ *
+ * `{ width: NaN }` is an authoring mistake that would otherwise travel all the way into a rect (and
+ * from there into hit testing and rendering, where a `NaN` silently disables both).
+ */
+function sanitizeLengthUnit(unit: LengthUnit | undefined): LengthUnit {
+  return unit === undefined || (typeof unit === 'number' && !Number.isFinite(unit)) ? 'auto' : unit;
+}
+
+function sanitizeLengthUnitOrNull(length: Length | undefined): LengthUnit | null {
+  const unit = toLengthUnit(length);
+  return unit === undefined ? null : sanitizeLengthUnit(unit);
+}
+
 function normalizeBound(value: Length | undefined, fallback: number): number {
   const resolved = resolveLength(toLengthUnit(value) ?? 'auto', 0);
-  return resolved === null ? fallback : resolved;
+  return resolved === null || !Number.isFinite(resolved) ? fallback : resolved;
 }
 
 export function normalizeParams(params?: LayoutParams): ResolvedParams {
@@ -245,35 +262,35 @@ export function normalizeParams(params?: LayoutParams): ResolvedParams {
   const basis = toLengthUnit(params.basis);
 
   return {
-    width: width?.value ?? 'auto',
-    height: height?.value ?? 'auto',
+    width: sanitizeLengthUnit(width?.value),
+    height: sanitizeLengthUnit(height?.value),
     minWidth: normalizeBound(params.minWidth, 0),
     maxWidth: normalizeBound(params.maxWidth, UNBOUNDED_LENGTH),
     minHeight: normalizeBound(params.minHeight, 0),
     maxHeight: normalizeBound(params.maxHeight, UNBOUNDED_LENGTH),
     grow: finiteOr(params.grow ?? 0, 0),
     shrink: finiteOr(params.shrink ?? 0, 0),
-    basis: basis ?? null,
+    basis: basis === undefined ? null : sanitizeLengthUnit(basis),
     margin: resolveInsets(params.margin),
     padding: resolveInsets(params.padding),
     alignSelf: params.alignSelf ?? 'auto',
     aspectRatio:
       params.aspectRatio !== undefined && params.aspectRatio > 0 ? params.aspectRatio : null,
     position: params.position ?? 'flow',
-    left: toLengthUnit(params.left) ?? null,
-    top: toLengthUnit(params.top) ?? null,
-    right: toLengthUnit(params.right) ?? null,
-    bottom: toLengthUnit(params.bottom) ?? null,
+    left: sanitizeLengthUnitOrNull(params.left),
+    top: sanitizeLengthUnitOrNull(params.top),
+    right: sanitizeLengthUnitOrNull(params.right),
+    bottom: sanitizeLengthUnitOrNull(params.bottom),
     order: finiteOr(params.order ?? 0, 0),
     hideMode: params.hideMode ?? 'collapse',
     gridColumn: params.gridColumn ?? null,
     gridRow: params.gridRow ?? null,
     gridColumnSpan: Math.max(1, Math.floor(params.gridColumnSpan ?? 1)),
     gridRowSpan: Math.max(1, Math.floor(params.gridRowSpan ?? 1)),
-    widthMin: width?.min ?? 0,
-    widthMax: width?.max ?? UNBOUNDED_LENGTH,
-    heightMin: height?.min ?? 0,
-    heightMax: height?.max ?? UNBOUNDED_LENGTH,
+    widthMin: finiteOr(width?.min ?? 0, 0),
+    widthMax: finiteOr(width?.max ?? UNBOUNDED_LENGTH, UNBOUNDED_LENGTH),
+    heightMin: finiteOr(height?.min ?? 0, 0),
+    heightMax: finiteOr(height?.max ?? UNBOUNDED_LENGTH, UNBOUNDED_LENGTH),
   };
 }
 
