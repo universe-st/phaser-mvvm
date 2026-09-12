@@ -22,7 +22,7 @@
 ## 2. 目标 1（像 Jetpack Compose 一样写 UI）——已达成的部分
 
 - **入口**：`render(this.mvvm, () => { … })` 一次调用建树 + 挂载；`ui(scene, () => { … })` 只建不挂（切页/对话框用）。
-- **覆盖面**：容器 `Column`/`Row`/`Grid`/`Stack`/`Absolute`/`Panel`(=Surface)/`Scroll`；叶子 `Text`/`Button`/`Image`/`Rect`/`Spacer`/`Divider`/`TextField`/`TextArea`；列表 `List`(=Repeat，可虚拟化)。选项对象与控件类完全一致，**没有第二套词汇**。
+- **覆盖面**：容器 `Column`/`Row`/`Grid`/`Stack`/`Absolute`/`Panel`/`Scroll`（`Panel` 就是 Compose 的 `Surface`/`Card`；**没有别名**，第 95 轮把没人用过的 `Surface` 删掉了）；叶子 `Text`/`Button`/`Image`/`Rect`/`Spacer`/`Divider`/`TextField`/`TextArea`；列表 `List`(=Repeat，可虚拟化)。选项对象与控件类完全一致，**没有第二套词汇**。
 - **反应式**：数据槽位（文本、输入框 `value`）与外观槽位（`tone`/`variant`/`disabled`/`loading`）都接受常量 / `ref` / getter；所有 composable 支持 `visible`（隐藏即退出布局流 = Compose 的 `if`）。
 - **控制流**：内容是同步执行的，所以 `if`/`for`/`switch` 直接写即可（`#/compose` 的 `Flow` 分区有可点按演示）。
 - **文档**：01 章按 DSL 重写；09 章是 DSL 手册（含 §4.1 控制流、§7 自定义控件加入树）；README §4 用 `render()`；02–07 章开头有「本章片段用工厂写法，推荐 DSL」横幅。

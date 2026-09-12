@@ -205,3 +205,41 @@ this.mvvm.mount(page);
 
 - 提交信息：`feat(widgets): Compose-style UI DSL with scopes, reactive arguments and per-widget acceptance scene`（正文列出缺陷修复与验收证据）。
 - 提交前门禁：`pnpm -r run typecheck`、`pnpm -r run test`、`pnpm exec prettier --check .`、`pnpm --filter @phaser-mvvm/examples run build` 全绿。
+
+---
+
+## 7. 词汇表守卫：`Surface` 别名被删除，`space-evenly` 补上（第 95 轮）
+
+### 7.1 审计方式
+
+把四个包（含 `widgets/compose` 子路径）的**运行时导出**逐个拿去查三份语料：`apps/examples/src/**`（demo）、`docs/guide/*.md`（指南）、`packages/*/test/**`（单测），再看"除了定义它的那个文件，还有谁提到过这个名字"。
+
+结果只有**一个**名字三处全空：`compose.ts` 的 `export const Surface = Panel`。
+
+- 指南的容器表里写着「`Panel`（别名 `Surface`）」，所以它不是"没文档"，而是**没有任何代码用过它** —— demo、单测都没有；
+- 它是同一个东西的第二个名字，而 `docs/HANDOVER.md` 自己写着「**没有第二套词汇**」；
+- 别名本身不会腐烂，但"没人用过"意味着没人会发现它是否还成立（第 86 轮 `bounce` 就是"看着对、其实一直没生效"）。
+
+**决定：删掉别名**，并把 Compose 的对应关系写进指南（09 §3 的容器表改成「`Panel` —— Compose 里对应 `Surface`/`Card`」）。理由与目标 #1 一致：**一个概念一个名字**，否则从 Compose 过来的人会在两个名字之间抛硬币。
+
+### 7.2 把这条审计变成门禁
+
+`pnpm docs:check` 新增第三关 **vocabulary**：`packages/widgets/src/compose.ts` 的每个运行时导出，必须在 `apps/examples/src/scenes/**` 里被用到、且在 `docs/guide/*.md` 里被提到。
+
+```
+ok   vocabulary  (21 composables, each used by a demo and named in the guide)
+```
+
+**正对照**：把 `export const Surface = Panel;` 临时加回去，门禁立刻转红并指名 `Surface  (no demo uses it)`；删掉后恢复绿色。这样"新增一个 DSL 导出但没人用"从下一轮起会当场被拦下。
+
+### 7.3 `space-evenly`：最后一个没有 demo 的分布取值
+
+`justifyContent` 的取值有六个（`start`/`center`/`end`/`space-between`/`space-around`/`space-evenly`），`#/compose` 的 `Column & Row` 卡此前只演示了前五个 —— 引擎实现了它，指南写了它，**没有任何页面画过它**。第 95 轮补进那个循环，并顺手量了三行（行宽 980、三个 72px 方块）：
+
+| `justifyContent` | 方块 x          | 方块间距 | 右侧余量 | 判据                                |
+| ---------------- | --------------- | -------- | -------- | ----------------------------------- |
+| `space-between`  | 335 / 621 / 908 | 214, 215 | 0        | 两端贴边、中间均分 ✓                |
+| `space-around`   | 361 / 595 / 830 | 162, 163 | 78       | 边缘是间距的**一半**（78 ≈ 162/2）✓ |
+| `space-evenly`   | 376 / 580 / 783 | 132, 131 | 125      | 边缘余量**等于**间距（125 ≈ 131）✓  |
+
+后两行只差一个"边缘算不算一格"，放在同一张卡上、量出来分别是 78 与 125 —— 这正是能分辨"实现错了"的数字（把 `space-evenly` 写成 `space-around` 会立刻看出来）。

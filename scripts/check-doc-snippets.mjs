@@ -227,6 +227,56 @@ function idiomFailures() {
   return found;
 }
 
+/**
+ * The **vocabulary pass**: every composable the DSL exports must be *used by a demo* and *named in the
+ * guide*.
+ *
+ * This is the lesson of rounds 86-95 written as a check. `Surface` (an alias of `Panel`) sat in the
+ * public API for months: the guide mentioned it in a table, and **nothing else ever touched it** - not
+ * a demo, not a test - so nobody would have noticed if it had rotted, and a reader arriving from
+ * Compose had a 50/50 choice between two names for one thing. It was removed in round 95. From now on
+ * an export that no demo exercises fails here the moment it is added.
+ */
+function vocabularyFailures() {
+  const compose = readFileSync(join(root, 'packages/widgets/src/compose.ts'), 'utf8');
+  const names = new Set(
+    [...compose.matchAll(/export\s+(?:const|function|class)\s+([A-Za-z_$][\w$]*)/g)].map(
+      (m) => m[1],
+    ),
+  );
+  for (const match of compose.matchAll(/export\s*\{([^}]*)\}/g)) {
+    for (const part of match[1].split(',')) {
+      const text = part.trim();
+      if (!text || text.startsWith('type ')) {
+        continue;
+      }
+      const name = text.split(' as ').pop().trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(name)) {
+        names.add(name);
+      }
+    }
+  }
+  const demo = readdirSync(join(root, 'apps/examples/src/scenes'))
+    .filter((name) => name.endsWith('.ts'))
+    .map((name) => readFileSync(join(root, 'apps/examples/src/scenes', name), 'utf8'))
+    .join('\n');
+  const guide = readdirSync(join(root, 'docs/guide'))
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => readFileSync(join(root, 'docs/guide', name), 'utf8'))
+    .join('\n');
+  const mentions = (corpus, name) => new RegExp(`(?<![\\w$.])${name}(?![\\w$])`).test(corpus);
+  const failures = [];
+  for (const name of [...names].sort()) {
+    if (!mentions(demo, name)) {
+      failures.push(`${name}  (no demo uses it)`);
+    }
+    if (!mentions(guide, name)) {
+      failures.push(`${name}  (not named in the guide)`);
+    }
+  }
+  return { total: names.size, failures };
+}
+
 const root = new URL('..', import.meta.url).pathname;
 const files =
   process.argv.slice(2).length > 0
@@ -256,6 +306,22 @@ if (failures > 0) {
   );
   process.exit(1);
 }
+const vocabulary = vocabularyFailures();
+if (vocabulary.failures.length > 0) {
+  failures += vocabulary.failures.length;
+  console.log(`\nFAIL vocabulary  ${vocabulary.failures.length} composable(s) with no coverage:`);
+  for (const entry of vocabulary.failures) {
+    console.log(`     ${entry}`);
+  }
+  console.error(
+    '     A DSL export needs a demo that uses it and a line in the guide. If it is an alias or a\n' +
+      '     duplicate, delete it instead (round 95: `Surface` was an alias of `Panel` that nothing used).',
+  );
+  process.exit(1);
+}
+console.log(
+  `ok   vocabulary  (${vocabulary.total} composables, each used by a demo and named in the guide)`,
+);
 const idiom = idiomFailures();
 if (idiom.length > 0) {
   failures += idiom.length;

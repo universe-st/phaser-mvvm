@@ -208,7 +208,12 @@ export function Absolute(
 }
 
 /**
- * A themed, painted container — the Compose `Surface`/`Card` of this framework.
+ * A themed, painted container — what Compose calls a `Surface` or a `Card`.
+ *
+ * Deliberately the **only** name for it: an alias (`Surface`) sat here for a while and nothing ever
+ * used it — not a demo, not a test — while the guide taught `Panel` everywhere. Two names for one
+ * thing is not "Compose-like", it is a coin flip for the reader, so the alias was removed in round 95
+ * and the mapping to Compose's vocabulary lives in the guide instead (09 §3).
  *
  * `Column`/`Row` are transparent layout boxes; `Panel` is the one that paints a background, so it is
  * what a card, a dialog or a page root is made of.
@@ -227,9 +232,6 @@ export function Panel(options?: PanelDslOptions | (() => void), content?: () => 
   bindOption(widget, variant, (host, next) => host.setVariant(next));
   return withUiParent(widget, args.content);
 }
-
-/** Alias of `Panel`, for readers coming from Compose. */
-export const Surface = Panel;
 
 /**
  * A solid colour block - the adapter's `RectWidget`.

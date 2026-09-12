@@ -95,15 +95,15 @@ DSL 是**独立入口**（`@phaser-mvvm/widgets/compose`），不在包根导出
 
 ## 3. 容器
 
-| Composables               | 对应控件                | 备注                                              |
-| ------------------------- | ----------------------- | ------------------------------------------------- |
-| `Column` / `Row`          | 透明盒子（`BoxWidget`） | 与 Compose 一致：它们自己不画背景                 |
-| `Panel`（别名 `Surface`） | `Panel`                 | 会画背景的容器，卡片／对话框／页面根用它          |
-| `Grid`                    | `GridWidget`            | `columns` / `columns: 'auto'` / `gap` / `span`    |
-| `Stack`                   | `StackWidget`           | 子节点重叠，`align: 'start' \| 'center' \| 'end'` |
-| `Absolute`                | `AbsoluteWidget`        | 子节点用 `position: 'absolute'` + `left/top/…`    |
-| `Scroll`                  | `ScrollView`            | 内容 lambda 必须建**恰好一个**根控件              |
-| `List`                    | `Repeat`                | keyed、可虚拟化，见 §6                            |
+| Composables      | 对应控件                | 备注                                                                        |
+| ---------------- | ----------------------- | --------------------------------------------------------------------------- |
+| `Column` / `Row` | 透明盒子（`BoxWidget`） | 与 Compose 一致：它们自己不画背景                                           |
+| `Panel`          | `Panel`                 | 会画背景的容器（Compose 里对应 `Surface`/`Card`），卡片／对话框／页面根用它 |
+| `Grid`           | `GridWidget`            | `columns` / `columns: 'auto'` / `gap` / `span`                              |
+| `Stack`          | `StackWidget`           | 子节点重叠，`align: 'start' \| 'center' \| 'end'`                           |
+| `Absolute`       | `AbsoluteWidget`        | 子节点用 `position: 'absolute'` + `left/top/…`                              |
+| `Scroll`         | `ScrollView`            | 内容 lambda 必须建**恰好一个**根控件                                        |
+| `List`           | `Repeat`                | keyed、可虚拟化，见 §6                                                      |
 
 两种调用形式都支持，内容和选项的顺序随你：
 

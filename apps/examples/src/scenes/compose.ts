@@ -894,12 +894,15 @@ export class ComposeScene extends Phaser.Scene {
   private buildBox(): void {
     this.card('Column & Row', 'gap、justifyContent、alignItems、wrap 与嵌套', () => {
       Column({ gap: 10, width: 'fill', alignItems: 'stretch' }, () => {
+        // Every member of the `justifyContent` union, so "the value the engine implements" and "the
+        // value a demo shows" cannot drift apart (`space-evenly` was missing until round 95).
         for (const justify of [
           'start',
           'center',
           'end',
           'space-between',
           'space-around',
+          'space-evenly',
         ] as const) {
           Row({ gap: 6, justifyContent: justify, width: 'fill', height: 42 }, () => {
             Text(`${justify}`, { width: 120, tone: 'muted' });
