@@ -47,6 +47,7 @@ import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import {
   ARROW_KEY_OF_DIRECTION,
+  pointerDragOwner,
   DEFAULT_REVEAL_MARGIN,
   contentRectOf,
   revealOffset,
@@ -1224,6 +1225,13 @@ export class ScrollView extends Widget {
     if (!this.containsPoint(pointer.worldX, pointer.worldY)) {
       return;
     }
+    // Somebody already owns this pointer (a `TextField` starting a selection drag): arming here would
+    // scroll the page *and* extend the selection. The check is repeated at the threshold below, which is
+    // what makes it work whichever of the two `pointerdown` handlers ran first.
+    if (pointerDragOwner(this.scene, pointer.id) !== null) {
+      this.dragStart = null;
+      return;
+    }
     this.stopScroll();
 
     // A press on the scrollbar drives the thumb and must not also start a content drag.
@@ -1423,6 +1431,14 @@ export class ScrollView extends Widget {
       SCROLL_DRAG_THRESHOLD,
     );
     if (!plan.dragging) {
+      return;
+    }
+    // The gesture changed hands while the pointer travelled (the press landed on a text field that wants
+    // to select): drop the drag instead of fighting it for the same movement.
+    if (pointerDragOwner(this.scene, pointer.id) !== null) {
+      this.dragStart = null;
+      this.dragPointerId = null;
+      this.dragging = false;
       return;
     }
     this.dragging = true;

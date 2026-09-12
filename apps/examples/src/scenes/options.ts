@@ -24,7 +24,7 @@
 
 import Phaser from 'phaser';
 import { ref } from '@phaser-mvvm/core';
-import { type Widget } from '@phaser-mvvm/phaser';
+import { pointerClaims, type Widget } from '@phaser-mvvm/phaser';
 import {
   Button,
   Column,
@@ -37,9 +37,10 @@ import {
   Scroll,
   Text,
   TextArea,
+  TextField,
   ui,
 } from '@phaser-mvvm/widgets/compose';
-import type { ScrollView } from '@phaser-mvvm/widgets';
+import type { TextField as TextFieldWidget, ScrollView } from '@phaser-mvvm/widgets';
 import { setDemoState } from '../demo';
 import { appendStatus, pagePoint, reportCanvas, reportWidget, stagePosition } from '../status';
 
@@ -94,6 +95,17 @@ export class OptionsScene extends Phaser.Scene {
   private bothControl: ScrollView | null = null;
   private readonly bothEvents = new Map<string, number>();
 
+  // --- drag selection on the pure-Canvas text path -------------------------------------------------
+  /**
+   * The card that measures the drag-ownership protocol: a `dom: false` field inside the page's own
+   * `ScrollView` stage, next to a drag target that is *not* a field.
+   *
+   * The stage is what makes it a real test rather than a unit test in disguise: without the claim, a
+   * drag across the text would scroll the page and select nothing (or both).
+   */
+  private readonly canvasSelection = ref('');
+  private selectField: TextFieldWidget | null = null;
+
   /** The page's stage; the gesture cards live below the fold, so a check has to scroll to them. */
   private stage: ScrollView | null = null;
 
@@ -134,6 +146,7 @@ export class OptionsScene extends Phaser.Scene {
                 this.submitCard();
                 this.inertiaCard();
                 this.directionCard();
+                this.selectionCard();
                 this.gridCard();
                 // Registered after the cards are built: `track()` needs the widget the lambda returned.
                 for (const [key, widget] of this.pendingTracked) {
@@ -475,6 +488,94 @@ export class OptionsScene extends Phaser.Scene {
     );
   }
 
+  /**
+   * Selection by dragging on the pure-Canvas path (`dom: false`), inside a scrolling page.
+   *
+   * V58: that path had **no pointer-driven selection at all** — the caret could be placed by a click and
+   * moved by the keyboard, but a drag did nothing, because `TextInputBase` never listened for
+   * `pointermove`. Adding the listener alone would have been worse than the gap: the page's `ScrollView`
+   * claims the same drag and would scroll while the selection grew.
+   *
+   * So the card is A/B by construction — one canvas field and one plain region inside the page's
+   * scrolling stage, and a check drags across both: the field selects and the page stays put, the region
+   * scrolls and nothing is selected.
+   */
+  private selectionCard(): void {
+    this.card(
+      'drag to select (dom: false)',
+      'the field claims the drag; the page around it keeps scrolling — text and a control next to it',
+      () => {
+        Column({ gap: 8, width: 'fill', alignItems: 'stretch' }, () => {
+          const field = TextField({
+            value: 'Drag across this text to select it',
+            dom: false,
+            width: 420,
+            alignSelf: 'start',
+            name: 'options.select',
+          });
+          this.selectField = field;
+          this.pendingTracked.push(['options.select', field]);
+          field.on('change', (value: string) => {
+            this.canvasSelection.value = value;
+          });
+          // A drag target that is *not* a field: dragging here must scroll the page (the control half of
+          // the A/B), and the field's selection must not change.
+          const region = Panel(
+            {
+              direction: 'horizontal',
+              alignItems: 'center',
+              justifyContent: 'center',
+              variant: 'surfaceAlt',
+              radius: 8,
+              height: 64,
+              width: 420,
+              alignSelf: 'start',
+              name: 'options.dragRegion',
+            },
+            () => {
+              Text('drag here → the page scrolls', { tone: 'muted' });
+            },
+          );
+          this.pendingTracked.push(['options.dragRegion', region]);
+          Text(
+            () => {
+              const info = this.selectionInfo();
+              return `caret ${info.caret} · selection ${info.selection} · stage ${info.stage}`;
+            },
+            { tone: 'muted' },
+          );
+        });
+      },
+    );
+  }
+
+  /** Caret/selection of the canvas field, plus what the drag claim is doing. */
+  private selectionInfo(): {
+    value: string;
+    caret: number;
+    selection: number;
+    claim: string;
+    stage: number;
+  } {
+    const field = this.selectField as unknown as {
+      getValue?: () => string;
+      caretIndex?: number;
+      selectionAnchor?: number;
+    } | null;
+    const caret = field?.caretIndex ?? -1;
+    const anchor = field?.selectionAnchor ?? caret;
+    const scene = this as unknown as object;
+    const claims = pointerClaims(scene);
+    return {
+      value: field?.getValue?.() ?? '',
+      caret,
+      selection: Math.abs(caret - anchor),
+      claim:
+        claims.length === 0 ? 'none' : claims.map((c) => `${c.pointerId}:${c.owner}`).join(','),
+      stage: Math.round(this.stage?.offset ?? -1),
+    };
+  }
+
   /** `Grid.autoFlow`/`minRowHeight` and `Row({ wrap, alignContent })`. */
   private gridCard(): void {
     this.card(
@@ -593,6 +694,10 @@ export class OptionsScene extends Phaser.Scene {
     this.publish('ta.ctrlSubmits', this.ctrlSubmits);
     this.publish('ta.defaultBreaks', (this.defaultArea.value.match(/\n/g) ?? []).length);
     this.publish('ta.submitBreaks', (this.submitOnEnterArea.value.match(/\n/g) ?? []).length);
+    const selection = this.selectionInfo();
+    this.publish('select.caret', selection.caret);
+    this.publish('select.selection', selection.selection);
+    this.publish('select.claim', selection.claim);
     const both = this.bothScroll;
     if (both) {
       this.publish('both.x', Math.round(both.offsetX));
@@ -807,6 +912,28 @@ export class OptionsScene extends Phaser.Scene {
           ...(x === null ? {} : { x }),
           ...(y === null ? {} : { y }),
         });
+      },
+      /** Caret, selection and the outstanding drag claim of the `dom: false` field. */
+      selection: (): ReturnType<OptionsScene['selectionInfo']> => this.selectionInfo(),
+      /** Where the field's page rect is, so a check can drag across it rather than guess. */
+      selectionRects: (): Record<
+        string,
+        { x: number; y: number; width: number; height: number }
+      > => {
+        const out: Record<string, { x: number; y: number; width: number; height: number }> = {};
+        for (const key of ['options.select', 'options.dragRegion']) {
+          const widget = this.tracked.get(key);
+          if (widget && !widget.isDestroyed) {
+            const origin = stagePosition(widget);
+            out[key] = {
+              x: Math.round(origin.x),
+              y: Math.round(origin.y),
+              width: Math.round(widget.appliedRect.width),
+              height: Math.round(widget.appliedRect.height),
+            };
+          }
+        }
+        return out;
       },
       /** Page coordinates of a named widget (the corner buttons), for a click or a gesture. */
       pointOf: (name: string): { x: number; y: number } | null => {

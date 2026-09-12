@@ -16,6 +16,14 @@ export {
   type WidgetOptions,
 } from './Widget';
 export {
+  claimPointerDrag,
+  clearPointerClaims,
+  pointerClaims,
+  pointerDragOwner,
+  releasePointerDrag,
+  type PointerClaimOwner,
+} from './pointer-claim';
+export {
   AbsoluteWidget,
   type AbsoluteWidgetOptions,
   BoxWidget,

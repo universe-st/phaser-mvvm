@@ -22,7 +22,15 @@
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import type { Theme } from '@phaser-mvvm/phaser';
-import { ProceduralSkin, stageRectOf, Widget } from '@phaser-mvvm/phaser';
+import {
+  ProceduralSkin,
+  claimPointerDrag,
+  pointerClaims,
+  pointerDragOwner,
+  releasePointerDrag,
+  stageRectOf,
+  Widget,
+} from '@phaser-mvvm/phaser';
 import type { A11yDescriptor } from '@phaser-mvvm/phaser';
 import { paintFocusRing, textInputSkinStyles } from './appearance';
 import { toCssColor } from './color';
@@ -284,8 +292,52 @@ export abstract class TextInputBase extends Widget {
     if (this.readOnly) {
       return;
     }
+    // The press belongs to this field: a drag that follows is a *selection*, not a scroll. The claim is
+    // made here and read by every enclosing `ScrollView` when it is about to move (see `pointer-claim`),
+    // which makes the order of the two `pointerdown` handlers irrelevant. The DOM path does not claim:
+    // the hidden element sits above the canvas and the browser does the selecting itself.
+    if (!this.usingDomBridge) {
+      claimPointerDrag(this.scene, pointer.id, this);
+    }
     this.placeCaretAt(local.x, local.y);
   };
+
+  /**
+   * Drag selection on the pure-Canvas path (`dom: false`).
+   *
+   * Only runs while this field owns the pointer's drag: the anchor stays where the press put the caret
+   * and every move extends towards the pointer, which is what a mouse user expects of text. A multiline
+   * drag across lines carries the row selection through `displayLines`, and dragging past either end
+   * keeps extending to that line's edge because `placeCaretAt` clamps the caret into the text.
+   */
+  private readonly handleScenePointerMove = (pointer: Phaser.Input.Pointer): void => {
+    if (this.usingDomBridge || !this.enabled || this.readOnly || !pointer.isDown) {
+      return;
+    }
+    if (!this.ownsDrag(pointer.id)) {
+      return;
+    }
+    const local = this.localPoint(pointer.worldX, pointer.worldY);
+    this.placeCaretAt(local.x, local.y, true);
+  };
+
+  /** Releases the drag claim, so the next press starts clean (V24's shape of defect). */
+  private readonly handleScenePointerUp = (pointer: Phaser.Input.Pointer): void => {
+    releasePointerDrag(this.scene, pointer.id, this);
+  };
+
+  private ownsDrag(pointerId: number): boolean {
+    return pointerDragOwner(this.scene, pointerId) === this;
+  }
+
+  /** Drops every claim of this field — on blur and on destroy, where the pointer id is not known. */
+  private releaseAllDrags(): void {
+    for (const claim of pointerClaims(this.scene)) {
+      if (claim.owner === (this.name || this.constructor.name)) {
+        releasePointerDrag(this.scene, claim.pointerId);
+      }
+    }
+  }
 
   /**
    * Releases the focus when the pointer goes down somewhere else on the canvas.
@@ -392,6 +444,9 @@ export abstract class TextInputBase extends Widget {
     this.on('pointerdown', this.handlePointerDown);
     scene.input?.keyboard?.on('keydown', this.phaserKeyDown);
     scene.input?.on('pointerdown', this.handleScenePointerDown);
+    scene.input?.on('pointermove', this.handleScenePointerMove);
+    scene.input?.on('pointerup', this.handleScenePointerUp);
+    scene.input?.on('pointerupoutside', this.handleScenePointerUp);
     scene.scale?.on('resize', this.handleResize);
 
     if (widget.disabled === true) {
@@ -688,6 +743,10 @@ export abstract class TextInputBase extends Widget {
     this.removeKeyGuard();
     this.scene?.input?.keyboard?.off('keydown', this.phaserKeyDown);
     this.scene?.input?.off('pointerdown', this.handleScenePointerDown);
+    this.scene?.input?.off('pointermove', this.handleScenePointerMove);
+    this.scene?.input?.off('pointerup', this.handleScenePointerUp);
+    this.scene?.input?.off('pointerupoutside', this.handleScenePointerUp);
+    this.releaseAllDrags();
     this.scene?.scale?.off('resize', this.handleResize);
     this.off('pointerdown', this.handlePointerDown);
     this.bridge?.dispose();
@@ -999,6 +1058,8 @@ export abstract class TextInputBase extends Widget {
     this.caretVisible = false;
     this.removeKeyGuard();
     this.bridge?.blur();
+    // A field that kept a claim after losing focus would refuse the next drag started elsewhere.
+    this.releaseAllDrags();
     this.valueAtFocus = null;
     this.columnHint = -1;
     this.runValidation();
@@ -1272,8 +1333,13 @@ export abstract class TextInputBase extends Widget {
     this.restartBlink();
   }
 
-  private placeCaretAt(localX: number, localY: number): void {
+  /**
+   * Moves the caret to the point `(localX, localY)`, optionally **extending** a selection instead of
+   * collapsing it — the difference between a click and a drag (see `handleScenePointerMove`).
+   */
+  private placeCaretAt(localX: number, localY: number, extend = false): void {
     const box = this.contentRect();
+    const anchor = extend ? this.anchor : -1;
     if (this.multiline) {
       const relativeY = localY - box.y - this.contentOffsetY + this.scrollY;
       const index = Math.max(
@@ -1289,7 +1355,7 @@ export abstract class TextInputBase extends Widget {
         );
         const valueOffset = valueOffsetFromDisplay(this.value, line.start + offset, this.inputType);
         this.caret = valueOffset;
-        this.anchor = valueOffset;
+        this.anchor = anchor >= 0 ? anchor : valueOffset;
       }
     } else {
       const display =
@@ -1297,7 +1363,7 @@ export abstract class TextInputBase extends Widget {
       const offset = caretAtX(display, localX - box.x + this.scrollX, this.measureWidth);
       const valueOffset = valueOffsetFromDisplay(this.value, offset, this.inputType);
       this.caret = valueOffset;
-      this.anchor = valueOffset;
+      this.anchor = anchor >= 0 ? anchor : valueOffset;
     }
     this.columnHint = -1;
     this.paintContent();
