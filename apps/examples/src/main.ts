@@ -9,6 +9,7 @@ import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
 import { ScrollScene } from './scenes/scroll';
+import { ShowcaseScene } from './scenes/showcase';
 import { StackScene } from './scenes/stack';
 import { appendStatus, installErrorReporting, setStatus } from './status';
 
@@ -30,6 +31,7 @@ const SCENES = {
   form: FormScene,
   list: ListScene,
   scroll: ScrollScene,
+  showcase: ShowcaseScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

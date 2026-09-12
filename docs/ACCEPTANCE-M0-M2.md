@@ -276,3 +276,17 @@ PASS bindings (2)  PASS form (5)    PASS list (6)   PASS scroll (5)    ⇒ ALL 9
 | 无错误       | `pageErrors=[]`、`#status` 无 ERROR/REJECTION                                                                                                                          |
 
 实现：滤镜是 WebGL-only，因此 Canvas 分支改用 `GeometryMask`（Phaser 4 的 `GeometryMask` 恰好只在 Canvas 可用，PLAN §2）——一个 stage 空间的白矩形 mask，在每次布局与每帧重绘以跟随视口，销毁时释放。渲染器决定走哪条路径并各 warn 一次。
+
+---
+
+# 验收入口：`#/showcase`（全部控件 + 全部布局，2026-09）
+
+一页看全框架能力的验收 demo（`apps/examples/src/scenes/showcase.ts`）：左侧是分区导航，右侧舞台是 `ScrollView`（内容超出即被裁剪并可滚动），每张卡片都有标题与说明，且**只使用公开控件 API**、无自造绘制。
+
+十个分区：`text`（Label 的 tone/size/align/maxLines+ellipsis）、`buttons`（4 variants × 3 sizes、disabled/loading/toggle、icon）、`inputs`（TextField 的 text/email/number/password/disabled/read-only、validate 错误态、TextArea、live values）、`decoration`（Panel variants/radius/elevation/border、Divider、Spacer、Image 四种 fit）、`box`（justifyContent / alignItems / wrap / reverse）、`grid`（固定列 / `columns:'auto'` / `columnSpan` / 对齐）、`stack`（`uiStack` 重叠与 z 序、`uiAbsolute` 四角与 `left:'50%'`、绝对定位不占流）、`params`（width auto/固定/百分比/fill、grow、min/max、aspectRatio、margin+padding、order、alignSelf、setVisible 折叠）、`repeat`（`Repeat` 虚拟化列表在 `ScrollView` 内，附 Add/Remove/Reverse 与 mounted 计数、水平 chips 滚动）、`focus`（Tab 顺序、焦点读出、方向键网格、disabled 跳过）。
+
+**验收接口**：`#demo-state` 发布 `scene/section/widgets/clicks/toggled/field/email/emailValid/area/focus/theme/repeat.total/repeat.rendered/scroll.offset` 与全部 `pt.*` 点击点（`pt.header.*`、`pt.nav.<section>`、`pt.<section>.<control>`，每帧刷新页面坐标）；`window.showcase` 暴露 `sections()`/`show(id)`/`showAll()`/`state()`/`geometry()`/`controls()`；`#status` 报告 `page/nav/stage/section` 几何。页面用 `setLayoutParams` 跟随窗口尺寸（`Phaser.Scale.RESIZE`），因此任意窗口大小都不会溢出。
+
+**实测（无头 Chrome，1440×900；脚本 `/tmp/m8/showcase-check.mjs`，16/16 PASS）**：启动即 `section=buttons widgets=43`；十个分区逐一切换后 `nodes` 38–160、**0 个 0×0 节点**（隐藏子树与 Spacer/Divider 除外）、host 高度 460–852px；点 `pt.nav.repeat` 切区成功；`Repeat` Add×2/Remove×1 → `200→202→201` 且 `rendered=10`（虚拟化）；两个水平滚动按钮 → chips offset `0→400`；舞台滚轮 → `scroll.offset=400`；点 `pt.buttons.click`×2 与 `pt.buttons.toggle` → `clicks=2`、`toggled=on`；点 `pt.inputs.text` 后 `Input.insertText('hello showcase')` → `field=hello showcase`（DOM 桥输入）；滚到分区底部后点 `pt.params.visibility` → 折叠块 `visible=false` 且后继兄弟左移 `60+8=68px`；`showAll()` → 750 节点、0 扁平、`maxOffset=9990`；从底部切回单区仍 0 扁平；无 pageError。
+**窗口自适应（脚本 `/tmp/m8/showcase-viewport.mjs`，7/7 PASS）**：1024×700 与 1600×1000 下 `page` 分别 1000×676 / 1576×976（不超出窗口），舞台 732×652 / 1308×952，十个分区像素网格的颜色数 21–79（均有真实绘制），`showAll()` 均 750 节点 / 0 扁平。
+**全场景回归**：一次会话扫 10 个 demo 全部 PASS（`m0 probe stack gallery dashboard bindings form list scroll showcase`）。
