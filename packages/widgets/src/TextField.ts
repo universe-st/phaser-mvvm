@@ -58,6 +58,8 @@ export interface TextFieldOptions extends LayoutParams {
   /** Called when the field loses focus (after validation ran). */
   onBlur?: (field: TextField) => void;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 export class TextField extends TextInputBase {

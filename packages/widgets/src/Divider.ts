@@ -10,7 +10,7 @@ import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import type { ThemeColorName } from '@phaser-mvvm/phaser';
 import { Widget, colorOf } from '@phaser-mvvm/phaser';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export type DividerOrientation = 'horizontal' | 'vertical';
 
@@ -22,6 +22,8 @@ export interface DividerOptions extends LayoutParams {
   /** Line thickness in design pixels; the cross-axis size. Defaults to `theme.borderWidth`. */
   thickness?: number;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type DividerWidgetOptions = Omit<DividerOptions, keyof LayoutParams | 'name'>;
@@ -40,7 +42,7 @@ export class Divider extends Widget {
       optionBag(options),
       DIVIDER_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.orientation = widget.orientation ?? 'horizontal';
     this.thickness = Math.max(1, Math.round(widget.thickness ?? this.theme.borderWidth));

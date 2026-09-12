@@ -16,7 +16,7 @@ import { buttonSkinStyles, buttonTextColor, paintFocusRing } from './appearance'
 import { buttonLabel, resolveButtonActivation, resolveButtonState } from './button-state';
 import { toCssColor } from './color';
 import { centeredOffset, contentBox } from './geometry';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -41,6 +41,8 @@ export interface ButtonOptions extends LayoutParams {
   /** Runs on activation of a non-toggle button. */
   onClick?: (button: Button) => void;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type ButtonWidgetOptions = Omit<ButtonOptions, keyof LayoutParams | 'name'>;
@@ -102,7 +104,7 @@ export class Button extends Widget {
       optionBag(options),
       BUTTON_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.variant = widget.variant ?? 'secondary';
     this.size = widget.size ?? 'md';

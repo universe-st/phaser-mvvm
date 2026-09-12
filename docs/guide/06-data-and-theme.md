@@ -4,7 +4,7 @@
 
 > 对应示例：[`apps/examples/src/scenes/bindings.ts`](../../apps/examples/src/scenes/bindings.ts)（`#/bindings`）、[`apps/examples/src/scenes/list.ts`](../../apps/examples/src/scenes/list.ts)（`#/list` 里的模板与命令绑定）、[`apps/examples/src/scenes/dashboard.ts`](../../apps/examples/src/scenes/dashboard.ts)（`#/dashboard` 的换肤）。
 
-> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+> **本章的主题是绑定本身**：`bind*` 系列是命令式那一层（数据在 store 里、或者要挂到已有控件上时用它），页面代码用它写也是合法的；但**日常写页面优先用 Compose 风格 DSL 的数据槽**——`Text(() => vm.title.value)`、`TextField({ value: ref })`、`Button({ disabled: () => !canSave.value })`——它内部就是这些 `bind*`，你不用逐个接线（[09 章](./09-compose-dsl.md)）。本章的示例代码用 DSL 写，同时标注等价的命令式写法。
 
 ---
 
@@ -117,6 +117,8 @@ bindError(emailField, () => this.emailError.value !== null); // boolean → setE
 ---
 
 ## 4. 命令绑定与双向绑定
+
+> **DSL 对应写法**：下面的四个 `bind*` 在 DSL 里都有数据槽替身——`bindText` ← `Text(() => …)`，`bindModel` ← `TextField({ value: ref })`，`bindEnabled`/`bindVisible`/`bindError` ← `disabled`/`visible` 槽与 `setEnabled`，`bindCommand` ← `onClick` + `disabled` 槽。需要 `canExecute` 那种"命令对象"语义、或控件已经建好之后再接数据时，才直接用 `bind*`（`#/bindings` 是这一层的示例页）。
 
 ### 4.1 `bindCommand`：按钮 ↔ 命令
 
@@ -288,8 +290,8 @@ off(); // 取消订阅
 
 ```ts
 import Phaser from 'phaser';
-import { BindingContext, computed, ref } from '@phaser-mvvm/core';
-import { bindTemplateText } from '@phaser-mvvm/phaser';
+import { computed, ref } from '@phaser-mvvm/core';
+import { Button, Grid, Panel, Row, Spacer, Text, render } from '@phaser-mvvm/widgets/compose';
 
 interface Metric {
   key: string;
@@ -315,51 +317,36 @@ export class OpsScene extends Phaser.Scene {
   }
 
   create(): void {
-    const ctx = new BindingContext(this.vm);
+    render(this.mvvm, () => {
+      Panel({ gap: 12, padding: 16, variant: 'plain', width: 'fill' }, () => {
+        Row({ gap: 12, alignItems: 'center' }, () => {
+          Text('Ops dashboard', { style: { fontSize: '20px' } });
+          Spacer({ flex: true });
+          // 一个 computed 驱动一段文本：数据变了，下一帧自动更新（等价于 bindTemplateText(label, ctx, '合计 {{ total }}')）
+          Text(() => `合计 ${this.vm.total.value.toLocaleString()}`, { tone: 'muted' });
+          // 换肤按钮：文案跟着主题走，切主题时两个控件（含被量过的文本尺寸）都自己更新
+          Button(() => `Theme: ${this.mvvm.theme.name}`, {
+            size: 'sm',
+            onClick: () => this.mvvm.setTheme(this.mvvm.theme.name === 'dark' ? 'light' : 'dark'),
+          });
+        });
 
-    const cards = this.vm.metrics.value.map((metric) =>
-      this.add.uiPanel(
-        { direction: 'vertical', gap: 6, padding: 16, variant: 'surfaceAlt', radius: 10 },
-        [
-          this.add.uiLabel({ text: metric.label, tone: 'muted' }),
-          this.add.uiLabel({ text: metric.value.toLocaleString(), style: { fontSize: '26px' } }),
-        ],
-      ),
-    );
-
-    const totalLabel = this.add.uiLabel({ text: '', tone: 'muted' });
-    // 一个 computed 驱动一个 Label：数据变了，下一帧自动更新
-    bindTemplateText(totalLabel, ctx, '合计 {{ total }}');
-
-    const themeButton = this.add.uiButton({
-      text: 'Theme: dark',
-      size: 'sm',
-      onClick: () => {
-        const next = this.mvvm.theme.name === 'dark' ? 'light' : 'dark';
-        this.mvvm.setTheme(next);
-        themeButton.setText(`Theme: ${next}`);
-      },
+        // 卡片是数据驱动的：`for` 直接写在内容 lambda 里，跑到的分支就是存在的分支
+        Grid({ columns: 'auto', minColumnWidth: 180, columnGap: 12, rowGap: 12 }, () => {
+          for (const metric of this.vm.metrics.value) {
+            Panel({ gap: 6, padding: 16, variant: 'surfaceAlt', radius: 10 }, () => {
+              Text(metric.label, { tone: 'muted' });
+              Text(metric.value.toLocaleString(), { style: { fontSize: '26px' } });
+            });
+          }
+        });
+      });
     });
-
-    const page = this.add.uiPanel(
-      { direction: 'vertical', gap: 12, padding: 16, variant: 'plain', width: 'fill' },
-      [
-        this.add.hbox({ gap: 12, alignItems: 'center' }, [
-          this.add.uiLabel({ text: 'Ops dashboard', style: { fontSize: '20px' } }),
-          this.add.uiSpacer({ flex: true }),
-          totalLabel,
-          themeButton,
-        ]),
-        this.add.uiGrid({ columns: 'auto', minColumnWidth: 180, columnGap: 12, rowGap: 12 }, cards),
-      ],
-    );
-
-    this.mvvm.mount(page);
   }
 }
 ```
 
-要点：数据只改 `ref`/`computed`，视图侧只写绑定；换肤只调 `setTheme`，两个控件（含被 `Label` 量过的文本尺寸）都会自己更新。
+要点：数据只改 `ref`/`computed`，视图侧只写数据槽或绑定；换肤只调 `setTheme`，所有控件（含被量过的文本尺寸）都会自己更新。用 `bind*` 写同样的页面时，`Text(() => …)` 换成 `bindText(label, () => …)`、`for` 循环换成先建好数组再传给 `Grid`——两者的刷新时机完全一样（都是 `flush: 'frame'`）。
 
 ---
 

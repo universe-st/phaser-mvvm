@@ -24,6 +24,8 @@ Button('保存', {
 
 拆包在构造函数里完成（`splitOptions` / `splitWidgetOptions`），未知键在**运行时**被静默忽略。但选项接口是闭合类型：直接在字面量里拼错键名会被 TypeScript 报出来，只有绕开类型检查（先存变量、`as` 断言）时才会悄悄失效。以本章表格为准。
 
+`name` / `visible` / `focusOrder` 这三个**基类选项**每个控件都接受（它们直接落到 `Widget` 的字段上）；其余选项见各控件自己的表格。
+
 ### 1.2 统一的视觉状态机
 
 每个控件都有一个 `visualState`，优先级从高到低：
@@ -58,6 +60,7 @@ Button('保存', {
 | `scope`                                                                             | 该控件的 `EffectScope`（绑定都挂在里面，销毁时统一停止）                    |
 | `theme`                                                                             | 当前主题（只读；切换主题时控件自己重绘）                                    |
 | `name`                                                                              | 调试名，也是 `scene.children.getByName` 的名字                              |
+| `focusOrder`                                                                        | Tab 顺序提示（小的先被 Tab 到；相同值保持控件树顺序，见 07 章）             |
 
 事件（`Phaser.Events.EventEmitter` 语义）：
 

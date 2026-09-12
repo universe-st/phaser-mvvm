@@ -36,6 +36,14 @@ export interface WidgetOptions {
   /** Debug name; also used by `scene.children.getByName`. */
   name?: string;
   visible?: boolean;
+  /**
+   * Tab order hint for the focus manager (lower first; ties keep the widget-tree order).
+   *
+   * It is a plain field on the widget, so this option is the declarative form of setting it. Without
+   * it here, `Button('确定', { focusOrder: 1 })` compiled and was silently dropped - the same trap as
+   * any other key that never reaches a setter.
+   */
+  focusOrder?: number;
 }
 
 export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
@@ -78,6 +86,9 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
     if (options.visible !== undefined) {
       super.setVisible(options.visible);
+    }
+    if (options.focusOrder !== undefined && Number.isFinite(options.focusOrder)) {
+      this.focusOrder = options.focusOrder;
     }
 
     this.setSize(0, 0);

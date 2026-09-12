@@ -16,7 +16,13 @@ import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layo
 import type { Theme } from '@phaser-mvvm/phaser';
 import { ProceduralSkin, Widget } from '@phaser-mvvm/phaser';
 import { paintElevation, paintFocusRing, panelSkinStyles } from './appearance';
-import { BOX_CONTAINER_KEYS, boxOptionsOf, optionBag, splitWidgetOptions } from './options';
+import {
+  BOX_CONTAINER_KEYS,
+  boxOptionsOf,
+  optionBag,
+  splitWidgetOptions,
+  baseWidgetOptions,
+} from './options';
 
 /** Background flavours of a panel; each maps onto theme tokens. */
 export type PanelVariant = 'surface' | 'surfaceAlt' | 'overlay' | 'primary' | 'danger' | 'plain';
@@ -54,6 +60,8 @@ export interface PanelOptions extends LayoutParams {
    */
   blockPointer?: boolean;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type PanelWidgetOptions = Omit<PanelOptions, keyof LayoutParams | 'name'>;
@@ -91,7 +99,7 @@ export class Panel extends Widget {
       optionBag(options),
       PANEL_WIDGET_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.variant = widget.variant ?? 'surface';
     this.interactive = widget.interactive === true;

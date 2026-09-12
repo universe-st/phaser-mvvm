@@ -15,7 +15,7 @@ import type { ThemeColorName } from '@phaser-mvvm/phaser';
 import { Widget } from '@phaser-mvvm/phaser';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import { textMetricsOf, type SceneTextMetrics } from './text-metrics';
 import { applyLineLimit } from './text-truncate';
 
@@ -45,6 +45,8 @@ export interface LabelOptions extends LayoutParams {
   /** Semantic colour of the text. Defaults to `'default'` (`theme.colors.text`). */
   tone?: LabelTone;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type LabelWidgetOptions = Omit<LabelOptions, keyof LayoutParams | 'name'>;
@@ -92,7 +94,7 @@ export class Label extends Widget {
       optionBag(options),
       LABEL_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.rawText = widget.text ?? '';
     this.wrap = widget.wrap !== false;

@@ -29,7 +29,7 @@ import type {
 import { BindingContext, createBinding, reactive, warn } from '@phaser-mvvm/core';
 import type { PathScope, StopBinding } from '@phaser-mvvm/core';
 import { Widget } from '@phaser-mvvm/phaser';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import {
   contentExtentOf,
   describeRepeatFlow,
@@ -72,6 +72,8 @@ export interface RepeatOptions<Item> extends LayoutParams {
    */
   context?: BindingContext;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type RepeatWidgetOptions<Item> = Omit<RepeatOptions<Item>, keyof LayoutParams | 'name'>;
@@ -129,7 +131,7 @@ export class Repeat<Item> extends Widget {
       optionBag(options),
       REPEAT_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.repeatOptions = widget;
     this.container = resolveRepeatContainer(widget.container);

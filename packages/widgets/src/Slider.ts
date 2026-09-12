@@ -26,7 +26,7 @@ import {
   sliderValueForKey,
   sliderValueFromPosition,
 } from './slider-geometry';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export interface SliderOptions extends LayoutParams {
   /** Initial value; clamped into `[min, max]` and snapped to `step`. Defaults to `min`. */
@@ -45,6 +45,8 @@ export interface SliderOptions extends LayoutParams {
   /** Called with the new value on every *user* change (not on `setValue`). */
   onChange?: (value: number, slider: Slider) => void;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type SliderWidgetOptions = Omit<SliderOptions, keyof LayoutParams | 'name'>;
@@ -91,7 +93,7 @@ export class Slider extends Widget {
       optionBag(options),
       SLIDER_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.min = Number.isFinite(widget.min) ? (widget.min as number) : 0;
     this.max = Number.isFinite(widget.max) ? (widget.max as number) : 100;

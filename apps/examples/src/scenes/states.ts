@@ -236,6 +236,8 @@ export class StatesScene extends Phaser.Scene {
           this.probe(
             'button.setToggle',
             Button('外部置开', {
+              // `focusOrder` 小的先被 Tab 到：这一对按钮在树里是 set→clear，Tab 顺序相反
+              focusOrder: 2,
               name: 'button.setToggle',
               onClick: () => {
                 this.toggled.value = true;
@@ -246,6 +248,7 @@ export class StatesScene extends Phaser.Scene {
           this.probe(
             'button.clearToggle',
             Button('外部置关', {
+              focusOrder: 1,
               name: 'button.clearToggle',
               onClick: () => {
                 this.toggled.value = false;

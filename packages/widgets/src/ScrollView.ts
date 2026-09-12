@@ -46,7 +46,7 @@ import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
 import { stageRectOf, Widget } from '@phaser-mvvm/phaser';
 import type { Theme } from '@phaser-mvvm/phaser';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import {
   INERTIA_DECELERATION,
   applyInertia,
@@ -83,6 +83,8 @@ export interface ScrollViewOptions extends LayoutParams {
   /** Enables rubber-band overscroll that springs back. Defaults to `false`. */
   bounce?: boolean;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type ScrollWidgetOptions = Omit<ScrollViewOptions, keyof LayoutParams | 'name'>;
@@ -269,7 +271,7 @@ export class ScrollView extends Widget {
       optionBag(options),
       SCROLL_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.direction = widget.direction ?? 'vertical';
     this.scrollbarMode = widget.scrollbar ?? 'auto';

@@ -15,7 +15,7 @@ import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layo
 import { Widget } from '@phaser-mvvm/phaser';
 import { computeFit, type ImageFit } from './fit';
 import { contentBox } from './geometry';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export type { ImageFit } from './fit';
 
@@ -27,6 +27,8 @@ export interface ImageOptions extends LayoutParams {
   /** How the texture is mapped onto the assigned rect. Defaults to `'contain'`. */
   fit?: ImageFit;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type ImageWidgetOptions = Omit<ImageOptions, keyof LayoutParams | 'name'>;
@@ -46,7 +48,7 @@ export class Image extends Widget {
       optionBag(options),
       IMAGE_KEYS,
     );
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.fit = widget.fit ?? 'contain';
     this.image = new Phaser.GameObjects.Image(scene, 0, 0, widget.texture, widget.frame);

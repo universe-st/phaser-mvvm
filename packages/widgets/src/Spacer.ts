@@ -8,7 +8,7 @@
 
 import type { BoxConstraints, LayoutParams, Size } from '@phaser-mvvm/layout';
 import { Widget } from '@phaser-mvvm/phaser';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export interface SpacerOptions extends LayoutParams {
   /**
@@ -16,6 +16,8 @@ export interface SpacerOptions extends LayoutParams {
    */
   flex?: boolean;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 type SpacerWidgetOptions = Omit<SpacerOptions, keyof LayoutParams | 'name'>;
@@ -31,7 +33,7 @@ export class Spacer extends Widget {
     if (widget.flex === true && layout.grow === undefined) {
       layout.grow = 1;
     }
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     // A leaf: nothing to arrange, nothing to measure beyond the params themselves.
     this.container = null;

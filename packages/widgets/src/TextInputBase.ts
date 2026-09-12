@@ -27,7 +27,7 @@ import { paintFocusRing, textInputSkinStyles } from './appearance';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
 import { DomInputBridge, clampSelection, type InputBridgeHandlers } from './input-bridge';
-import { optionBag, splitWidgetOptions } from './options';
+import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import { textMetricsOf } from './text-metrics';
 import {
   CARET_BLINK_MS,
@@ -93,6 +93,8 @@ export interface TextInputOptions extends LayoutParams {
   /** Returns an error message for a value, or `null`. Runs on blur and on demand. */
   validate?: (value: string) => string | null;
   name?: string;
+  /** Tab order hint for the focus manager (lower first). */
+  focusOrder?: number;
 }
 
 /**
@@ -292,7 +294,7 @@ export abstract class TextInputBase extends Widget {
   ) {
     const keys = [...TEXT_INPUT_KEYS, ...extraKeys];
     const { layout, widget } = splitWidgetOptions<TextInputWidgetOptions>(optionBag(options), keys);
-    super(scene, { layout, name: options.name });
+    super(scene, { layout, ...baseWidgetOptions(options) });
 
     this.widgetOptions = widget;
     this.explicitHeight = options.height !== undefined;

@@ -4,7 +4,7 @@
 
 > 对应示例：[`#/gallery`](../../apps/examples/src/scenes/gallery.ts)（Tab/方向键焦点 + 开关按钮）、[`#/scroll`](../../apps/examples/src/scenes/scroll.ts)（键盘滚动 + 嵌套滚轮）。
 
-> **写法提示**：本章的代码片段用 `this.add.uiXxx(...)` 工厂形式书写，为的是把注意力放在选项与行为上；**推荐写法是 Compose 风格 DSL**（[09 章](./09-compose-dsl.md)，可运行示例 `#/compose`），两者建的是同一批控件，把 `this.add.uiPanel({...}, [a, b])` 读成 `Panel({...}, () => { a; b; })` 即可。用 DSL 时也不需要 `install*Factories()`。
+> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)）：焦点相关的选项（`focusOrder`、`focusable`、`disabled`）与工厂写法完全通用，`FocusManager`/`InputRouter` 则始终通过 `this.mvvm.focus` / `this.mvvm.input` 操作，与你怎么建控件无关。
 
 ---
 
@@ -118,8 +118,8 @@ class MyControl extends Widget {
 ### 顺序控制
 
 ```ts
-this.add.uiButton({ text: '确定', focusOrder: 10 }); // 数字小的先被 Tab 到
-this.add.uiButton({ text: '取消', focusOrder: 20 }); // 相同值保持控件树顺序
+Button('确定', { focusOrder: 10 }); // 数字小的先被 Tab 到
+Button('取消', { focusOrder: 20 }); // 相同值保持控件树顺序
 ```
 
 `focusOrder` 是排序提示，不是 `tabIndex`（`tabIndex` 已被 Phaser 的 `GameObject` 占用）。
@@ -221,6 +221,7 @@ class MyCard extends Panel {
 
 ```ts
 import Phaser from 'phaser';
+import { Button, Panel, Row, Stack, Text, ui } from '@phaser-mvvm/widgets/compose';
 
 export class ConfirmScene extends Phaser.Scene {
   constructor() {
@@ -228,43 +229,54 @@ export class ConfirmScene extends Phaser.Scene {
   }
 
   create(): void {
-    const ok = this.add.uiButton({ text: '确定', variant: 'primary', focusOrder: 1, name: 'ok' });
-    const cancel = this.add.uiButton({
-      text: '取消',
-      variant: 'ghost',
-      focusOrder: 2,
-      name: 'cancel',
+    let ok: ReturnType<typeof Button> | null = null;
+    let mask: ReturnType<typeof Panel> | null = null;
+
+    // 对话框要先建出来才能 setCapture/聚焦，所以这里用 `ui()`（只建不挂），最后整体挂载
+    const overlay = ui(this, () => {
+      Stack({ width: 'fill', height: 'fill' }, () => {
+        // 半透明遮罩 + 居中对话框 = 一个 stack 层
+        mask = Panel(
+          { variant: 'overlay', width: 'fill', height: 'fill', radius: 0, interactive: true },
+          () => {
+            // 空遮罩
+          },
+        );
+
+        Panel({ gap: 14, padding: 20, variant: 'surface', radius: 12, width: 360 }, () => {
+          Text('确认操作', { style: { fontSize: '20px' } });
+          Text('该操作不可撤销。', { tone: 'muted' });
+          Row({ gap: 10, justifyContent: 'end' }, () => {
+            Button('取消', {
+              variant: 'ghost',
+              focusOrder: 2,
+              name: 'cancel',
+              onClick: () => this.close(),
+            });
+            ok = Button('确定', {
+              variant: 'primary',
+              focusOrder: 1,
+              name: 'ok',
+              onClick: () => this.close(),
+            });
+          });
+        });
+      });
     });
 
-    const dialog = this.add.uiPanel(
-      { direction: 'vertical', gap: 14, padding: 20, variant: 'surface', radius: 12, width: 360 },
-      [
-        this.add.uiLabel({ text: '确认操作', style: { fontSize: '20px' } }),
-        this.add.uiLabel({ text: '该操作不可撤销。', tone: 'muted' }),
-        this.add.hbox({ gap: 10, justifyContent: 'end' }, [cancel, ok]),
-      ],
-    );
-
-    // 半透明遮罩 + 居中对话框 = 一个 stack 层
-    const mask = this.add.uiPanel(
-      { variant: 'overlay', width: 'fill', height: 'fill', radius: 0, interactive: true },
-      [],
-    );
-    const overlay = this.add.uiStack({ width: 'fill', height: 'fill' }, [mask, dialog]);
     this.mvvm.mount(overlay);
 
     // 遮罩成为指针拦截层：点穿不到下面的 UI
-    this.mvvm.input.setCapture(mask);
+    if (mask) {
+      this.mvvm.input.setCapture(mask);
+    }
 
     // 焦点陷阱 + 键盘/手柄的 Escape/B 键关闭
     this.mvvm.focus.trapFocus = true;
     this.mvvm.focus.onBack = () => this.close();
 
-    ok.on('widget:activate', () => this.close());
-    cancel.on('widget:activate', () => this.close());
-
     // 打开即把焦点放到主操作上
-    ok.focus();
+    ok?.focus();
   }
 
   private close(): void {

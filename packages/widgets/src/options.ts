@@ -23,6 +23,32 @@ export const BOX_CONTAINER_KEYS = [
   'reverse',
 ] as const;
 
+/**
+ * Picks the base-widget options out of a flat bag.
+ *
+ * Every widget class hands `{ layout, name }` to `Widget`, and the keys that live on the base class
+ * have to ride along or they are silently dropped (`focusOrder` was exactly that case: documented as
+ * an option, set by nobody). Spreading this keeps the plumbing in one place.
+ */
+export function baseWidgetOptions(options: object): {
+  name?: string;
+  visible?: boolean;
+  focusOrder?: number;
+} {
+  const bag = optionBag(options);
+  const picked: { name?: string; visible?: boolean; focusOrder?: number } = {};
+  if (typeof bag.name === 'string') {
+    picked.name = bag.name;
+  }
+  if (typeof bag.visible === 'boolean') {
+    picked.visible = bag.visible;
+  }
+  if (typeof bag.focusOrder === 'number' && Number.isFinite(bag.focusOrder)) {
+    picked.focusOrder = bag.focusOrder;
+  }
+  return picked;
+}
+
 export interface WidgetOptionSplit<W> {
   /** Node-level params handed to `Widget`. */
   layout: LayoutParams;
