@@ -21,6 +21,7 @@
  */
 
 import Phaser from 'phaser';
+import { devLog, isDevMode } from '@phaser-mvvm/core';
 import { flushFrame } from '@phaser-mvvm/core';
 import { FocusManager, type FocusManagerOptions } from './focus';
 import { InputRouter, type InputRouterOptions } from './input';
@@ -66,6 +67,8 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private navRepeat = new NavRepeat();
   private padState: NavInputState = EMPTY_NAV_STATE;
   private lastStructureVersion = -1;
+  /** Last widget reported by the development focus trace. */
+  private lastFocused: Widget | null = null;
   private unsubscribeTheme: (() => void) | null = null;
 
   constructor(
@@ -137,6 +140,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   mount<T extends Widget>(child: T): T {
     const mounted = this.root.addWidget(child);
     this.refreshInteraction();
+    if (isDevMode()) {
+      devLog(`mount: page attached and laid out (${countWidgets(child)} widget(s))`);
+    }
     return mounted;
   }
 
@@ -245,6 +251,15 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     flushFrame();
     this.uiRoot?.flushLayout();
 
+    // Development trace for focus: knowing *what* holds focus explains most "my key press went nowhere"
+    // reports. One comparison per frame, and nothing at all once `setDevMode(false)` ran (the log call
+    // itself is gated, and the comparison is cheap).
+    const focused = this.focusManager?.focusedWidget ?? null;
+    if (focused !== this.lastFocused) {
+      this.lastFocused = focused;
+      devLog(`focus: ${focused ? focused.name || focused.constructor.name : 'none'}`);
+    }
+
     // Re-collect only when the tree actually changed: visibility or state changes do not need it, and
     // the layout dirty flag cannot be used for this because `UIRoot.addWidget()` lays out eagerly.
     const root = this.uiRoot;
@@ -284,8 +299,18 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.navRepeat.reset();
     this.padState = EMPTY_NAV_STATE;
     if (this.uiRoot) {
+      devLog('shutdown: UI tree destroyed (widgets, bindings and listeners released)');
       this.uiRoot.destroy(true);
       this.uiRoot = null;
     }
   }
+}
+
+/** Widget count of a subtree, for the development mount trace only. */
+function countWidgets(root: Widget): number {
+  let total = 1;
+  for (const child of root.getWidgetChildren()) {
+    total += countWidgets(child);
+  }
+  return total;
 }

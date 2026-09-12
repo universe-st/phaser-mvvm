@@ -95,6 +95,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素验收）�
 - **开发期包入口指向源码**：`packages/*` 的 `exports` 中 `types`/`import` 指向 `src/index.ts`，只有 `require` 指向 `dist/index.cjs`。因此改源码在 dev 里立即生效，但 CJS 消费方需要先 `build`；**永远不要手改 `dist/`**（生成物且被 gitignore）。
 - **`dist/`、`.tmp/`、`coverage/`、`test-results/` 都是生成物**，已 gitignore；验收截图、日志、临时脚本请放 `.tmp/`。
 - **布局缓存按 (约束, 百分比基准, revision) 命中**：忘记 `markDirty()`/`invalidate()` 会表现为「UI 不更新」而不是报错；调试布局时优先看 `LayoutEngine#stats`（`measureCalls`/`cacheHits`/`skippedSubtrees` 等计数器）。基准进键是必须的：同一个约束在不同包含块下解析百分比会得到不同答案。
+- **调试日志**：开发模式下框架会打印 `[phaser-mvvm]` 前缀的建树/挂载/焦点/慢布局轨迹（`ui()`、`render()`、`mount`、`focus`，以及测量 ≥ 200 节点或 ≥ 2 ms 的布局趟），`setDevMode(false)` 之后一行不打。阈值在 `packages/phaser/src/UIRoot.ts` 顶部。改动日志时保持「发布模式零开销」这条：调用点先用 `isDevMode()` 或让 `devLog` 自己早退，别在热路径里拼字符串。
 - **性能/体积预算怎么跑**：`pnpm --filter @phaser-mvvm/layout run test`（含 `test/perf.test.ts`：1000 节点耗时、无变化帧、缓存命中率、单节点编辑增量性、对象池稳定性）与 `pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定 core+layout < 25 KB、phaser+widgets < 45 KB，同时打印未压缩 gzip）。改动布局引擎、控件度量或新增控件后请跑这两个。
 - **本机没有 `timeout` 命令**（macOS）；长命令用后台任务而不是 `timeout` 包裹。
 - **文档数字会滞后**：`README.md`、`CONTRIBUTING.md`、`docs/ACCEPTANCE-*.md` 里的里程碑状态与测试数量彼此不一致（例如三份文档分别写着 M0–M2 / M0–M7 与不同的用例数）。**以代码、`pnpm -r run test` 的实跑结果和 CI 为准**；顺手更新过时描述是受欢迎的改动。

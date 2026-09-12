@@ -27,6 +27,21 @@
 1. **自己创建的、挂在 `UIRoot` 之外的 Phaser 对象**（比如自己 `new` 的 `Graphics` 又 `container.add` 到了别的显示列表）。
 2. **自己在控件之外注册的监听**（`window.addEventListener`、自定义定时器等）。
 
+### 调试期会打印什么（发布期全部静默）
+
+开发模式下框架会往控制台打几类以 `[phaser-mvvm]` 开头的行，发布模式调用 `setDevMode(false)` 后**一行都不打**（调用点先判一次布尔）：
+
+| 日志                                                                               | 何时出现                                       | 怎么读                                                                                                            |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ui(): built N widget(s), D level(s) deep`                                         | 每次 `ui()` / `render()` 建树                  | 页面规模与嵌套深度                                                                                                |
+| `render(): mounted the page built by the content lambda`                           | `render()` 挂载后                              | 确认整页入口走到了挂载                                                                                            |
+| `mount: page attached and laid out (N widget(s))`                                  | `this.mvvm.mount()`                            | 挂载的子树多大                                                                                                    |
+| `layout: measured N node(s) in X ms (skipped K subtree(s), C cache hit(s) so far)` | **仅当**这一趟测量了 ≥ 200 个节点或耗时 ≥ 2 ms | 首帧全量测量会打印；日常增量帧不会。看到它在打字/悬停时反复出现 = 增量重算被破坏（先查 `markDirty`/`invalidate`） |
+| `focus: <name>`                                                                    | 焦点控件变化时                                 | 「按键没反应」时先看焦点在谁身上                                                                                  |
+| `shutdown: UI tree destroyed …`                                                    | 场景关闭拆树                                   | 与 `#/lifecycle` 门禁配合看                                                                                       |
+
+阈值写在 `packages/phaser/src/UIRoot.ts` 顶部（`LOG_MEASURE_THRESHOLD` / `LOG_PASS_MS`），要临时看每一趟就把它们调成 0 / 0。
+
 ### 重启（`scene.restart()`）也要能用
 
 `MVVMPlugin` 的拆解挂在场景事件上，而**订阅本身在重开后依然有效**：`boot()` 每个场景只调用一次，插件不会因为一次 SHUTDOWN 就与场景脱钩。重启后 `create()` 重新挂载 UI 即可；`#/lifecycle` 门禁会同时检查「不泄漏」与「重启后仍可点击/输入」两件事（历史上这里出过一次 HIGH 缺陷：插件在 `dispose()` 里退订了全部场景事件，重启后的 UI 既泄漏又是死的）。

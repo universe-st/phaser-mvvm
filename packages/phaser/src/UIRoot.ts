@@ -10,9 +10,15 @@
  */
 
 import type Phaser from 'phaser';
+import { devLog } from '@phaser-mvvm/core';
 import { LayoutEngine, tight } from '@phaser-mvvm/layout';
 import type { ContainerLayout, Size } from '@phaser-mvvm/layout';
 import { Widget, type WidgetOptions } from './Widget';
+
+/** A layout pass is logged once it measures this many nodes (development only). */
+const LOG_MEASURE_THRESHOLD = 200;
+/** …or once it takes at least this long, in milliseconds. */
+const LOG_PASS_MS = 2;
 
 export interface UIRootOptions extends WidgetOptions {
   /** Alignment used when the root container is a `stack`. Defaults to `'center'`. */
@@ -106,7 +112,23 @@ export class UIRoot extends Widget {
       return;
     }
     this.laidOut = true;
+    const { measureCalls, skippedSubtrees } = engine.stats;
+    const startedAt = performance.now();
     engine.layout(this, tight(width, height), { width, height });
+
+    // Development trace, and only for the passes worth looking at: an unchanged frame skips the pass
+    // entirely, and a healthy incremental pass measures a handful of nodes. A pass that measures a large
+    // part of the tree (or takes milliseconds) is the signal you want when asking "why is this frame
+    // slow" - printing every pass would only bury it.
+    const measured = engine.stats.measureCalls - measureCalls;
+    const elapsed = performance.now() - startedAt;
+    if (measured >= LOG_MEASURE_THRESHOLD || elapsed >= LOG_PASS_MS) {
+      devLog(
+        `layout: measured ${measured} node(s) in ${elapsed.toFixed(2)} ms ` +
+          `(skipped ${engine.stats.skippedSubtrees - skippedSubtrees} subtree(s), ` +
+          `${engine.stats.cacheHits} cache hit(s) so far)`,
+      );
+    }
   }
 
   /** Current UI size in design pixels. */
