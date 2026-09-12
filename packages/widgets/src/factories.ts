@@ -21,6 +21,7 @@ import { Image, type ImageOptions } from './Image';
 import { Label, type LabelOptions } from './Label';
 import { Panel, type PanelOptions } from './Panel';
 import { Repeat, type RepeatOptions } from './Repeat';
+import { ScrollView, type ScrollViewOptions } from './ScrollView';
 import { Spacer, type SpacerOptions } from './Spacer';
 import { TextArea, type TextAreaOptions } from './TextArea';
 import { TextField, type TextFieldOptions } from './TextField';
@@ -110,6 +111,20 @@ export function textArea(
   return finish(scene, new TextArea(scene, options), children);
 }
 
+/** Creates a clipped scroll viewport and adds it to the Scene. */
+export function uiScroll(
+  scene: Phaser.Scene,
+  options: ScrollViewOptions = {},
+  children: readonly Widget[] = [],
+): ScrollView {
+  const widget = new ScrollView(scene, options);
+  if (options.content === undefined && children.length > 0) {
+    widget.setContent(children[0] as Widget);
+  }
+  scene.add.existing(widget);
+  return widget;
+}
+
 /**
  * Creates a keyed, optionally virtualised list and adds it to the Scene.
  *
@@ -145,6 +160,7 @@ export const WIDGET_FACTORY_KEYS = [
   'uiTextField',
   'uiTextArea',
   'uiRepeat',
+  'uiScroll',
 ] as const;
 
 let installed = false;
@@ -236,6 +252,14 @@ export function installWidgetFactories(): void {
 
   registry.register('uiRepeat', function (this: unknown, options) {
     return uiRepeat(sceneOf(this), options as RepeatOptions<unknown>);
+  });
+
+  registry.register('uiScroll', function (this: unknown, options, children) {
+    return uiScroll(
+      sceneOf(this),
+      (options as ScrollViewOptions) ?? {},
+      (children as Widget[] | undefined) ?? [],
+    );
   });
 }
 

@@ -27,6 +27,18 @@ export { Spacer, type SpacerOptions } from './Spacer';
 export { Divider, type DividerOptions, type DividerOrientation } from './Divider';
 export { TextField, type TextFieldOptions } from './TextField';
 export { Repeat, DEFAULT_OVERSCAN, repeat, type RepeatOptions } from './Repeat';
+export {
+  ScrollView,
+  MIN_THUMB,
+  SCROLL_DRAG_THRESHOLD,
+  FLING_MIN_VELOCITY,
+  KEY_LINE_STEP,
+  scrollView,
+  type ScrollDirection,
+  type ScrollbarMode,
+  type ScrollViewOptions,
+  type VirtualScrollTarget,
+} from './ScrollView';
 export { TextArea, type TextAreaOptions } from './TextArea';
 export {
   TEXT_INPUT_EVENTS,
@@ -64,6 +76,31 @@ export {
 
 // Pure helpers: they never import Phaser, so they are reusable (and tested) outside a renderer.
 export { computeFit, type FitResult, type ImageFit } from './fit';
+export {
+  BOUNCE_LIMIT,
+  BOUNCE_RESISTANCE,
+  DELTA_MODE_LINE,
+  DELTA_MODE_PAGE,
+  DELTA_MODE_PIXEL,
+  INERTIA_DECELERATION,
+  INERTIA_STOP_VELOCITY,
+  LINE_HEIGHT,
+  PAGE_LINES,
+  SCROLL_EPSILON,
+  applyInertia,
+  clampOffset,
+  extentOfRects,
+  isScrollable,
+  normalizeWheel,
+  planScrollDrag,
+  planScrollKey,
+  thumbGeometry,
+  type InertiaStep,
+  type ScrollDragPlan,
+  type ScrollKeyStep,
+  type ScrollRect,
+  type ThumbGeometry,
+} from './scroll-plan';
 export {
   computeVisibleRange,
   describeRepeatFlow,

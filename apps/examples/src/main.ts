@@ -8,6 +8,7 @@ import { GalleryScene } from './scenes/gallery';
 import { ListScene } from './scenes/list';
 import { M0Scene } from './scenes/m0';
 import { ProbeScene } from './scenes/probe';
+import { ScrollScene } from './scenes/scroll';
 import { StackScene } from './scenes/stack';
 import { appendStatus, installErrorReporting, setStatus } from './status';
 
@@ -28,6 +29,7 @@ const SCENES = {
   bindings: BindingsScene,
   form: FormScene,
   list: ListScene,
+  scroll: ScrollScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

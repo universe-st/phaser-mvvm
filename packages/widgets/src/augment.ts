@@ -17,6 +17,7 @@ import type { Image as UIImage, ImageOptions } from './Image';
 import type { Label, LabelOptions } from './Label';
 import type { Panel, PanelOptions } from './Panel';
 import type { Repeat, RepeatOptions } from './Repeat';
+import type { ScrollView, ScrollViewOptions } from './ScrollView';
 import type { Spacer, SpacerOptions } from './Spacer';
 import type { TextArea, TextAreaOptions } from './TextArea';
 import type { TextField, TextFieldOptions } from './TextField';
@@ -44,6 +45,8 @@ declare global {
         uiTextArea(options?: TextAreaOptions, children?: Widget[]): TextArea;
         /** Creates a keyed, optionally virtualised list widget and adds it to the Scene. */
         uiRepeat<Item>(options: RepeatOptions<Item>): Repeat<Item>;
+        /** Creates a clipped scroll viewport and adds it to the Scene. */
+        uiScroll(options?: ScrollViewOptions, children?: Widget[]): ScrollView;
       }
     }
   }
