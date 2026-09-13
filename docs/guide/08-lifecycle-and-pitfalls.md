@@ -294,8 +294,31 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 5.3 已知的小缺口
 
-- **文本框的聚焦/失焦只有构造选项、没有事件**：`TextField`/`TextArea` 接受 `onFocus`/`onBlur` 选项（[04 §4](./04-text-inputs.md)），但不会 `emit` 对应事件；同理也没有 `text:focus` 之类的常量。今天若要「在任何地方观察焦点变化」，用两个现成的东西：`this.mvvm.focus.onFocusChange = (widget) => …`（框架级焦点变化，覆盖全部可聚焦控件），或轮询 `this.mvvm.focus.focusedWidget`。开发模式下框架本身也会打印 `focus: <name>` 轨迹（见下文「调试期会打印什么」）。
-- **`MVVMPluginConfig` 无法从 Game Config 传入**：Phaser 只读取 `plugins.scene` 条目的 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，插件的第 4 个 `config` 参数恒为空。因此 `themeBackground`（恒为 `true`）、`navigation`、`onBack`、`input`/`focus` 选项当前都拿不到，正确写法是 `MVVMPlugin.configure({ … })`（游戏级，创建游戏前一次）或 `this.mvvm.configure({ … })`（单场景、运行期）；其中返回键请写 `this.mvvm.onBack`（`focus.onBack` 是插件的路由钩子，覆盖它会让 `Esc` 失去模态与页面的返回行为）。见 [06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)、[`ACCEPTANCE-config.md`](./ACCEPTANCE-config.md)。
+- ~~**文本框的聚焦/失焦只有构造选项、没有事件**~~ **已实现（第 110 轮）**：`Widget.setFocusedInternal()` 是焦点变化的唯一漏斗（指针按下、`Tab`、D-pad、`widget.focus()`、`focusManager.blur()`、作用域被弹出都走它），因此 `widget:focus` / `widget:blur` 在**每个**可聚焦控件上都有，不只是文本框。文本域的 `onFocus`/`onBlur` 选项照旧（比事件晚一拍，见附录 C 的说明）。观察整页的焦点变化仍可用 `this.mvvm.focus.onFocusChange`——它是「框架级、每次交接都调用」，而事件是「单个控件自己的两件事」，两者互补：`#/states` 的 `events()` 探针同时记录了三种（激活 / 状态 / 焦点）。见 [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §8。
+- ~~**`MVVMPluginConfig` 无法从 Game Config 传入**~~ **已实现（第 110 轮）**：Phaser 只把 `key`/`plugin`/`mapping` 交给场景插件，第四个 `config` 参数恒为空 —— 但整个条目被**原样保留**在 `game.config.installScenePlugins` 里，所以插件把选项写在条目的 **`data`** 字段里再读回来（`data` 是 `PluginObjectItem` 上唯一空闲的、有类型的槽位：文档说它「传给插件 `init()`」，而 Phaser 只对*全局*插件这么做）。三个通道的强弱是：
+
+  ```ts
+  new Phaser.Game({
+    plugins: {
+      scene: [
+        {
+          key: 'MVVMPlugin',
+          plugin: MVVMPlugin,
+          mapping: 'mvvm',
+          start: true,
+          // ① Game Config 条目（声明式，跟着插件注册走）
+          data: { transition: { enter: 320 } },
+        },
+      ],
+    },
+  });
+  MVVMPlugin.configure({ a11y: { politeness: 'assertive' } }); // ② 游戏级默认值（最弱）
+  this.mvvm.configure({ navigation: false }); // ④ 运行期补丁（最强）
+  this.mvvm.config; // 读回：这一场实际用了什么
+  ```
+
+  顺序是 **② 默认值 < ① 条目 < 单实例 config < ④ 运行期补丁**；`#/config` 常驻断言这条链（`defaults()` 说 120、`mvvm.config` 说 320、`patch()` 之后说 50）。⚠️ 坑：Phaser 交给构造函数的第三个参数是条目的 **`mapping`**（`'mvvm'`），**不是** `key`（`'MVVMPlugin'`），所以插件按两者之一匹配条目 —— 只按 `key` 找会静默读不到，表现为「写进 Game Config 的选项没生效」。返回键仍请写 `this.mvvm.onBack`（`focus.onBack` 是插件的路由钩子，覆盖它会让 `Esc` 失去模态与页面的返回行为）。见 [06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)、[`ACCEPTANCE-config.md`](./ACCEPTANCE-config.md)。
+
 - **`UIRoot` 不设置 `scrollFactor`**：源码里没有任何 `setScrollFactor(0)`，主相机一旦滚动整棵 UI 会跟着动。要固定在屏幕上请自己调 `this.mvvm.root.setScrollFactor(0)`，或者只钉某一页（`page.setScrollFactor(0)`）——两种都受支持，指针空间是按**每个控件自己的**因子折算的（`#/hud` 是常驻示例）。
 - ~~**`hideMode` 尚未生效**~~ **已实现（第 53 轮）**：`Widget.inFlow` 改为 `inFlowOf(visible, hideMode)`，`hideMode: 'keep'` 保留占位（CSS `visibility: hidden` 语义），且只影响**布局流**——焦点与指针收集看 `visible`，所以隐藏的节点依然不可聚焦、不可点击（这正是当初写在这里的要求）。见 [02 §3](./02-layout.md)，运行期示例在 `#/compose` 的 Flow 分区。
 
@@ -459,13 +482,15 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 | ---------------------------- | ------------------- | -------------------------------------------------------------------------------- |
 | `WIDGET_EVENTS.ACTIVATE`     | `'widget:activate'` | 任何控件（载荷 `source`）；常量从 `@phaser-mvvm/phaser` 的包入口导出             |
 | `WIDGET_EVENTS.STATE_CHANGE` | `'widget:state'`    | 任何控件（载荷 `WidgetState`）；同上（只在状态**真的变了**时发）                 |
+| `WIDGET_EVENTS.FOCUS`        | `'widget:focus'`    | 任何控件拿到框架焦点时；同上（第 110 轮起，见 §5.3）                             |
+| `WIDGET_EVENTS.BLUR`         | `'widget:blur'`     | 焦点离开时；同上（**`destroy()` 不发**：那时已经没有听众）                       |
 | `BUTTON_EVENTS.CHANGE`       | `'change'`          | `Button` 开关模式（载荷 `boolean`）                                              |
 | `TEXT_INPUT_EVENTS.CHANGE`   | `'change'`          | `TextField`/`TextArea`（载荷 `string`；**程序化 `setValue` 也发**）              |
 | `TEXT_INPUT_EVENTS.SUBMIT`   | `'submit'`          | `TextField`/`TextArea`（载荷 `string`）                                          |
 | `MODEL_CHANGE_EVENT`         | `'change'`          | `bindModel` 监听的值变化事件（用户编辑与程序化写入都会发，绑定靠等值短路防回环） |
 | `'scroll'` / `'content'`     | —                   | `ScrollView`                                                                     |
 
-> ⚠️ 文本框**没有** `focus`/`blur` 事件（用构造选项 `onFocus`/`onBlur`）。
+> **焦点事件从第 110 轮起由 `Widget` 统一发出**（`widget:focus`/`widget:blur`），因此每个可聚焦控件都有；文本框的构造选项 `onFocus`/`onBlur` 照旧可用，而且**比事件晚一拍**：事件在焦点管理器交接的当帧发出（`setFocusedInternal` 是唯一漏斗），字段自己的逐帧簿记（光标、DOM 桥、失焦校验）在下一帧才跑，然后才调用选项。
 
 ### 常量
 

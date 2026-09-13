@@ -76,18 +76,23 @@ export class StatesScene extends Phaser.Scene {
   private readonly probes = new Map<string, Probe>();
   private readonly tracked = new Map<string, Widget>();
   /**
-   * The two events every widget emits, recorded per probe.
+   * The four events every widget emits, recorded per probe.
    *
-   * `WIDGET_EVENTS` (`widget:activate` / `widget:state`) is the framework's per-widget event
-   * vocabulary, and until round 96 **no demo or test ever listened to it** — so nothing proved that an
-   * activation from the three input devices arrives with the right `ActivationSource`, or that the
-   * visual state machine announces its transitions at all. Capped, because a page can be driven for a
-   * while and a probe's history is only interesting near the gesture under test.
+   * `WIDGET_EVENTS` (`widget:activate` / `widget:state` / `widget:focus` / `widget:blur`) is the
+   * framework's per-widget event vocabulary, and until round 96 **no demo or test ever listened to
+   * it** — so nothing proved that an activation from the three input devices arrives with the right
+   * `ActivationSource`, or that the visual state machine announces its transitions at all. The
+   * focus/blur pair joined the table in round 110 together with its implementation: before that,
+   * "this field gained/lost focus" existed only as the `onFocus`/`onBlur` *constructor options* of a
+   * text field, which nothing outside the field could observe (guide 08 §5.3). Capped, because a page
+   * can be driven for a while and a probe's history is only interesting near the gesture under test.
    */
   private readonly eventLog: {
     activated: Array<{ name: string; source: string }>;
     states: Array<{ name: string; state: string }>;
-  } = { activated: [], states: [] };
+    focused: string[];
+    blurred: string[];
+  } = { activated: [], states: [], focused: [], blurred: [] };
   private readonly published = new Map<string, string>();
   private page: Widget | null = null;
 
@@ -488,19 +493,33 @@ export class StatesScene extends Phaser.Scene {
     return widget;
   }
 
-  /** Records `widget:activate` / `widget:state` for one probe (see {@link StatesScene.eventLog}). */
+  /**
+   * Records the `WIDGET_EVENTS` a probe emits (see {@link StatesScene.eventLog}).
+   *
+   * All four are wired for every probe, so `events()` answers "which control took focus, in what
+   * order, and from which device" without polling `mvvm.focus.focusedWidget` frame by frame.
+   */
   private watchEvents(name: string, widget: Widget): void {
+    const cap = (list: Array<unknown>): void => {
+      if (list.length > EVENT_LOG_LIMIT) {
+        list.shift();
+      }
+    };
     widget.on(WIDGET_EVENTS.ACTIVATE, (source: string) => {
       this.eventLog.activated.push({ name, source });
-      if (this.eventLog.activated.length > EVENT_LOG_LIMIT) {
-        this.eventLog.activated.shift();
-      }
+      cap(this.eventLog.activated);
     });
     widget.on(WIDGET_EVENTS.STATE_CHANGE, (state: string) => {
       this.eventLog.states.push({ name, state });
-      if (this.eventLog.states.length > EVENT_LOG_LIMIT) {
-        this.eventLog.states.shift();
-      }
+      cap(this.eventLog.states);
+    });
+    widget.on(WIDGET_EVENTS.FOCUS, () => {
+      this.eventLog.focused.push(name);
+      cap(this.eventLog.focused);
+    });
+    widget.on(WIDGET_EVENTS.BLUR, () => {
+      this.eventLog.blurred.push(name);
+      cap(this.eventLog.blurred);
     });
   }
 
@@ -508,6 +527,8 @@ export class StatesScene extends Phaser.Scene {
   private publishEvents(): void {
     this.publish('events.activations', this.eventLog.activated.length);
     this.publish('events.states', this.eventLog.states.length);
+    this.publish('events.focus', this.eventLog.focused.length);
+    this.publish('events.blur', this.eventLog.blurred.length);
     const lastActivation = this.eventLog.activated[this.eventLog.activated.length - 1];
     this.publish(
       'events.lastActivation',
@@ -515,6 +536,10 @@ export class StatesScene extends Phaser.Scene {
     );
     const lastState = this.eventLog.states[this.eventLog.states.length - 1];
     this.publish('events.lastState', lastState ? `${lastState.name}:${lastState.state}` : 'none');
+    // The pair is what a form watches: "who holds focus now, and who did it leave".
+    const lastFocused = this.eventLog.focused[this.eventLog.focused.length - 1] ?? 'none';
+    const lastBlurred = this.eventLog.blurred[this.eventLog.blurred.length - 1] ?? 'none';
+    this.publish('events.lastFocus', `${lastFocused}<-${lastBlurred}`);
   }
 
   private publish(key: string, value: string | number | boolean): void {
@@ -542,17 +567,22 @@ export class StatesScene extends Phaser.Scene {
       }),
       focusables: () => this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
       /**
-       * Everything the `WIDGET_EVENTS` listeners have seen: activations with their
-       * `ActivationSource` ("pointer" / "keyboard" / "gamepad") and state transitions, in order.
+       * Everything the `WIDGET_EVENTS` listeners have seen, in order: activations with their
+       * `ActivationSource` ("pointer" / "keyboard" / "gamepad"), state transitions, and the names of
+       * the probes that gained and lost focus.
        */
       events: () => ({
         activated: this.eventLog.activated.map((entry) => ({ ...entry })),
         states: this.eventLog.states.map((entry) => ({ ...entry })),
+        focused: [...this.eventLog.focused],
+        blurred: [...this.eventLog.blurred],
       }),
       /** Drops the recorded events, so a measurement starts from a known place. */
       clearEvents: (): void => {
         this.eventLog.activated.length = 0;
         this.eventLog.states.length = 0;
+        this.eventLog.focused.length = 0;
+        this.eventLog.blurred.length = 0;
       },
       /**
        * Scrolls every `ScrollView` above a probe so the probe is visible, then resolves.

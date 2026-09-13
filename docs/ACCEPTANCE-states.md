@@ -183,3 +183,22 @@ export const WIDGET_EVENTS = { ACTIVATE: 'widget:activate', STATE_CHANGE: 'widge
 | `#/gallery` 的开关：真实鼠标点两下                                                        | —                                                                     | `toggle=true` → `toggle=false`，**每次点击恰好一个 `change`**（修 `setValue` 时删掉了激活路径里那次显式 emit，否则会发两次） |
 
 根因与滑杆的量程钳制同族：`change` 是**模型通道**，而双向绑定的向下方向只在"源变了"时才跑——控件自己改的值不发事件，就永远没人纠正它。详见 [`PITFALLS.md`](./PITFALLS.md) §8.60。
+
+---
+
+## 9. 第 110 轮追加：`WIDGET_EVENTS` 补上焦点一对（`widget:focus` / `widget:blur`）
+
+第 96 轮把 `WIDGET_EVENTS` 的两个成员接进探针时，焦点变化还是这块拼图上缺的一角：**文本域只有构造选项 `onFocus`/`onBlur`**，别的地方想观察"谁拿到了焦点"只能挂 `mvvm.focus.onFocusChange`（框架级、没有控件身份之外的信息）或逐帧轮询 `focusedWidget`。本轮把这一对补进事件表，并让**每个**可聚焦控件都发得出来 —— 落点是 `Widget.setFocusedInternal()`，它是焦点变化的唯一漏斗（指针按下、`Tab`、D-pad、`widget.focus()`、`focusManager.blur()`、作用域被弹出全都走它）。
+
+`#/states` 的 `events()` 探针因此从两组变四组（`activated`/`states`/`focused`/`blurred`），`#demo-state` 另发 `events.focus`/`events.blur` 两个计数与一条 `events.lastFocus=<新持有者><-<刚失去者>`。
+
+| 操作                   | `focused`                       | `blurred`            | `#demo-state`                                   |
+| ---------------------- | ------------------------------- | -------------------- | ----------------------------------------------- |
+| 真鼠标点 `field.plain` | `[field.plain]`                 | `[]`                 | `events.focus=1 events.blur=0`                  |
+| 再点 `button.default`  | `[field.plain, button.default]` | `[field.plain]`      | `events.lastFocus=button.default<-field.plain`  |
+| 清空后按一次 `Tab`     | `[button.toggle]`               | `[button.default]`   | `events.lastState=button.toggle:focused`        |
+| 再按一次 `Tab`         | `[…, button.loading]`           | `[…, button.toggle]` | 焦点 `button.loading`；loading 可聚焦但拒绝激活 |
+
+两类驱动各一条：**指针按下**与**键盘 `Tab`** 都产生同一对事件（"谁要求焦点"不影响读数）。三件事**不发** `blur`，都是刻意的：重复设置同一个值（`setFocusedInternal` 早退）、`destroy()`（直接清标志位，此时已经没有听众，跑回调只会把半拆解的对象交给订阅者）、以及控件从未拿到过焦点。
+
+矩阵与这条事件的实现动机见 [`PITFALLS.md`](../PITFALLS.md) §8.35（无障碍镜像跟着可交互集合走）与指南 03 §1.3 的事件表；Node 侧由本轮新建的**假渲染器夹具**钉住（`packages/phaser/test/widget-events.test.ts`，4 条：成对发一次 / 重复不发 / 销毁不发 blur / 离开可聚焦集合要 blur），见 [`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md) §6.1。

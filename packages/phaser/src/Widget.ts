@@ -475,13 +475,26 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     return false;
   }
 
-  /** @internal used by the focus manager. */
+  /**
+   * @internal used by the focus manager.
+   *
+   * The single funnel every focus change goes through — the focus manager's `focus()`/`blur()`, a
+   * pointer press, `Tab`, the D-Pad, a scope being released — and therefore the place
+   * `widget:focus`/`widget:blur` are announced. Announcing here rather than in each control is what
+   * makes the pair available on *every* focusable widget, not just on the fields that happened to
+   * carry `onFocus`/`onBlur` options (round 110 closed that gap in guide 08 §5.3).
+   *
+   * A widget being destroyed does **not** emit `widget:blur`: `destroy()` clears the flag directly
+   * (there is nobody left to hear it, and a listener that ran during teardown would be handed a
+   * half-dismantled object).
+   */
   setFocusedInternal(value: boolean): void {
     if (this._focused === value) {
       return;
     }
     this._focused = value;
     this.appearanceChanged();
+    this.emit(value ? WIDGET_EVENTS.FOCUS : WIDGET_EVENTS.BLUR);
   }
 
   /** Fires the activation callback (pointer click, Enter/Space, gamepad south button). */
@@ -923,4 +936,14 @@ export interface FocusTarget {
 export const WIDGET_EVENTS = {
   ACTIVATE: 'widget:activate',
   STATE_CHANGE: 'widget:state',
+  /**
+   * Focus was handed to this widget (`setFocusedInternal(true)`), whatever asked for it: a pointer
+   * press, `Tab`, the D-Pad, `Widget#focus()` or the focus manager's scope logic.
+   */
+  FOCUS: 'widget:focus',
+  /**
+   * Focus left this widget. Fires for every reason focus can move — including the widget leaving the
+   * focusable set while focused, and a focus scope being popped. Not emitted by `destroy()`.
+   */
+  BLUR: 'widget:blur',
 } as const;

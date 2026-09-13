@@ -68,11 +68,15 @@ Button('保存', {
 | ----------------- | ---------------- | --------------------------------------------------------------------------------- |
 | `widget:activate` | 激活成功         | `source: 'pointer' \| 'touch' \| 'keyboard' \| 'gamepad'`（鼠标与触摸分开，见下） |
 | `widget:state`    | 视觉状态**变化** | `WidgetState`（重绘但状态没变时**不**发，见下）                                   |
+| `widget:focus`    | 拿到框架焦点     | — （第 110 轮起；`setFocusedInternal` 是唯一漏斗，见 08 附录 C）                  |
+| `widget:blur`     | 焦点离开         | — （**`destroy()` 不发**：那时已经没有听众了）                                    |
 
 ```ts
 // 事件名就是字符串常量，直接用字面量最省事
 button.on('widget:activate', (source) => console.log('activated by', source));
 button.on('widget:state', (state) => console.log('state →', state));
+button.on('widget:focus', () => console.log('focused'));
+button.on('widget:blur', () => console.log('blurred'));
 ```
 
 两条实测出来的语义（第 96 轮在 `#/states` 上按真鼠标/真触摸/键盘/手柄跑过）：
