@@ -378,6 +378,10 @@ export class EventsScene extends Phaser.Scene {
     const chains = this.mvvm.input.chains();
     const chain = chains[0] ?? null;
     this.publish('chain.count', chains.length);
+    // Which device drove the gesture: the chain reports it (`kind`), and a touch that never hovers or
+    // never clicks is a different acceptance path than the mouse (see `ACCEPTANCE-events.md` §3.1).
+    this.publish('chain.kind', this.last ? this.last.kind : chain ? chain.kind : 'none');
+    this.publish('chain.activeKind', chain ? chain.kind : 'none');
     this.publish('chain.owner', chain ? chain.owner : 'none');
     this.publish('chain.hit', chain ? chain.hitTarget : 'none');
     this.publish('chain.path', chain ? chain.path.join('>') : 'none');

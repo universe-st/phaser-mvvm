@@ -45,6 +45,18 @@ UIRoot → page(horizontal) ─┬─ l1 → l2 → l3 → l4 → leaf(Button, n
 
 A–G 每一步都另读 `#demo-state` 的 `st.leaf`/`chain.*`，`st.*` 的迁移与预期一致（按下 `pressed`、抬起后 `hover`）。
 
+## 3.1 触摸路径（CDP `Emulation.setTouchEmulationEnabled` + `Input.dispatchTouchEvent`，§8.40 的姿势）
+
+`#demo-state` 的 `chain.kind` / `chain.activeKind` 说明这次手势来自哪种设备（`PointerChainEvent.kind` 来自 `pointer.wasTouch`）。
+
+| #   | 配置                          | 动作                                                   | 实测读数                                                                                                                                                                      | 结论                                               |
+| --- | ----------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| T1  | 全默认                        | 单指轻点叶子                                           | 按住时 `st.leaf=pressed`；抬手 `clicks=1`；`chain.kind=touch`                                                                                                                 | 触摸的**点击路径**照常（链没有把触摸吃掉）         |
+| T2  | `consume.leaf`                | 单指按下 → 拖 200px 出画布外 → 抬起                    | 拖动中 `chains[0] = { pointerId: 1, kind: 'touch', owner: leaf, path: […,leaf] }`、`moves=4`、台账 `leaf.move=4`；抬手 `up:…>leaf.handle1` 且 `leaf:outside.up=1`，`clicks=0` | 触摸拖动同样**跟人不跟盒子**；消费照样抑制点击     |
+| T3  | `consume.leaf` + `consume.l1` | 两指同时按下（一指在叶子、一指在 `l1` 区域），先后抬起 | 两指时 `chains` 有**两条**独立手势：`{pointerId:1, owner:leaf}` 与 `{pointerId:2, owner:l1, hitTarget:l4}`；抬起第一指后只剩第二指那条；两指都抬起后 `chains=[]`              | 一个指针 id = 一次手势：多指互不干扰、各自独立结束 |
+
+> 触摸与鼠标**不要在同一次验收里混用**（一次手势会变成两个指针，§8.40）；上面每个用例都在新建的页面上下文里只跑一种设备。
+
 ## 4. 回归（真实指针 / 键盘，同一浏览器会话）
 
 | 场景         | 动作                                                                                          | 实测读数                                                                                                             |
