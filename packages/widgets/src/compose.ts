@@ -621,7 +621,9 @@ export function Text(value: ReactiveSource<string>, options: TextOptions = {}): 
  *
  * `value` is the toggle state as a *data slot*, so it behaves like a text field's value: a `Ref` is
  * two-way (flipping the button writes the ref, changing the ref flips the button), a getter is one-way
- * and routes user changes to `onValueChange`.
+ * and reports changes through `onValueChange`. `onValueChange` listens to `BUTTON_EVENTS.CHANGE`, which
+ * fires for *any* committed value change — a programmatic `setValue()` included; the user-only callback
+ * is the `onClick` option.
  */
 export type ButtonDslOptions = Slotted<
   Omit<ButtonOptions, 'variant' | 'disabled' | 'loading' | 'value'>,
@@ -774,8 +776,10 @@ export function Divider(
  * Field options plus the Compose-style state pair.
  *
  * `value` accepts a `Ref` (two-way: user edits write straight back into it) or a getter (one-way).
- * `onValueChange` is the hoisted alternative: it fires on every *user* edit, so a caller that keeps
- * state in a store rather than a `ref` can still write it back.
+ * `onValueChange` is the hoisted alternative: it listens to the field's `change` event, so a caller
+ * that keeps state in a store rather than a `ref` can still write it back. Note that `change` reports
+ * *every* committed value change — a programmatic `setValue()` included (see `TEXT_INPUT_EVENTS.CHANGE`);
+ * use the field's `onChange` *option* when only user edits should count.
  */
 export interface TextFieldDslOptions
   extends
