@@ -113,5 +113,5 @@ element.style.left = (originX + rect.x * displayX) / containerX;
 - **`ENVELOP`**：Phaser 的第四种模式（铺满、裁掉多余部分）没有单独验；`displayScale`/`containerScale` 的测量式写法对它是同一套数学，但没有实测。
 - **`Scale.NONE` / `WIDTH_CONTROLS_HEIGHT` / `HEIGHT_CONTROLS_WIDTH`**：`displayScale` 在它们下面同样按 CSS/设计比计算，未逐一验收。
 - **画布不在页面原点**（`parent` 带 padding、页面滚动）：`pagePoint()` 加了画布 rect 的偏移，但"页面滚动时 `pt.*` 是否仍然有效"未验（示例页面 `overflow: hidden`）。
-- **真机**：全部读数来自设备仿真；真机 DPR/缩放/安全区组合未验（见 [`ACCEPTANCE-mobile.md`](./ACCEPTANCE-mobile.md) §4）。
+- **真机**：全部读数来自设备仿真；**Android 模拟器上已验 DPR 与安全区**（第 112 轮 A4：`dpr=2.625`、CSS 412×842 × 2.625 = WebView 1080×2209 @screen 0,128；安全区全 0 是因为 Pixel 6 无挖孔，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md) §5）；`Scale.FIT` 与物理设备的 DPR 组合仍未验。
 - **示例页在 `FIT` + 手机下的可用性**：980×614 的设计在 390 宽的屏幕上只有 0.398 倍，字很小——这是设计分辨率方案的固有取舍（要好看就得给手机另一套设计尺寸，或用 `RESIZE`），框架不做判断。

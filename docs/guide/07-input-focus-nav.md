@@ -669,7 +669,7 @@ const dialog = this.mvvm.modal.open(() =>
 
 验收页 `#/a11y` 把每条都做成了可断言项（读真实 DOM），见 [`ACCEPTANCE-a11y.md`](../ACCEPTANCE-a11y.md) §11。
 
-> **未验证**：真实屏幕阅读器（VoiceOver/NVDA/TalkBack）没有听过一遍——目前只断言"喂给屏幕阅读器的 DOM"。这是这套机制最关键的未验证项。
+> **验收范围**：真实屏幕阅读器（VoiceOver/NVDA/TalkBack）**不在验收范围内**（第 111 轮决定，见 [`PLAN.md`](../PLAN.md) §1.2）。无障碍证据是**浏览器算出的可访问性树**（CDP `Accessibility.getFullAXTree` → `scripts/visual-check.mjs` 的 `AX_EXPECTATIONS`/`AX_STRUCTURE_EXPECTATIONS`），也就是"读屏软件会看到什么"，而不是真人听一遍的体验。
 
 ---
 

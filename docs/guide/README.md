@@ -4,7 +4,7 @@
 
 - **风格**：教程式。每一章都围绕一个「要做的界面」推进，边做边讲，而不是把选项表堆在一起。
 - **事实来源**：本指南以**当前源码**为准（`packages/*/src`）。`docs/PLAN.md` 是架构事实来源，但它同时包含**目标形态**；两者不一致时，指南按已实现的代码写，并在 [08-lifecycle-and-pitfalls.md](./08-lifecycle-and-pitfalls.md) §5 列出差异清单。
-- **状态**：M0–M8 已交付（响应式内核、布局引擎、适配层、控件库、文本框与表单、绑定与列表、滚动与裁剪、模态/页面栈/`Router`/`UIScene`），**M9 全部条目已交付**：手柄导航、无障碍镜像、手柄文本输入、`NavSource` 具名抽象（`phaser/src/{nav,nav-sources}.ts` + `mvvm.registerNavSource()`，见 [07 §4.1](./07-input-focus-nav.md)）。四个包已升到 **1.0**，公开 API 冻结在 [`docs/API-SURFACE.json`](../API-SURFACE.json)（[ADR-0011](../adr/0011-public-api-freeze.md)）。**未做的**：真实屏幕阅读器与真实手柄硬件的人工验证、`@phaser-mvvm/template`（Phase 2）、M10 的 TypeDoc 与控件规格文档。名字与 PLAN 草案的差异清单见 [08-lifecycle-and-pitfalls.md](./08-lifecycle-and-pitfalls.md) §5。
+- **状态**：M0–M8 已交付（响应式内核、布局引擎、适配层、控件库、文本框与表单、绑定与列表、滚动与裁剪、模态/页面栈/`Router`/`UIScene`），**M9 全部条目已交付**：手柄导航、无障碍镜像、手柄文本输入、`NavSource` 具名抽象（`phaser/src/{nav,nav-sources}.ts` + `mvvm.registerNavSource()`，见 [07 §4.1](./07-input-focus-nav.md)）。四个包已升到 **1.0**，公开 API 冻结在 [`docs/API-SURFACE.json`](../API-SURFACE.json)（[ADR-0011](../adr/0011-public-api-freeze.md)）。**未做的**：**Android 物理设备验证**（模拟器已在第 112 轮验收 9/9，见 [`../ACCEPTANCE-android.md`](../ACCEPTANCE-android.md)；真实屏幕阅读器、真实手柄硬件、iOS 与桌面真机都在范围外）、`@phaser-mvvm/template`（Phase 2）、M10 的 TypeDoc 与控件规格文档。名字与 PLAN 草案的差异清单见 [08-lifecycle-and-pitfalls.md](./08-lifecycle-and-pitfalls.md) §5。
 
 ---
 

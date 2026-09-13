@@ -100,7 +100,7 @@ holder.C       x=74   width=60  visible=true    ← 左移 142-74 = 68 = 60 + 8 
 - **像素级验收**（第 89 轮起已有，见 §7）：第 60 轮时本页没有进 `scripts/visual-check.mjs` 的场景列表；现在它带着 `sizing` 分区的四个采样点进了那条门禁（明暗两套）。`#/showcase` 早年在 [`ACCEPTANCE-M0-M2.md`](./ACCEPTANCE-M0-M2.md) §"验收入口" 里做过"十个分区像素网格颜色数 21–79、0 个 0×0 节点"的检查。
 - **`text`/`decoration`/`box`/`grid`/`stack` 五个分区没有可交互控件**：它们的产品是几何与绘制，本轮只断言"控件数、内容高度、无 0×0、无 ERROR"；更细的布局断言在 `#/probe`/`#/stack`/`layout` 包的黄金快照里。
 - **触摸**：本轮全部用鼠标。触摸与鼠标共用命中区与 `onActivate`，触摸矩阵在 [`ACCEPTANCE-touch.md`](./ACCEPTANCE-touch.md)；本页未逐控件跑触摸。
-- **真机**：未做（同其它页面）。
+- **真机**：未做（同其它页面）。**Android 模拟器上本页是 A1/A8 的载体**（启动、WebGL、零错误），像素门禁仍由桌面侧的 `sizing` 分区承担，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)。
 - **`showAll()`（751 个舞台控件）下的逐控件走查**：本轮只验了"能渲染、能回退、计数不漂"，没有把 39 个可交互控件在 all 模式下再走一遍状态机。
 
 ---

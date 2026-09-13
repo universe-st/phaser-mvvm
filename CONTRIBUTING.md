@@ -2,7 +2,7 @@
 
 本文件是 [`README.md`](./README.md) 与 [`docs/PLAN.md`](./docs/PLAN.md) 的补充。**PLAN.md 是唯一事实来源**：任何实现细节与它冲突时，先改 PLAN（或补一篇 ADR），再改代码。
 
-> 当前状态：M0–M9 全部交付（只剩真实屏幕阅读器与真实手柄硬件的人工验证）；四个包是 **`1.0.0`**，公开 API **已冻结**并有门禁 `pnpm api:check`（[ADR-0011](./docs/adr/0011-public-api-freeze.md)）——改导出要新开 ADR 并重新冻结快照。仓库级的 `pnpm typecheck` / `test` / `build` 应当全绿；日常迭代仍建议用 `pnpm --filter <包名> run <脚本>` 只验证自己负责的包。
+> 当前状态：M0–M9 全部交付；四个包是 **`1.0.0`**，公开 API **已冻结**并有门禁 `pnpm api:check`（[ADR-0011](./docs/adr/0011-public-api-freeze.md)）——改导出要新开 ADR 并重新冻结快照。真机验收范围自第 111 轮起**限定 Android**（见 [PLAN §1.2](./docs/PLAN.md)），第 112 轮已在 Android 模拟器上验收 9/9（见 [ACCEPTANCE-android.md](./docs/ACCEPTANCE-android.md)）；物理设备仍未跑。仓库级的 `pnpm typecheck` / `test` / `build` 应当全绿；日常迭代仍建议用 `pnpm --filter <包名> run <脚本>` 只验证自己负责的包。
 
 ## 1. 环境
 

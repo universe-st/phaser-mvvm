@@ -164,7 +164,7 @@ OK  confirm.cancel: #161b22  (ghost 透明 → 透出对话框表面色，而不
 ## 5. 未覆盖 / 有意不做
 
 - **旋转（双指旋转）与双击缩放**：仍未实现（`ScrollView` 只做捏合缩放），与模态无关。
-- **真机（iOS Safari）触摸**：本轮只在 CDP 触摸仿真下验收过滚动/滑杆（历史记录见 `ACCEPTANCE-touch.md`）；模态的触摸路径与鼠标共用同一套命中区与 `onActivate`，但**未在真机上跑过**。
-- **手柄**：`back`（B/○）走的是同一条 `handleBack()` 路径（`pollGamepad` → `handleAction('back')`），本轮**未接实体手柄验证**，仅由键盘 `Esc` 覆盖。
+- **真机触摸**：本轮只在 CDP 触摸仿真下验收过滚动/滑杆（历史记录见 `ACCEPTANCE-touch.md`）；模态的触摸路径与鼠标共用同一套命中区与 `onActivate`，但 Android 上只验到「真实触摸能激活控件」这一层（第 112 轮的 A2，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)）—— 模态自己的触摸矩阵在模拟器上没跑，物理设备也没跑。
+- **手柄**：`back`（B/○）走的是同一条 `handleBack()` 路径（`pollGamepad` → `handleAction('back')`），本轮**未接实体手柄验证**，仅由键盘 `Esc` 覆盖——**实体手柄已移出验收范围（第 111 轮，见 [`PLAN.md`](./PLAN.md) §1.2）**，手柄路径的证据是假手柄夹具 + `packages/phaser/test/nav.test.ts`。
 - **`scrim` 的像素混合值**：只断言了不透明度会盖住画面（截图可见），没有把混合结果写成精确像素期望（GPU 取整）。
 - ~~**动画/转场钩子**：`ModalOptions` 目前没有开闭动画~~ **已交付（第 74 轮）**：`ModalOptions.transition` + `packages/phaser/src/transition.ts` 的 `TransitionRunner`（遮罩淡 alpha、主体淡 alpha + 轻微缩放；时长来自 `theme.motion`，游戏级策略在 `MVVMPluginConfig.transition`）；`visual-check` 在每个场景截图前会等 `mvvm.transitions.pending === 0`。矩阵见 [`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)。

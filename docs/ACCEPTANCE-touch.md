@@ -179,5 +179,5 @@ await touch('touchEnd', [{ x: 320, y: 284, id: 1, radiusX: 5, radiusY: 5, force:
 ## 5. 未做 / 待办
 
 - ~~**多指手势**~~：**多指输入**已在第 46 轮验收（见 §3.5：`activePointers: 2` + 每个指针拥有自己的拖动/按压）；**pinch 缩放已在第 55 轮交付**（`ScrollView` 的 `zoom: true | { min, max }`，实测见本文 §3.6 与 `#/scroll` 的 `scroll.nested` 口）；**rotate（双指旋转）仍未实现**。
-- **真实移动端浏览器**（iOS Safari 的兼容鼠标事件行为、`touch-action` 与页面滚动）：只在桌面 Chromium 的触摸模拟下验收过；`ScrollView` 的 `preventDefault` 行为（backlog V3）在真机上更敏感。第 62 轮的模态/页面栈矩阵同样是**模拟触摸**，未上真机。
-- **软键盘弹出导致的视口变化**：`Scale.RESIZE` 下的布局重排未在移动端模拟中验证。
+- **真实移动端浏览器**（`touch-action` 与页面滚动、兼容鼠标事件行为）：只在桌面 Chromium 的触摸模拟下验收过；`ScrollView` 的 `preventDefault` 行为（backlog V3）在真机上更敏感。第 62 轮的模态/页面栈矩阵同样是**模拟触摸**，未上真机。**Android 模拟器上已跑真实触摸**（第 112 轮 A2：`ActivationSource=touch`、`wasTouch=true`、`clicks 0 → 1`，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)）；物理设备未跑，**iOS Safari 不在范围内**。
+- **软键盘弹出导致的视口变化**：`Scale.RESIZE` 下的布局重排未在移动端模拟中验证（第 112 轮 A5 已在 Android 模拟器上量到 `innerHeight 842 → 530`，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md) §3.1）。

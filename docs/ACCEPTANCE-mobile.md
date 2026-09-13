@@ -87,7 +87,7 @@ MVVMPlugin.configure({ safeArea: false });
 
 ## 4. 未验证 / 已知边界
 
-- **真机**：全部读数来自 Chrome 的设备仿真（视口 / DPR / 安全区 / 触摸），**真机 iOS Safari 与 Android Chrome 未验**——尤其是 iOS 的软键盘会把视口顶起来（`visualViewport` 变化），框架没有专门处理，可能与固定布局打架。
-- **软键盘弹出后的视口变化**：`window.innerHeight` 在软键盘弹出时会变小（Android 默认 resize），`Scale.RESIZE` 会让整个 UI 重排；真机上是否可接受未验（示例页是固定宽度，重排后会需要滚动）。
+- **真机**：全部读数来自 Chrome 的设备仿真（视口 / DPR / 安全区 / 触摸），**Android 已在模拟器上验收**（第 112 轮 `node scripts/android-check.mjs verify` 9/9：视口/DPR/安全区/触摸四条都在里面，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)）；**物理设备仍未跑**（覆盖不到 GPU/驱动与厂商 IME）。**iOS Safari 不在验收范围内**：iOS 的软键盘会把视口顶起来（`visualViewport` 变化），框架没有专门处理、可能与固定布局打架——这一点保留为**已知范围外行为**，不再作为待办跟踪。
+- **软键盘弹出后的视口变化**：`window.innerHeight` 在软键盘弹出时会变小（Android 默认 resize），`Scale.RESIZE` 会让整个 UI 重排；**Android 模拟器上已量**：点开软键盘后 `visualViewport 842 → 530`（见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md) §3.1），`Scale.RESIZE` 是**正常重排**而不是压坏；物理设备未跑。
 - **示例页在手机视口下是"桌面布局被裁掉"**：`#/compose`（700px）、`#/states`（内容 1380px）等比 390px 宽得多，垂直口只裁不横滚。**这是示例页的固定宽度选择，不是框架缺陷**；真要在手机上用，页面需要自适应宽度或给 `ScrollView` 加 `direction: 'both'`。本轮没有改这些示例页。
 - **刘海内的游戏世界**：`safeArea: false` + 全屏世界的组合没有实测。

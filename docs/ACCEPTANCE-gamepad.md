@@ -113,7 +113,7 @@ scroll 聚焦          ↓（键盘）×3 → offset 40 → 160
 
 ## 4. 未覆盖 / 待办
 
-- **真手柄**：本轮全部走假手柄（模拟 `navigator.getGamepads`），真机的按键映射差异（`mapping: 'standard'` 之外的布局）、浏览器"必须先按一下手柄才暴露"的怪癖未验。
+- ~~**真手柄**：本轮全部走假手柄（模拟 `navigator.getGamepads`），真机的按键映射差异（`mapping: 'standard'` 之外的布局）、浏览器"必须先按一下手柄才暴露"的怪癖未验。~~ **已移出验收范围（第 111 轮，有意排除，不是待办）**：真实手柄硬件不再验收，见 [`PLAN.md`](./PLAN.md) §1.2。手柄这条路径的证据就是假手柄夹具（`apps/examples/src/fake-pad.ts` 替换 `navigator.getGamepads`，整条链路按真手柄跑）+ `packages/phaser/test/nav.test.ts` 的 Node 单测。
 - **第二只手柄 / 多手柄**：`nav.ts` 的纯函数支持任意手柄，插件只轮询 0 号（与文档一致）。
 - **右摇杆、扳机、震动**：框架不映射，未验。
 - **手柄文本输入**：表单里的文本仍需要键盘（DOM 桥），手柄只负责走到那个控件。

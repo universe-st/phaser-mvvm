@@ -167,7 +167,7 @@ export const WIDGET_EVENTS = { ACTIVATE: 'widget:activate', STATE_CHANGE: 'widge
 
 ### 7.4 仍然没覆盖的
 
-- **真实手柄**：第 4 条用的是 `window.fakePad`（替换 `navigator.getGamepads`），真机与蓝牙手柄未验。
+- ~~**真实手柄**：第 4 条用的是 `window.fakePad`（替换 `navigator.getGamepads`），真机与蓝牙手柄未验。~~ **已移出验收范围（第 111 轮，有意排除，不是待办）**：真实手柄硬件不再验收，见 [`PLAN.md`](./PLAN.md) §1.2；手柄路径的证据是假手柄夹具 + `packages/phaser/test/nav.test.ts`。
 - **长按/连发**：`activate` 是单次事件，框架没有重复激活的概念（第 51 轮登记过的导航连发在 `NavSource` 层）。
 
 ---

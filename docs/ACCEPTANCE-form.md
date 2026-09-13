@@ -125,7 +125,7 @@ DOM 路径的只读由元素自己的 `readonly` 属性负责；Canvas 路径必
 | 4   | 触摸点击 `canvasArea`        | 聚焦 + 落在第 1 视觉行 | `focus = canvasArea`、`caret 5` ✓                       |
 | 5   | 触摸点击 DOM 桥字段 `name`   | 两种路径共存、互不干扰 | `focus = name` ✓                                        |
 
-（软键盘是否弹出只能在真机上验；本轮只证明"触摸落点 → 聚焦 + 光标"这条链路。）
+（**第 112 轮已在 Android 模拟器上补上**：点字段后系统 IME 真的弹出（`dumpsys input_method` 的 `mInputShown false → true`）、`visualViewport 842 → 530`、`input text` 写入成功，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md) §3.1；物理设备仍未跑。）
 
 ### 5.6 拖动选择：从"已知局限"变成"已实现"（V58，第 93 轮）
 

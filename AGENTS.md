@@ -42,7 +42,7 @@ packages/phaser    Phaser 4 适配层：Widget/UIRoot/MVVMPlugin/输入·焦点�
 packages/widgets   控件库：Label/Panel/Button/Image/Slider/Spacer/Divider/TextField/TextArea/ScrollView/Repeat/VirtualKeyboard/Branch
                    子路径 `@phaser-mvvm/widgets/compose` = Compose 风格 DSL（推荐写视图的方式）
 docs/              PLAN.md（唯一事实来源）、guide/（教程式使用指南：控件/布局/用法/DSL）、adr/（ADR-0001…0011）、API-SURFACE.json（冻结的公开 API）、ACCEPTANCE-*.md（验收记录）、PITFALLS.md、DEFECT-BACKLOG.md（审计缺陷登记簿）、HANDOVER.md
-scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素+无障碍树验收）、check-doc-snippets.mjs / check-doc-options.mjs（指南门禁）、check-api-surface.mjs（公开 API 冻结）、size-check.mjs（体积）、png-sample.py（Pillow 采样）
+scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素+无障碍树验收）、check-doc-snippets.mjs / check-doc-options.mjs（指南门禁）、check-api-surface.mjs（公开 API 冻结）、size-check.mjs（体积）、png-sample.py（Pillow 采样）、android-check.mjs（Android 模拟器 + Cordova 的 9 项验收门禁，见 [`ACCEPTANCE-android.md`](./docs/ACCEPTANCE-android.md)）
 ```
 
 依赖方向严格单向、禁止反向与环：`apps → widgets → phaser → { core, layout }`；`core` 与 `layout` 互不依赖（见 [ADR-0001](./docs/adr/0001-package-layout.md)、[ADR-0003](./docs/adr/0003-layout-is-renderer-agnostic.md)）。
@@ -72,6 +72,7 @@ scripts/           visual-check.mjs（CDP 无头 Chrome 几何+像素+无障碍�
 
 ## 6. 测试与验收
 
+- **验收范围（第 111 轮，别把它们当待办）**：真机验收**只针对 Android Chrome**（触摸 / DPR / 安全区 / 软键盘 / 帧率），**iOS Safari、桌面 OS 真机、真实屏幕阅读器（VoiceOver / NVDA / TalkBack）、真实手柄硬件都在范围外**——替代证据是 Chrome 设备仿真 + CDP 触摸域、**CDP 算出的可访问性树**（`visual-check` 的 `AX_EXPECTATIONS`/`AX_STRUCTURE_EXPECTATIONS`）、假手柄夹具（`window.fakePad`）+ `packages/phaser/test/nav.test.ts`。范围原文见 [`PLAN.md`](./docs/PLAN.md) §1.2；各 `ACCEPTANCE-*.md` 的「未验证 / 已知边界」小节按此口径读。**Android 这一条已有独立门禁**：`node scripts/android-check.mjs verify`（模拟器 + Cordova，9 项判据：启动/真实触摸/滚动+虚拟化/设备形态/软键盘+系统 IME/无障碍树/泄漏/设备帧缓冲像素），起环境的步骤见 [`docs/ACCEPTANCE-android.md`](./docs/ACCEPTANCE-android.md) §2；**物理设备仍未跑**。**发现真实缺陷照旧要修**——范围外的只是"人工验收这一环"，不是"可以坏"。
 - **单测**：vitest，测试放 `packages/<pkg>/test/*.test.ts`；仓库**没有** vitest 配置文件，用默认 include。`core`/`layout`/`phaser`/`widgets` 的测试都必须在纯 Node 下跑通（不启动渲染器）。
 - **Node 侧假渲染器夹具**（`packages/phaser/test/support/fake-renderer.ts`）：有了它**真** `Widget` 能在 Node 里构造（此前 `import Phaser` 抛 `window is not defined`）。两条硬约束：① **先装桩再 import Phaser**（ESM 提升静态 import：`installDomStub()` 之后 `await import('../src/Widget')`）；② 夹具模块**不许** import Phaser。要像素的断言仍归 `visual-check`。
 - `packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`——不要删掉这个 flag，也**不要**为了「有测试」写空断言。

@@ -66,4 +66,4 @@
 
 1. ~~**常驻演示场景**：仓库里还没有「相机钉住的 HUD」场景~~ **已交付**：`#/hud`（`apps/examples/src/scenes/hud.ts`：2400×1600 滚动世界 + 钉住的 HUD 页 + `pt.*` 发布 + `window.hud` 探针），并且是 `scripts/visual-check.mjs` 的场景之一（像素 + `CANVAS_CLEAR_AT`）；矩阵见 [`ACCEPTANCE-hud.md`](./ACCEPTANCE-hud.md)。
 2. ~~**`addWidget` 继承根 scrollFactor**~~ **已实现**：`Widget.addWidget()` 在父节点已被钉住（`scrollFactor !== 1`）时对新子树调 `setScrollFactorAll(...)`，所以钉住之后新增的控件自动跟着钉住（`packages/phaser/src/Widget.ts`）。
-3. ~~**触摸**：本轮的点击都来自鼠标事件~~ **已补**：`#/hud` 的 `window.hud.pointers()` 分开读触摸指针与兼容鼠标事件，矩阵见 [`ACCEPTANCE-hud.md`](./ACCEPTANCE-hud.md)。真机触摸仍未跑。
+3. ~~**触摸**：本轮的点击都来自鼠标事件~~ **已补**：`#/hud` 的 `window.hud.pointers()` 分开读触摸指针与兼容鼠标事件，矩阵见 [`ACCEPTANCE-hud.md`](./ACCEPTANCE-hud.md)。**Android 模拟器上已验真实触摸**（第 112 轮，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)）；物理设备未跑。

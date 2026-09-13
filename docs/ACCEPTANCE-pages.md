@@ -127,7 +127,7 @@ depth  1（报错那次没有改动栈）
 - ~~**页面转场动画**~~：第 78 轮已交付，见 §5（`PageOptions.transition` + 交叉淡入淡出 + `Widget#routingEnabled` 盾牌）。
 - **URL / 路由表**：`pages` 只是一叠页面，不做路径匹配（PLAN 里也写明「不做 URL 路由」）。
 - **弹出最后一页**：`pop()` 在只剩顶层时返回 `false`（弹空会留下白屏），需要空栈请显式 `dispose()` 或换页。
-- **触摸**：转场这一项用鼠标 + 键盘 + **CDP 触摸域**都跑过（§5 的 P11）；真机（iOS/Android）与软键盘仍未跑（同 `ACCEPTANCE-modal.md` §5 的说明）。
+- **触摸**：转场这一项用鼠标 + 键盘 + **CDP 触摸域**都跑过（§5 的 P11）；**软键盘已在 Android 模拟器上验过**（第 112 轮 A5，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)），但**页面转场自己的触摸路径仍只在 CDP 触摸域跑过**；物理设备未跑。
 - **`mount()`/`render()` 与 `pages` 混用**：两者是并行用法，混用时的层序行为只做了「对话框抬到最上」这一条保护，未做更多约定。
 - **像素门禁**：`#/pages` 没有加进 `scripts/visual-check.mjs`（它的重点是交互与状态，几何由 `#status` 里的三行 + MCP 断言覆盖）。
 

@@ -159,8 +159,8 @@ live 区域属性（`Accessibility.getFullAXTree` 读出的计算值）：`role=
 
 ## 4. 未覆盖 / 有意不做
 
-- **真实屏幕阅读器**（VoiceOver / NVDA / TalkBack）：本轮只断言 DOM —— 也就是"喂给屏幕阅读器的原料"；**没有用真实 SR 听过一遍**。这是本记录里最重要的未验证项。
-- **浏览模式与焦点模式的交互**：镜像节点不进 `Tab` 序（`tabindex="-1"`），但框架焦点变化时**会**把 DOM 焦点移过去（第 76 轮改动，见 §0），所以 `Tab` 由游戏接管、程序化焦点跟随框架；这种分工**未在真实 SR 上验证过体验**。
+- ~~**真实屏幕阅读器**（VoiceOver / NVDA / TalkBack）：没有用真实 SR 听过一遍~~ **已移出验收范围（第 111 轮，有意排除，不是待办）**：三个阅读器都不做，真机验收范围限定 Android 且不含 SR 走查，见 [`PLAN.md`](./PLAN.md) §1.2。**Android 侧同一套期望已在模拟器上跑通**（第 112 轮 A6：14 个控制节点恰好、2 条包含关系、真实 `KEYCODE_TAB` 后恰好 1 个 focused，见 [`ACCEPTANCE-android.md`](./ACCEPTANCE-android.md)）。本记录的无障碍证据是**两层**：真实 DOM（`[data-mvvm-a11y]` 与节点属性）+ **浏览器算出的可访问性树**（CDP `Accessibility.getFullAXTree`，`visual-check` 的 `AX_EXPECTATIONS`/`AX_STRUCTURE_EXPECTATIONS`）——后者正是"读屏软件会看到什么"，这也是为什么第 76 轮能把验收从"我们写了什么属性"升级掉。
+- **浏览模式与焦点模式的交互**：镜像节点不进 `Tab` 序（`tabindex="-1"`），但框架焦点变化时**会**把 DOM 焦点移过去（第 76 轮改动，见 §0），所以 `Tab` 由游戏接管、程序化焦点跟随框架；这种分工**没有真人 SR 体验验证**（SR 走查已移出范围，见上一条）。
 - **`aria-activedescendant` / roving tabindex**：没有做（那是"复刻浏览器原生语义"的范畴，PLAN §1.2 明确排除）。
 - ~~**层级/角色语义**：没有 `aria-owns`、没有树形结构~~ **已交付（第 103 轮）**：镜像与控件树同构（`A11yBridge#nest()`），容器是具名 `group`/`region`/`dialog`，文本框自带的 `<input>` 靠 `aria-owns` 挂进它该属于的节点；常驻门禁是 `visual-check` 的 `AX_STRUCTURE_EXPECTATIONS`。见 §11。
 - **本地化播报文案**：`checked`/`disabled`/`invalid` 等词是英文常量，未走主题或 i18n。

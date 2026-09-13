@@ -11,7 +11,7 @@
 
 > 上游引擎：**[phaserjs/phaser](https://github.com/phaserjs/phaser)**（官网 [phaser.io](https://phaser.io)）。本项目是**独立第三方框架**，与 Phaser 官方无隶属关系；`phaser` 是 **peer dependency**（`^4.2.0`），安装本项目时请自行安装 Phaser（见 §3）。
 
-> **当前状态：M0–M9 全部条目已交付（只剩真实屏幕阅读器与真实手柄硬件的人工验证）；四个包已升到 `1.0.0`，公开 API 自第 110 轮起**冻结**并由 `pnpm api:check` 守住（[ADR-0011](./docs/adr/0011-public-api-freeze.md)）。**
+> **当前状态：M0–M9 全部条目已交付；四个包已升到 `1.0.0`，公开 API 自第 110 轮起**冻结**并由 `pnpm api:check` 守住（[ADR-0011](./docs/adr/0011-public-api-freeze.md)）。** 真机验收范围自第 111 轮起**限定 Android**（真实屏幕阅读器、真实手柄硬件、iOS 与桌面真机都不在范围内，见 [PLAN §1.2](./docs/PLAN.md)），**第 112 轮已在 Android 模拟器上验收 9/9**（[ACCEPTANCE-android.md](./docs/ACCEPTANCE-android.md)）；物理设备仍未跑。
 > 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（281 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（314 个单测，含黄金快照与 `perf.test.ts` 性能门禁）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/`NavSource` 导航来源/主题令牌/绑定/模态与页面栈/`Router`/动效，386 个单测）、控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Slider/Spacer/Divider/TextField/TextArea/ScrollView/Repeat/VirtualKeyboard/Branch + DOM 输入桥，396 个单测）与 **Compose 风格 DSL**（`@phaser-mvvm/widgets/compose`，推荐写视图的方式）。**合计 1377 个单测**，另有可执行的性能/体积门禁（`pnpm --filter @phaser-mvvm/layout run test`、`pnpm size`）。
 > 验收场：**23 个场景**（完整清单与每个场景的判据见 §2.4），其中常驻门禁是 `#/compose`（DSL，含工厂 API 与 DSL 的逐节点 parity 校验）、`#/showcase`（全部控件与布局形态，已迁移到 DSL，含像素门禁）、`#/states`（交互状态矩阵）、`#/lifecycle`（创建→销毁 100 次泄漏门禁）、`#/list`（虚拟化：一行一步只建一行、键控复用、视口裁剪）、`#/scroll`、`#/modal`（模态：焦点陷阱 / 遮罩拦截 / `Esc` / 叠层 / 100 次开关无泄漏）、`#/pages`（页面栈：返回时状态与焦点复原、`Esc` 逐层路由）、`#/options`（没有 demo 的选项的 A/B 卡）、`#/keyboard`（手柄文本输入）、`#/hud`（相机钉住的 HUD）、`#/events`（指针事件链）、`#/a11y`（无障碍镜像与 `aria-live`）、`#/config`（插件选项）、`#/uiscene`（`UIScene` 基类）。鼠标、触摸、手柄（D-Pad/摇杆）三条输入路径与无障碍镜像都有常驻验收。
 > 各轮验收证据与已知边界见 [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)、[`ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)、[`ACCEPTANCE-lifecycle.md`](./docs/ACCEPTANCE-lifecycle.md)、[`ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)、[`ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)、[`ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)、[`ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)；未修/待验证项见 [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)。
@@ -104,7 +104,7 @@
 
 > 计划中但**代码里没有**这个名字：`Page`/`PageStack`/`ModalStack`（实际是 `PageHost`/`ModalHost`）、`Modal` 控件（模态是 `this.mvvm.modal`，不是 widgets 的控件）。~~`NavSource`~~ **第 110 轮落地了**：`@phaser-mvvm/phaser` 导出 `NavSource`/`NavSourceHost`/`NavSourceRegistry` 与内置的 `KeyboardNavSource`/`GamepadNavSource`，插件侧是 `registerNavSource()`/`unregisterNavSource()`/`navSources`（见 [guide 07 §4.1](./docs/guide/07-input-focus-nav.md)）。
 
-### 2.3 当前进度（M0–M9 已交付，只剩真机人工验证；公开 API 已冻结为 1.0）
+### 2.3 当前进度（M0–M9 已交付；公开 API 已冻结为 1.0；Android 已在模拟器上验收）
 
 里程碑级事实（M0–M2 的证据见 [`docs/ACCEPTANCE-M0-M2.md`](./docs/ACCEPTANCE-M0-M2.md)，其余见各轮 `ACCEPTANCE-*.md`）：
 
