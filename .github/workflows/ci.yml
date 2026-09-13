@@ -45,6 +45,11 @@ jobs:
       - name: Check formatting
         run: pnpm exec prettier --check .
 
+      # 公开 API 从 1.0 起冻结（ADR-0011）：快照记录五个入口点的 817 个导出名，
+      # 任何增删改都必须显式重新冻结。它不看签名、不替代类型检查。
+      - name: Check the frozen public API surface
+        run: pnpm run api:check
+
       - name: Typecheck (all packages)
         run: pnpm -r run typecheck
 

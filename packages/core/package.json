@@ -1,6 +1,6 @@
 {
   "name": "@phaser-mvvm/core",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Reactive core of phaser-mvvm: reactivity, collections, binding contexts, expression compilation, scheduler",
   "license": "MIT",
   "type": "module",

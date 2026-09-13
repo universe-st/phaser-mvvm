@@ -1,6 +1,6 @@
 {
   "name": "@phaser-mvvm/phaser",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Phaser 4 adapter of phaser-mvvm: Widget base class, UIRoot, text measurer, input/focus/nav routing, scene plugin",
   "license": "MIT",
   "type": "module",

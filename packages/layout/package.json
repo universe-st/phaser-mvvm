@@ -1,6 +1,6 @@
 {
   "name": "@phaser-mvvm/layout",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Renderer-agnostic two-pass layout engine (measure/arrange) used by phaser-mvvm",
   "license": "MIT",
   "type": "module",

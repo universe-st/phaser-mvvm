@@ -1,6 +1,6 @@
 {
   "name": "@phaser-mvvm/widgets",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Widget library of phaser-mvvm: Panel, Label, TextField, TextArea, Button, ScrollView, Repeat, Modal",
   "license": "MIT",
   "type": "module",

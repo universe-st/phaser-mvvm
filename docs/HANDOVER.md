@@ -3,20 +3,31 @@
 > 这份文档是**给下一个会话（或下一个 agent）看的**：第 1–3 节与第 4 节是**第 21–26 轮的快照**（当时的状态与当时的计划，保留下来做历史），第 1.1 节与第 4.1 节是**当前状态**——两者不一致时以第 1.1/4.1 节与代码为准。
 > 事实来源仍是代码与 `pnpm -r run test` 的实跑结果；本文件只做导航与交接，规格与门禁细节看 [`PLAN.md`](./PLAN.md) 与 [`AGENTS.md`](../AGENTS.md)。
 
-## 1.1 当前状态（第 108 轮文档审计、第 109 轮滚动视口裁剪后复测）
+## 1.1 当前状态（第 110 轮：M9 收尾 + 公开 API 冻结）
 
-| 检查     | 结果                                                                                                             | 怎么复现                                                                                          |
-| -------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 单测     | **1361 passed**：core 281、layout 314、phaser 370、widgets 396（第 109 轮的滚动裁剪新增 9 条几何用例）           | `pnpm -r run test`                                                                                |
-| 类型     | 5/5 包通过                                                                                                       | `pnpm -r run typecheck`                                                                           |
-| 格式     | 干净（`docs/PLAN.md` 与布局黄金快照在忽略列表里）                                                                | `pnpm exec prettier --check .`                                                                    |
-| 指南门禁 | 通过：195 个选项键、21 个 DSL 导出、idiom/vocabulary 零违规（7 张非选项表按设计跳过）                            | `pnpm docs:check`                                                                                 |
-| 体积     | 两组均在预算内（core+layout 18.6 KB、phaser+widgets 31.3 KB，min+gzip；第 107 轮复测）                           | `pnpm size`                                                                                       |
-| 场景     | 注册表 **23 个场景**；`visual-check` 硬编码 13 个（48×2 像素检查 + 4 张 AX 表）                                  | `node scripts/visual-check.mjs`（受限沙箱里 Chrome 可能起不来，见 AGENTS §6）                     |
-| 里程碑   | **M0–M8 全部交付**；M9 已交付手柄导航 / 无障碍镜像 / 手柄文本输入                                                | [`PLAN.md`](./PLAN.md) §6 的「执行状态」段落                                                      |
-| 仍未完成 | 真实屏幕阅读器与真实手柄硬件的人工验证、`NavSource` 具名抽象、`@phaser-mvvm/template`（Phase 2）、M10 主题与文档 | [`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md)、[`guide/08 §5`](./guide/08-lifecycle-and-pitfalls.md) |
+| 检查     | 结果                                                                                                                           | 怎么复现                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| 单测     | **1377 passed**：core 281、layout 314、phaser 386、widgets 396（第 110 轮 +16：4 条焦点事件用例、10 条导航来源与插件配置用例） | `pnpm -r run test`                                                                                |
+| 类型     | 5/5 包通过（含 `apps/examples`）                                                                                               | `pnpm -r run typecheck`                                                                           |
+| 格式     | 干净（`docs/PLAN.md` 与布局黄金快照在忽略列表里）                                                                              | `pnpm exec prettier --check .`                                                                    |
+| 指南门禁 | 通过：195 个选项键、21 个 DSL 导出、idiom/vocabulary 零违规（7 张非选项表按设计跳过）                                          | `pnpm docs:check`                                                                                 |
+| API 冻结 | **817 个导出名**（5 个入口点）与 `docs/API-SURFACE.json` 一致；四个包版本 `1.0.0`                                              | `pnpm api:check`（ADR-0011）                                                                      |
+| 体积     | 均在预算内：core+layout **18.6 KB**、phaser+widgets **32.2 KB**（min+gzip；第 110 轮复测，phaser 侧 +0.9 KB 来自导航来源层）   | `pnpm size`                                                                                       |
+| 场景     | 注册表 **23 个场景**；`visual-check` 硬编码 13 个：**96 个像素检查（48×2）+ 4 张 AX 表全部 OK**                                | `node scripts/visual-check.mjs`（受限沙箱里 Chrome 可能起不来，见 AGENTS §6）                     |
+| 里程碑   | **M0–M8 全部交付**；**M9 除真机人工验证外全部交付**（手柄导航 / 无障碍镜像 / 手柄文本输入 / `NavSource` 抽象）                 | [`PLAN.md`](./PLAN.md) §6 的「执行状态」段落                                                      |
+| 仍未完成 | 真实屏幕阅读器与真实手柄硬件的人工验证、`@phaser-mvvm/template`（Phase 2）、M10 的 TypeDoc 与控件规格文档                      | [`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md)、[`guide/08 §5`](./guide/08-lifecycle-and-pitfalls.md) |
 
 提交历史已远超第 21 轮；工作区状态请自己跑 `git status` 与 `git log -1` 确认（不要相信本文里的旧哈希）。
+
+### 第 110 轮做了什么（三条待完成项 + 契约冻结）
+
+| #   | 项目                                         | 结果                                                                                                                                                            | 证据                                                                                                  |
+| --- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1   | **焦点/失焦事件**（指南 08 §5.3 缺口①）      | `widget:focus`/`widget:blur` 从 `Widget.setFocusedInternal()`（焦点变化的唯一漏斗）发出，每个可聚焦控件都有；`#/states` 的 `events()` 探针常驻                  | [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §9、`#/states` 真鼠标与 `Tab` 实测                   |
+| 2   | **Game Config 条目传选项**（缺口②）          | 选项写在 `plugins.scene[].data`，插件从 `game.config.installScenePlugins` 读回；`#/config` 断言 `默认值(120) < 条目(320) < 运行期补丁(50)`                      | [`ACCEPTANCE-config.md`](./ACCEPTANCE-config.md) §6、[`PITFALLS.md`](./PITFALLS.md) §8.71（修掉 V78） |
+| 3   | **`NavSource` 具名抽象**（PLAN M9 最后一项） | `NavSource` + `NavSourceRegistry`（每源一只 `NavRepeat`）+ 内置 `KeyboardNavSource`/`GamepadNavSource`；`mvvm.registerNavSource/unregisterNavSource/navSources` | [`ACCEPTANCE-gallery.md`](./ACCEPTANCE-gallery.md) §6、`packages/phaser/test/nav.test.ts`（+6 条）    |
+| 4   | **三条覆盖率缺口**（DEFECT-BACKLOG §4）      | Node 假渲染器夹具（真 `Widget` 能进 CI）、聚焦字段后重启不留闪烁定时器、多场景 `add→launch→stop→remove` 计数回基线                                              | [`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md) §6                                             |
+| 5   | **公开 API 冻结（1.0）**                     | 四包 `1.0.0`；`scripts/check-api-surface.mjs` + `docs/API-SURFACE.json` 钉住 5 个入口点的 817 个导出名，进 CI                                                   | [ADR-0011](./adr/0011-public-api-freeze.md)                                                           |
 
 ---
 
@@ -66,7 +77,7 @@
 | 2   | **指南 02–07 片段改写为 DSL**                                    | 约 140 处工厂写法；建议从最常被复制的 03 控件参考章开始，再 04/05 的完整示例                                                                                                                                                                                                                                      | 每章改完与 `#/compose`/`#/showcase` 对照一次；删掉该章的「写法提示」横幅                                                                         | ✅ 已完成（章首横幅已改成 DSL 写法说明）                                                                                                                                                  |
 | 3   | **Node 侧假渲染器夹具**                                          | 让 `packages/phaser`/`widgets` 的生命周期与输入逻辑能进 CI                                                                                                                                                                                                                                                        | 至少覆盖「创建→销毁 ×100 计数归零」「主题订阅回基线」「`#/states` 的状态迁移」中的前两项                                                         | 大部分已达成：`packages/phaser` 23 个纯 Node 测试文件（370 条）覆盖输入/焦点/动效/路由/无障碍；`#/lifecycle` 的 100 次重启仍是浏览器门禁                                                  |
 | 4   | **`#/showcase` 像素验收**                                        | 迁移后只做过几何/状态等价；`visual-check.mjs` 的场景与 `PIXEL_EXPECTATIONS` 是硬编码的                                                                                                                                                                                                                            | 把 `showcase` 加进脚本场景列表与像素期望（注意 `?capture=1`）                                                                                    | ✅ 已交付：`showcase` 在 13 个门禁场景里，`SCENE_SETUP` 用 `await showAndReport("sizing")`，四个采样点明暗两套（[`ACCEPTANCE-showcase.md`](./ACCEPTANCE-showcase.md) §7.5）               |
-| 5   | **框架缺口**（`docs/guide/08 §5.3` 仍列着）                      | ① 文本框没有聚焦/失焦事件；② `MVVMPluginConfig` 传不进 Game Config（Phaser 只读 `key`/`plugin`/`mapping`）；③ `UIRoot` 不自动 `setScrollFactor(0)`；④ `LayoutParams.hideMode` 解析了但不生效                                                                                                                      | 每项要么实现，要么把文档改成「有意如此」并说明替代做法                                                                                           | ①③ 仍然成立（已写进指南 08 §5.3）；② 有替代：`MVVMPlugin.configure()`；④ ✅ 第 53 轮实现                                                                                                  |
+| 5   | **框架缺口**（`docs/guide/08 §5.3` 仍列着）                      | ① 文本框没有聚焦/失焦事件；② `MVVMPluginConfig` 传不进 Game Config（Phaser 只读 `key`/`plugin`/`mapping`）；③ `UIRoot` 不自动 `setScrollFactor(0)`；④ `LayoutParams.hideMode` 解析了但不生效                                                                                                                      | 每项要么实现，要么把文档改成「有意如此」并说明替代做法                                                                                           | ①② ✅ **第 110 轮实现**（事件 + 条目 `data` 通道，见 §1.1）；③ 仍然成立（已写进指南 08 §5.3，两种钉法都支持）；④ ✅ 第 53 轮实现                                                          |
 
 ---
 
