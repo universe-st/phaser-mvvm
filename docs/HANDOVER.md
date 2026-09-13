@@ -12,7 +12,7 @@
 | 单测 | **986 passed**：core 278、layout 306、phaser 121、widgets 281                                                                       | `pnpm -r run test`                                                                     |
 | 类型 | 5/5 包通过                                                                                                                          | `pnpm -r run typecheck`                                                                |
 | 格式 | 干净                                                                                                                                | `pnpm exec prettier --check .`                                                         |
-| 体积 | 两组均在预算内（core+layout 18.3 KB、phaser+widgets 14.7 KB，min+gzip）                                                             | `pnpm size`                                                                            |
+| 体积 | 两组均在预算内（core+layout 18.6 KB、phaser+widgets 31.3 KB，min+gzip；第 107 轮复测）                                              | `pnpm size`                                                                            |
 | 场景 | **13/13 加载零错误**；`#/lifecycle` 31 轮计数全平、仅 1 页存活；`#/states` 15 个探针静止态正确；`#/compose` 11 个分区且 `parity=ok` | Playwright MCP 打开 `http://localhost:5173/#/compose` 等（详见各轮 `ACCEPTANCE-*.md`） |
 
 工作区：干净，`main` 上连续提交（最近：`017685f`）。
@@ -39,7 +39,7 @@
 5. **布局引擎 8 项**（第 2 轮）：缓存键缺百分比基准、pass 内 `invalidate()` 被丢弃、`reset()` 不重排、上下文池强引用、`stretch` 丢 min/max、`min > max` 双策略、非有限长度/dpr、返回值污染缓存。
 6. **`ScrollView` 偏移不重新夹取**（第 2 轮，先在浏览器复现：视口变大后停在 224.5 / limit 0 的空白处）。
 7. **`ProceduralSkin` 在 `radius: 0` 时画不出边框**；**`deepEqual` 不对称**；**抛错的 `computed` 保留陈旧缓存**；**`watch([reactiveObject])` 永不触发**；**`readonly(ref)` 不再是 ref**；**省略号与垂直移动切坏代理对**；**`filterNumeric` 产出 `NaN`**；**模板字面量二次反转义**；**转换器名字 trim 不一致**；**网格索引未净化**；**`EffectHandle.run()` 文档与行为不符**。
-8. PLAN §8 的六条性能/体积预算**从口号变成门禁**（`packages/layout/test/perf.test.ts` + `pnpm size`），并已实测（1000 节点 0.06 ms、无变化帧零测量、缓存 95.6%、单节点编辑只重测 1/922、文本度量缓存稳态 100% 命中）。
+8. PLAN §8 的六条性能/体积预算**从口号变成门禁**（`packages/layout/test/perf.test.ts` + `pnpm size`），并已实测（1000 节点 0.108 ms、无变化帧零测量、缓存 95.59%、单节点编辑只重测 1/922、文本度量缓存稳态 100% 命中；第 107 轮复测读数，随机型漂移见 `ACCEPTANCE-performance.md` §7）。
 
 ---
 

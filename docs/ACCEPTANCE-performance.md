@@ -127,3 +127,36 @@ PLAN §8 的「连续输入（含 IME）不引发整树布局」用布局引擎�
 
 - 提交信息：`test(layout): enforce the PLAN §8 performance budgets and add a bundle-size check`。
 - 提交前门禁：`pnpm -r run typecheck`、`pnpm -r run test`、`pnpm exec prettier --check .`、`pnpm run size`、`pnpm run build:examples` 全绿。
+
+---
+
+## 7. 第 107 轮复测（Apple A18 Pro / macOS 26.6.2 / Node 24.18.1）
+
+预算没变，读数**本来就会随机型与负载漂移**——第 5 轮那批数字后来被四份活文档（PLAN §8、AGENTS §6、HANDOVER、README）当成常数引用，于是和第 107 轮重新跑出来的结果对不上。复测如下（命令与第 5 轮完全相同，先 `pnpm build` 再判定体积）：
+
+| 预算                                     | 第 5 轮读数 | 第 107 轮读数                                                                | 判定 |
+| ---------------------------------------- | ----------- | ---------------------------------------------------------------------------- | ---- |
+| 1000 节点全量 `measure+arrange` < 1.5 ms | 0.059 ms    | **0.108 ms**                                                                 | ✅   |
+| 无变化帧布局耗时 = 0                     | 0.02 ms     | **0.0441 ms**（仍以结构性断言为准：`measureCalls` 增量 0、`arrangeCalls` 1） | ✅   |
+| 度量缓存命中率 > 95 %                    | 95.59 %     | **95.59 %**（13000 命中 / 600 未命中，逐字相同）                             | ✅   |
+| 单节点编辑只重测该子树                   | 1 / 922     | **1 / 922**                                                                  | ✅   |
+| 排布热路径零新增对象/闭包                | 池 3 条不变 | **池 3 条不变**（200 次 pass 后仍 3）                                        | ✅   |
+
+体积（`pnpm size`，两队都在预算内）：
+
+| 组               | 第 5 轮 min+gzip | 第 107 轮 raw / gzip / **min+gzip** | 预算    | 判定            |
+| ---------------- | ---------------- | ----------------------------------- | ------- | --------------- |
+| core + layout    | 18.3 KB          | 120.7 KB / 28.1 KB / **18.6 KB**    | < 25 KB | ✅ 余量 6.4 KB  |
+| phaser + widgets | 14.7 KB          | 229.9 KB / 61.5 KB / **31.3 KB**    | < 45 KB | ✅ 余量 13.7 KB |
+
+`phaser + widgets` 从 14.7 KB 涨到 31.3 KB **不是第 107 轮的增量**：那一轮的指针事件链（`pointer-chain.ts`）单独量只有 **1.6 KB min+gzip**（`esbuild --bundle --minify --format=esm --external:phaser | gzip -9`，裸产物 4.5 KB）；翻倍的来源是第 5 轮之后 phaser 包本身长大（`phaser/dist/index.js` raw 70.2 KB → 205.7 KB：`pages`/`router`/`modal`/`transition`/`a11y`/`VirtualKeyboard`/`Slider` 等陆续进来），而这条读数一直没有被重新记录。**教训**：预算是契约，读数是快照——写文档时给读数标上日期与机型，别让快照变成第二种契约（§8.41）。
+
+命令与结果：
+
+| 命令                                                                  | 结果                                                             |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `pnpm --filter @phaser-mvvm/layout exec vitest run test/perf.test.ts` | 5 passed（读数见上表）                                           |
+| `pnpm build`                                                          | 5 个包 + 示例全部成功                                            |
+| `pnpm size`                                                           | `size check passed`（两组均 within budget）                      |
+| `pnpm test`                                                           | **1352 passed**（core 281、layout 314、phaser 370、widgets 387） |
+| `node scripts/visual-check.mjs`                                       | `[visual-check] ok`：13 场景、96 项 OK、0 MISMATCH、4 张 AX 树   |
