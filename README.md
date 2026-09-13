@@ -11,11 +11,11 @@
 
 > 上游引擎：**[phaserjs/phaser](https://github.com/phaserjs/phaser)**（官网 [phaser.io](https://phaser.io)）。本项目是**独立第三方框架**，与 Phaser 官方无隶属关系；`phaser` 是 **peer dependency**（`^4.2.0`），安装本项目时请自行安装 Phaser（见 §3）。
 
-> **当前状态：M0–M8 已交付并通过验收，API 仍未冻结；M9 已交付手柄导航、无障碍镜像与手柄文本输入（真实屏幕阅读器与真实手柄硬件验证、`NavSource` 命名抽象仍未开始）。**
-> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（281 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（314 个单测，含黄金快照与 `perf.test.ts` 性能门禁）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/主题令牌/绑定/模态与页面栈/`Router`/动效，370 个单测）、控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Slider/Spacer/Divider/TextField/TextArea/ScrollView/Repeat/VirtualKeyboard/Branch + DOM 输入桥，396 个单测）与 **Compose 风格 DSL**（`@phaser-mvvm/widgets/compose`，推荐写视图的方式）。**合计 1361 个单测**，另有可执行的性能/体积门禁（`pnpm --filter @phaser-mvvm/layout run test`、`pnpm size`）。
+> **当前状态：M0–M9 全部条目已交付（只剩真实屏幕阅读器与真实手柄硬件的人工验证）；四个包已升到 `1.0.0`，公开 API 自第 110 轮起**冻结**并由 `pnpm api:check` 守住（[ADR-0011](./docs/adr/0011-public-api-freeze.md)）。**
+> 已交付：workspace 骨架与 CI、响应式内核 `@phaser-mvvm/core`（281 个单测）、渲染无关的两阶段布局引擎 `@phaser-mvvm/layout`（314 个单测，含黄金快照与 `perf.test.ts` 性能门禁）、Phaser 4 适配层（`Widget`/`UIRoot`/`MVVMPlugin`/输入与焦点路由/`NavSource` 导航来源/主题令牌/绑定/模态与页面栈/`Router`/动效，386 个单测）、控件库 `@phaser-mvvm/widgets`（Label/Panel/Button/Image/Slider/Spacer/Divider/TextField/TextArea/ScrollView/Repeat/VirtualKeyboard/Branch + DOM 输入桥，396 个单测）与 **Compose 风格 DSL**（`@phaser-mvvm/widgets/compose`，推荐写视图的方式）。**合计 1377 个单测**，另有可执行的性能/体积门禁（`pnpm --filter @phaser-mvvm/layout run test`、`pnpm size`）。
 > 验收场：**23 个场景**（完整清单与每个场景的判据见 §2.4），其中常驻门禁是 `#/compose`（DSL，含工厂 API 与 DSL 的逐节点 parity 校验）、`#/showcase`（全部控件与布局形态，已迁移到 DSL，含像素门禁）、`#/states`（交互状态矩阵）、`#/lifecycle`（创建→销毁 100 次泄漏门禁）、`#/list`（虚拟化：一行一步只建一行、键控复用、视口裁剪）、`#/scroll`、`#/modal`（模态：焦点陷阱 / 遮罩拦截 / `Esc` / 叠层 / 100 次开关无泄漏）、`#/pages`（页面栈：返回时状态与焦点复原、`Esc` 逐层路由）、`#/options`（没有 demo 的选项的 A/B 卡）、`#/keyboard`（手柄文本输入）、`#/hud`（相机钉住的 HUD）、`#/events`（指针事件链）、`#/a11y`（无障碍镜像与 `aria-live`）、`#/config`（插件选项）、`#/uiscene`（`UIScene` 基类）。鼠标、触摸、手柄（D-Pad/摇杆）三条输入路径与无障碍镜像都有常驻验收。
 > 各轮验收证据与已知边界见 [`docs/ACCEPTANCE-compose-dsl.md`](./docs/ACCEPTANCE-compose-dsl.md)、[`ACCEPTANCE-layout-defects.md`](./docs/ACCEPTANCE-layout-defects.md)、[`ACCEPTANCE-lifecycle.md`](./docs/ACCEPTANCE-lifecycle.md)、[`ACCEPTANCE-states.md`](./docs/ACCEPTANCE-states.md)、[`ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md)、[`ACCEPTANCE-dsl-entry.md`](./docs/ACCEPTANCE-dsl-entry.md)、[`ACCEPTANCE-round8.md`](./docs/ACCEPTANCE-round8.md)；未修/待验证项见 [`docs/DEFECT-BACKLOG.md`](./docs/DEFECT-BACKLOG.md)。
-> **API 仍可能调整**：项目仍在起步阶段，破坏式更新与重构是被接受的（见 `AGENTS.md` §4）。
+> **公开 API 已冻结（1.0）**：五个入口点（四个包 + `widgets/compose`）的 **817 个导出名**记在 [`docs/API-SURFACE.json`](./docs/API-SURFACE.json)，`pnpm api:check` 在 CI 里守它（见 [ADR-0011](./docs/adr/0011-public-api-freeze.md)）。冻结的是**名字集合**：新增、改名、删除导出都仍然允许，但必须新开一篇 ADR 并在同一次提交里重新冻结快照（`UPDATE_API=1 node scripts/check-api-surface.mjs`）。行为契约由 `pnpm -r run test`、`pnpm docs:check`、`node scripts/visual-check.mjs`、`pnpm size` 与各验收页矩阵承担。
 
 ### 特性速览
 
@@ -29,7 +29,7 @@
 | **控件库**         | `Panel`/`Label`/`Button`/`Image`/`Slider`/`Spacer`/`Divider`/`TextField`/`TextArea`/`ScrollView`（含嵌套与双轴）/`Repeat`（含虚拟化）/`VirtualKeyboard`/`Branch`                                       |
 | **页面体系**       | `ModalHost`/`PageHost`/`Router`/`UIScene` + 转场动效；返回键逐层路由：模态 → 页面 → 场景（`Esc` / 手柄 B）                                                                                             |
 | **输入与无障碍**   | 鼠标 / 触摸 / 键盘 / 手柄（D-Pad + 摇杆）四条路径；指针事件链支持传递、拦截、消费（[ADR-0010](./docs/adr/0010-pointer-event-chain.md)）；隐藏 DOM 镜像供屏幕阅读器与 `aria-live` 播报                  |
-| **可验证**         | 1361 个单测 + 23 个示例验收场景 + 无头 Chrome 的几何/像素/可访问性树门禁 + 性能与体积预算，CI 全绿（见 §7）                                                                                            |
+| **可验证**         | 1377 个单测 + 23 个示例验收场景 + 无头 Chrome 的几何/像素/可访问性树门禁 + 性能与体积预算，CI 全绿（见 §7）                                                                                            |
 
 ---
 
@@ -94,17 +94,17 @@
 
 ### 2.2 包职责
 
-| 包                      | 职责                                                                                                                                                                                                                | 状态                                                          |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `@phaser-mvvm/core`     | 响应式、调度器（`sync/pre/post/frame`）、集合、绑定上下文、路径表达式编译（不使用 `eval`/`new Function`）                                                                                                           | **已完成**（M1；M6 补绑定）                                   |
-| `@phaser-mvvm/layout`   | 约束、`LayoutParams`、测量、排布（box/grid/stack/scroll/absolute）、脏传播与 relayout boundary、测量缓存、像素对齐、对象池                                                                                          | **已完成**（M2）                                              |
-| `@phaser-mvvm/phaser`   | `Widget` 基类、`UIRoot`、`PhaserTextMeasurer`(+LRU)、`InputRouter`、`FocusManager`、`nav.ts`（键盘/手柄）、`A11yBridge`、`MVVMPlugin`、工厂注册、主题、`UIScene`/`PageHost`/`ModalHost`/`Router`/`TransitionRunner` | **已完成**（M3 适配层，M8 场景与页面，M9 导航与 a11y）        |
-| `@phaser-mvvm/widgets`  | 控件库：`Panel`/`Label`/`Button`/`Image`/`Slider`/`Spacer`/`Divider`（**M4**）、`TextField`/`TextArea`（**M5**）、`Repeat`（**M6**）、`ScrollView`（**M7**）、`VirtualKeyboard`/`Branch` 与 `compose` DSL           | **已完成**（M4 起；模态不在本包，见 `phaser` 的 `ModalHost`） |
-| `@phaser-mvvm/template` | JSON/模板 → builder 编译                                                                                                                                                                                            | **未创建，Phase 2**                                           |
+| 包                      | 职责                                                                                                                                                                                                                                                        | 状态                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `@phaser-mvvm/core`     | 响应式、调度器（`sync/pre/post/frame`）、集合、绑定上下文、路径表达式编译（不使用 `eval`/`new Function`）                                                                                                                                                   | **已完成**（M1；M6 补绑定）                                   |
+| `@phaser-mvvm/layout`   | 约束、`LayoutParams`、测量、排布（box/grid/stack/scroll/absolute）、脏传播与 relayout boundary、测量缓存、像素对齐、对象池                                                                                                                                  | **已完成**（M2）                                              |
+| `@phaser-mvvm/phaser`   | `Widget` 基类、`UIRoot`、`PhaserTextMeasurer`(+LRU)、`InputRouter`、`FocusManager`、`nav.ts`/`nav-sources.ts`（`NavSource` 抽象 + 键盘/手柄来源）、`A11yBridge`、`MVVMPlugin`、工厂注册、主题、`UIScene`/`PageHost`/`ModalHost`/`Router`/`TransitionRunner` | **已完成**（M3 适配层，M8 场景与页面，M9 导航与 a11y）        |
+| `@phaser-mvvm/widgets`  | 控件库：`Panel`/`Label`/`Button`/`Image`/`Slider`/`Spacer`/`Divider`（**M4**）、`TextField`/`TextArea`（**M5**）、`Repeat`（**M6**）、`ScrollView`（**M7**）、`VirtualKeyboard`/`Branch` 与 `compose` DSL                                                   | **已完成**（M4 起；模态不在本包，见 `phaser` 的 `ModalHost`） |
+| `@phaser-mvvm/template` | JSON/模板 → builder 编译                                                                                                                                                                                                                                    | **未创建，Phase 2**                                           |
 
 > 计划中但**代码里没有**这个名字：`Page`/`PageStack`/`ModalStack`（实际是 `PageHost`/`ModalHost`）、`Modal` 控件（模态是 `this.mvvm.modal`，不是 widgets 的控件）。~~`NavSource`~~ **第 110 轮落地了**：`@phaser-mvvm/phaser` 导出 `NavSource`/`NavSourceHost`/`NavSourceRegistry` 与内置的 `KeyboardNavSource`/`GamepadNavSource`，插件侧是 `registerNavSource()`/`unregisterNavSource()`/`navSources`（见 [guide 07 §4.1](./docs/guide/07-input-focus-nav.md)）。
 
-### 2.3 当前进度（M0–M8 已交付；M9 除真机人工验证外全部交付；公开 API 已冻结为 1.0）
+### 2.3 当前进度（M0–M9 已交付，只剩真机人工验证；公开 API 已冻结为 1.0）
 
 里程碑级事实（M0–M2 的证据见 [`docs/ACCEPTANCE-M0-M2.md`](./docs/ACCEPTANCE-M0-M2.md)，其余见各轮 `ACCEPTANCE-*.md`）：
 
@@ -302,7 +302,7 @@ new Phaser.Game({
 8. **新增包、引入运行时依赖、改变包间依赖方向 —— 必须新增一篇 ADR**（新编号，不修改历史 ADR）。见 [`docs/adr/README.md`](./docs/adr/README.md)。
 9. **不使用 `eval` / `new Function`**：路径表达式编译为 getter/setter 闭包，保证 CSP 环境可用。
 10. **提交前自查**：`pnpm format:check`、受影响包的 `typecheck` / `test`；涉及控件的改动需附带示例页（M4 起截图回归）。
-11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。四个包当前都有测试（合计 **1361** 个用例：core 281 / layout 314 / phaser 370 / widgets 396）；`packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，只为「暂时没有测试也不至于失败」，不代表可以长期没有断言。
+11. **CI**：`.github/workflows/ci.yml` 在 `push` 与 `pull_request` 上运行 Prettier 检查、`pnpm api:check`（公开 API 冻结门禁）、逐包 `typecheck`、逐包 `test`、逐包 `build` 与示例构建。四个包当前都有测试（合计 **1377** 个用例：core 281 / layout 314 / phaser 386 / widgets 396）；`packages/phaser`、`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`，只为「暂时没有测试也不至于失败」，不代表可以长期没有断言。
 
 ---
 
@@ -386,4 +386,4 @@ phaser-mvvm/
 
 - **与 Phaser 的许可关系**：Phaser 同样以 **MIT** 发布（见 [`phaserjs/phaser` 的 LICENSE.md](https://github.com/phaserjs/phaser/blob/master/LICENSE.md)），两者条款兼容。本项目把 Phaser 当作 **peer dependency** 从外部引入，`packages/*` 构建时一律 `--external phaser`，**产物中不含 Phaser 代码**，因此无需再分发 Phaser 的版权声明。
 - **注意示例的构建产物**：`pnpm build:examples` 会把 Phaser 打进 `apps/examples/dist`（`dist/` 已在 `.gitignore` 中，不随仓库分发）。若你对外分发这个 bundle，请一并保留 Phaser 的 MIT 许可与版权声明。
-- **发布状态**：四个包的 `publishConfig.access` 已是 `public`，但版本仍为 `0.0.0` 且**尚未发布到 npm**；在正式发布前，请从源码或 workspace 协议使用（见 §3）。
+- **发布状态**：四个包的版本是 **`1.0.0`**、`publishConfig.access` 已是 `public`，但**尚未发布到 npm**；在正式发布前，请从源码或 workspace 协议使用（见 §3）。

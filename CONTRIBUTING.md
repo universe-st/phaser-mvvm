@@ -2,7 +2,7 @@
 
 本文件是 [`README.md`](./README.md) 与 [`docs/PLAN.md`](./docs/PLAN.md) 的补充。**PLAN.md 是唯一事实来源**：任何实现细节与它冲突时，先改 PLAN（或补一篇 ADR），再改代码。
 
-> 当前状态：M0–M8 已交付；M9（导航与无障碍）已交付三个切片——手柄导航、无障碍镜像、手柄文本输入（`NavSource` 命名抽象、真实屏幕阅读器与真机手柄验证未做）。API 仍在演进但已可用，仓库级的 `pnpm typecheck` / `test` / `build` 应当全绿；日常迭代仍建议用 `pnpm --filter <包名> run <脚本>` 只验证自己负责的包。
+> 当前状态：M0–M9 全部交付（只剩真实屏幕阅读器与真实手柄硬件的人工验证）；四个包是 **`1.0.0`**，公开 API **已冻结**并有门禁 `pnpm api:check`（[ADR-0011](./docs/adr/0011-public-api-freeze.md)）——改导出要新开 ADR 并重新冻结快照。仓库级的 `pnpm typecheck` / `test` / `build` 应当全绿；日常迭代仍建议用 `pnpm --filter <包名> run <脚本>` 只验证自己负责的包。
 
 ## 1. 环境
 
@@ -36,7 +36,7 @@ CI（`.github/workflows/ci.yml`）在 push 与 PR 上运行：Prettier 检查 �
 3. **裁剪用 Mask filter**（`FilterList#addMask`），不要用 v3 的 `setMask(graphics)` 思路 —— `GeometryMask` 在 v4 仅 Canvas 可用。见 [ADR-0007](./docs/adr/0007-phaser4-webgl-constraints.md)。
 4. **响应式副作用必须归入 `EffectScope`**：`destroy()` 里 `scope.stop()` + 注销输入 + 归还对象池。泄漏回归（场景创建→销毁 100 次后计数归零）是硬门禁。
 5. **UI 刷新默认帧对齐**（`flush: 'frame'`），不要用 `sync` 绕过批量刷新。见 [ADR-0008](./docs/adr/0008-reactivity-and-scheduler.md)。
-6. **`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`**：这个 flag 只是「暂时没有测试也不至于失败」，四个包现在都有实打实的用例（合计 1361：core 281 / layout 314 / phaser 370 / widgets 396），**不要**为了「有测试」而写空断言。
+6. **`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`**：这个 flag 只是「暂时没有测试也不至于失败」，四个包现在都有实打实的用例（合计 1377：core 281 / layout 314 / phaser 386 / widgets 396），**不要**为了「有测试」而写空断言。
 
 ## 5. 何时需要写 ADR
 

@@ -239,6 +239,8 @@ LayoutParams {
 
 ## 5. API 草案（目标形态）
 
+> ⚠️ 本节是**设计期的草案**，不是契约。真正对外承诺的公开面已冻结为 [`docs/API-SURFACE.json`](./API-SURFACE.json)（第 110 轮，[ADR-0011](./adr/0011-public-api-freeze.md)）：5 个入口点的 817 个导出名，由 `pnpm api:check` 守住。草案名与实际名字的差异清单见 [`guide/08-lifecycle-and-pitfalls.md`](./guide/08-lifecycle-and-pitfalls.md) §5；新代码以指南与入口文件的导出为准。
+
 ```ts
 // 1) ViewModel：纯 TS 类 + 可选装饰性 API
 export class UserFormVM {
