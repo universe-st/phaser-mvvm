@@ -57,6 +57,12 @@ const scenes = [
   // `pages` is here for its **AX** table only (no pixel expectations): the setup pushes the detail page,
   // and the accessibility tree must then hold the detail page's controls *and nothing else* — V73.
   'pages',
+  // `events` is the pointer-event-chain page (ADR-0010). Its two samples ride on the same mechanism the
+  // page demonstrates: `SCENE_SETUP` arms `l2`'s interception at runtime, and a level that would take
+  // the gesture is painted `danger` while the leaf it would take it from stays `primary`. A chain that
+  // runs but never repaints its armed level fails here, and so does an "armed" flag that leaked onto the
+  // leaf.
+  'events',
 ];
 
 /**
@@ -95,6 +101,10 @@ const SCENE_SETUP = {
   // theme switch must not have to re-create.
   options:
     'await window.optionsDemo.prepare(); window.optionsDemo.setBoth(150, 120); window.optionsDemo.setControl(120)',
+  // Arm the middle level's interception: from here on `l2` would take a press away from `l3`/`l4`/`leaf`
+  // (`docs/ACCEPTANCE-events.md` case C), and it says so by turning `danger`. The leaf is *not* armed, so
+  // it must still read `primary`.
+  events: 'window.chain.setIntercept("l2", true)',
 };
 
 /**
@@ -585,6 +595,19 @@ const PIXEL_EXPECTATIONS = {
     badge: 0x3fb950,
     footer: 0xf2a33c,
   },
+  /**
+   * The pointer-event-chain page (`#/events`, ADR-0010) with `l2` armed by the setup above:
+   * - `events.l2` samples the level's own padding, left of every child: a level that would take the
+   *   gesture away is painted `danger`, so this only reads `#f85149` if the armed state reached the paint;
+   * - `events.leaf` samples the leaf button's left padding (its own label spans almost the whole
+   *   button, so a sample further in reads a glyph) and must stay `primary` — the positive
+   *   control for the sample above (one sample could not tell "the state repainted" from "both widgets
+   *   happen to be red").
+   */
+  events: {
+    'events.l2': { rgb: 0xf85149, fx: 0.05, fy: 0.5 },
+    'events.leaf': { rgb: 0x2f6feb, fx: 0.04, fy: 0.5 },
+  },
 };
 
 /**
@@ -680,6 +703,14 @@ const LIGHT_EXPECTATIONS = {
   },
   uiscene: {
     'show.a': { rgb: 0x0969da, fx: 0.12, fy: 0.5 },
+  },
+  /**
+   * The same two points in the light theme: `danger` becomes `#cf222e` and `primary` `#0969da`, so a
+   * theme switch that skipped the chain page (or repainted only one of the two) fails.
+   */
+  events: {
+    'events.l2': { rgb: 0xcf222e, fx: 0.05, fy: 0.5 },
+    'events.leaf': { rgb: 0x0969da, fx: 0.04, fy: 0.5 },
   },
 };
 

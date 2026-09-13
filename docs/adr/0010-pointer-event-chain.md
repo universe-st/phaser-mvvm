@@ -51,4 +51,5 @@ Android 在 `ViewGroup.dispatchTouchEvent` / `onInterceptTouchEvent` / `onTouchE
 - 单测：`pnpm --filter @phaser-mvvm/phaser run test` → 23 文件 / 370 条通过（其中 `pointer-chain.test.ts` 30 条）；全仓 `pnpm test` → 1352 条通过。
 - 浏览器（触摸）：CDP 触摸仿真下轻点仍激活（`clicks=1`、`chain.kind=touch`）、消费后的拖动在离开所有盒子 200px 后仍收到 `move` 与 `up`、两指各自一条手势（抬起一指不影响另一指）——见同一份验收记录 §3.1。
 - 浏览器：`#/events` 的真实鼠标矩阵（A 普通点击仍激活 / B 消费后不再激活 / C 拦截后叶子完全不知情 / D 拖出盒子仍收到 move+up / E disallow 后祖先不被询问 / F 20px 阈值中途夺取 + cancel / G 外部 cancel），读数见 [`ACCEPTANCE-events.md`](../ACCEPTANCE-events.md)。
+- 像素 / 几何 / 可访问性树门禁：`node scripts/visual-check.mjs` → 场景 13 个（含新增的 `events`）、`OK` 96 项、`MISMATCH` 0、4 张 AX 树断言全过；阳性对照（关掉 `SCENE_SETUP.events`）得到 `2 check(s) failed`。
 - 回归：`#/showcase`、`#/states`、`#/gallery`、`#/modal`、`#/pages`、`#/hud`、`#/form`、`#/scroll`、`#/list`、`#/keyboard`、`#/bindings`、`#/router`、`#/uiscene` 用真实指针/键盘复跑，读数全部符合各自验收记录；22 个场景冷启动无 console 错误。

@@ -76,10 +76,30 @@ A–G 每一步都另读 `#demo-state` 的 `st.leaf`/`chain.*`，`st.*` 的迁�
 | `#/uiscene`  | 点 `show.b`                                                                                   | `view=b swaps=1 previousDestroyed=true`                                                                              |
 | 22 个场景    | 冷启动（含 `m0`/`probe`/`stack`/`dashboard`/`compose`/`options`/`config`/`a11y`/`lifecycle`） | 画布就绪、`#status` 与 `#demo-state` 有内容、**console 无 error / pageerror**                                        |
 
-## 5. 本轮未跑的门禁（如实记录）
+## 5. 像素 / 几何 / 可访问性树门禁（`node scripts/visual-check.mjs`）
 
-- **`node scripts/visual-check.mjs`（几何 + 像素 + AX 树）：未运行成功**。脚本启动的 Chrome 要求默认可写的 profile 目录（不传 `--user-data-dir`），在本会话的沙箱里 Crashpad 写盘被拒 → `timed out waiting for chrome devtools endpoint`（AGENTS §6 记录的环境限制，换用 Playwright 自带的 Chromium 同样超时）。因此**像素与 CDP AX 断言本轮没有读数**。
-  - 替代证据：本轮改动只碰输入分发（`pointer-chain.ts` / `input.ts` / `Widget.ts` / 选项键），**不触碰绘制与布局**；点击/悬停/焦点/滚动/页面栈/模态/AX 镜头的读数由上面两节的真机矩阵覆盖；无障碍（AX）镜像的代码未改动（`collectInteractive` 与 `a11y.ts` 本轮未编辑）。
-  - 下次在有图形环境（或可写 profile）的机器上应补跑：`node scripts/visual-check.mjs`，并把 `events` 加进场景列表（该页无像素期望，只需确认它不破坏通用「画布清屏色」检查）。
-- `pnpm build` / `pnpm build:examples`：`vite build` 成功（`dist/assets/index-*.js` 1.82 MB / gzip 483 kB，与改动前同量级），`visual-check` 的构建阶段通过，仅卡在 Chrome 启动。
-- `pnpm docs:check`：`check-doc-snippets.mjs` 全绿（含 vocabulary 与 idiom）；`check-doc-options.mjs` 195 个键全部被对应包接受（新增的基类选项表按设计被跳过，它不属于任何单个控件包）。
+本场景已接进仓库的常驻像素门禁（`scripts/visual-check.mjs` 的场景列表 + `SCENE_SETUP.events` + 明暗两张期望表）：
+
+```
+$ node scripts/visual-check.mjs          # 构建 + 无头 Chrome（1280×720）逐场景
+[visual-check] status for events:
+scene=events renderer=webgl size=1280x720 dpr=1
+events.page=@316,39 648x642 / events.leaf=@400,235 126x36 / events.l2=@352,103 222x214 …
+OK       canvas.clear: #0d1117 at (4,4)
+OK       events.l2: #f85149 at (363,210)
+OK       events.leaf: #2f6feb at (405,253)
+OK       events.l2: #cf222e at (363,210)      # 亮色半场
+OK       events.leaf: #0969da at (405,253)
+[visual-check] ok
+```
+
+- `SCENE_SETUP.events` 在截图前把 `l2` 的拦截**在运行期打开**（`window.chain.setIntercept("l2", true)`），于是 `events.l2` 采样到「会抢走手势的那一层被画成 `danger`」（`#f85149` / `#cf222e`，采在它自己的内边距上），而叶子仍然必须是 `primary`（`#2f6feb` / `#0969da`，采在按钮左内边距——它的文字几乎占满按钮，取 `fx: 0.12` 会读到字形，这正是第一次跑出来的 `#f4f8fe`）。
+- **阳性对照**（把 setup 换成 `void 0` 再跑）：`MISMATCH events.l2: expected #f85149 got #1f2630`（亮色 `expected #cf222e got #eef1f4`）→ `2 check(s) failed`，而 `events.leaf` 仍然 OK——所以这条门禁真的在测「状态到达了绘制」，不是两个颜色恰好都对。
+- **整轮结果**：场景 13 个（新增 `events`）、`OK` 96 项、`MISMATCH` 0、4 张可访问性树断言全过（`modal` 2 / `a11y` 14 / `keyboard` 38 / `pages` 3 个控制节点，无重复）。
+
+### 5.1 仍未覆盖的
+
+- `#/events` **没有** `AX_EXPECTATIONS` 条目：这一页的验收对象是事件投递，不是无障碍镜像；镜像代码本轮未改动，`modal`/`pages`/`a11y`/`keyboard` 四张树断言仍在门禁里跑。
+- 像素门禁只覆盖「链的页面画对了」；链的语义（投递顺序、拦截、cancel、disallow）由 §2 的单测与 §3/§3.1 的真机矩阵负责——两者互补，谁都替代不了谁。
+- `pnpm build` / `pnpm build:examples` 作为门禁的前置步骤通过（`vite build`：`dist/assets/index-*.js` 1.82 MB / gzip 483 kB，与改动前同量级）。
+- `pnpm docs:check` 全绿（含 vocabulary 与 idiom）；`check-doc-options.mjs` 195 个键全部被对应包接受。
