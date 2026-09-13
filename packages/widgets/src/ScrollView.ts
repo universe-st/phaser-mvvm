@@ -82,6 +82,9 @@ import {
   keyScrollAxis,
   planScrollKey,
   thumbGeometry,
+  cullBand,
+  outsideCullBand,
+  type CullBand,
   type ScrollRect,
 } from './scroll-plan';
 
@@ -147,6 +150,26 @@ const SCROLL_KEYS = [
 
 /** Pointer travel (px) before a press becomes a scroll drag. */
 export const SCROLL_DRAG_THRESHOLD = 10;
+/**
+ * Content-space pixels kept on each side of the viewport by the culling pass.
+ *
+ * The band is what the *offset* says is visible, so a node is culled only once it is this far out of
+ * sight. It has to cover the geometry that legitimately sticks out of what the layout knows about (a
+ * panel's shadow, a focus ring, an icon that overflows its button) and any rounding between the
+ * arranged rect and the pixel the mask actually cuts at - without being so generous that a whole
+ * extra screenful of content is still paying draw calls (at 511 px of viewport, 128 px of margin left
+ * the worst scroll position at 112 calls; 48 px leaves it at 80).
+ */
+export const CULL_MARGIN = 48;
+
+/** A content-space bounding box, reused by the culling pass to avoid one allocation per node. */
+interface CullExtent {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
 /** Velocity (px/ms) a fling needs to start. */
 export const FLING_MIN_VELOCITY = 0.08;
 /** Keyboard line step, in pixels. */
@@ -340,6 +363,19 @@ export class ScrollView extends Widget {
   readonly clipsPointer = true;
   private lastTick = 0;
   private rectBuffer: ScrollRect[] = [];
+  /** Widgets this port has culled, so the next pass can turn them back on. */
+  private readonly culledWidgets: Widget[] = [];
+  /** Reused visible band for the culling pass (no allocation per frame). */
+  private readonly cullBand: CullBand = {
+    minX: 0,
+    maxX: 0,
+    minY: 0,
+    maxY: 0,
+    axisX: false,
+    axisY: true,
+  };
+  /** Reused per-level extents for the culling pass (no allocation per frame). */
+  private readonly cullExtents: CullExtent[] = [];
   private listenersInstalled = false;
 
   constructor(scene: Phaser.Scene, options: ScrollViewOptions = {}) {
@@ -863,6 +899,154 @@ export class ScrollView extends Widget {
       // rubber-band enabled `springBack()` above owns this case instead.
       this.setOffset(this.currentX, this.currentY);
     }
+
+    // Last, so it sees this frame's offset, viewport and arranged rects - and so the frame that
+    // follows the scroll is the one that stops paying for what scrolled away.
+    this.cullContent();
+  }
+
+  // ------------------------------------------------------------------ viewport culling
+
+  /**
+   * Stops drawing the content the viewport cannot show.
+   *
+   * The mask (a WebGL filter, or a `GeometryMask` on Canvas) already hides it, but hiding a pixel is
+   * not free: the draw call, the texture bind and the shader switch all still happen. A page that is
+   * 8298 px tall inside a 511 px viewport was issuing **578 draw calls per frame at 11 fps** to show
+   * about 6 % of itself; the same page culled to its visible band issues 56-82 and holds 52-60 fps
+   * (measured on `#/showcase` in "All sections", see ACCEPTANCE-performance.md §8).
+   *
+   * The walk is a depth-first descent of the content holder. A node is culled when its **drawn
+   * extent** — its own rect unioned with every descendant that is itself still drawn — misses the
+   * band, so the pass costs one visit per widget in the content (0.125 ms for the 892 widgets of
+   * `#/showcase`) against the 75 ms a frame of drawing them cost.
+   *
+   * The extent, not the node's own rect, is what has to be tested: a rect is *not* a bound for a
+   * subtree. `#/list` is the counter-example that proved it — a `height: 'fill'` panel whose
+   * virtualised `Repeat` places its rows at content coordinates puts rows thousands of pixels below
+   * its own 408 px box, and culling that panel on its own rect blanked the whole list.
+   *
+   * Three more rules keep it honest:
+   *
+   * - It writes {@link Widget.culled}, never `visible`, so layout, focus order, pointer routing,
+   *   the accessibility mirror and the content extent keep seeing the whole tree (see `Widget.culled`).
+   * - It descends with `child.x`/`child.y`, the same accumulation `collectRects` uses, and starting
+   *   from the holder - so the band is expressed in *content* space, which is the space the offset is
+   *   measured in once the holder's `-offset` translation and zoom scale are divided out.
+   * - It stops at a nested `ScrollView`, which owns its own window; two ports never write the same
+   *   flag, so a node culled by an outer port cannot be resurrected by an inner one mid-frame. Its
+   *   own rect *is* a bound for what it draws, because it clips.
+   */
+  private cullContent(): void {
+    // Clearing first (instead of only turning back on what the walk meets) is what makes a node that
+    // scrolled out from *under* a still-culled ancestor draw again when the ancestor returns.
+    for (let i = 0; i < this.culledWidgets.length; i += 1) {
+      const widget = this.culledWidgets[i];
+      if (widget !== undefined && !widget.isDestroyed) {
+        widget.culled = false;
+      }
+    }
+    this.culledWidgets.length = 0;
+
+    const content = this.contentWidget;
+    const viewport = this.viewport;
+    if (content === null || viewport.width <= 0 || viewport.height <= 0 || !this.clipReady) {
+      return;
+    }
+
+    // Content-space band: the holder is translated by `-offset` and scaled about its origin, so the
+    // pixels that can be seen are `[offset, offset + viewport] / scale` in the holder's own units.
+    cullBand(
+      this.currentX,
+      this.currentY,
+      viewport.width,
+      viewport.height,
+      this.zoomScale,
+      CULL_MARGIN,
+      this.scrollsX(),
+      this.scrollsY(),
+      this.cullBand,
+    );
+
+    // The holder itself is never culled (the port would have nothing to show, and its own rect is the
+    // content box the band is measured in).
+    this.cullSubtree(this.holder, 0, 0, 0, this.cullExtentAt(0));
+  }
+
+  /**
+   * Recursive half of {@link cullContent}.
+   *
+   * Visits `node` bottom-up, writing the content-space extent of everything it would draw into `out`,
+   * and culling each child whose extent misses the band. A culled child does not widen `out`: the
+   * extent describes what is *drawn*, which is what makes "this subtree shows nothing" propagate to
+   * the parent instead of stopping at the child.
+   *
+   * `depth` indexes the reusable extent scratch objects; the tree is walked with a fixed number of
+   * allocations per level rather than one object per node per frame.
+   */
+  private cullSubtree(
+    node: Widget,
+    baseX: number,
+    baseY: number,
+    depth: number,
+    out: CullExtent,
+  ): void {
+    const rect = node.appliedRect;
+    out.minX = baseX;
+    out.maxX = baseX + rect.width;
+    out.minY = baseY;
+    out.maxY = baseY + rect.height;
+
+    const children = node.getWidgetChildren();
+    for (let i = 0; i < children.length; i += 1) {
+      const child = children[i] as Widget;
+      if (child.visible === false) {
+        // Already outside the picture (and outside the content extent `collectRects` measures).
+        continue;
+      }
+      const left = baseX + child.x;
+      const top = baseY + child.y;
+      const childExtent = this.cullExtentAt(depth + 1);
+      if (child instanceof ScrollView) {
+        // A nested port clips to its own viewport, so its rect bounds everything it can draw.
+        const childRect = child.appliedRect;
+        childExtent.minX = left;
+        childExtent.maxX = left + childRect.width;
+        childExtent.minY = top;
+        childExtent.maxY = top + childRect.height;
+      } else {
+        this.cullSubtree(child, left, top, depth + 1, childExtent);
+      }
+
+      if (
+        outsideCullBand(
+          this.cullBand,
+          childExtent.minX,
+          childExtent.minY,
+          childExtent.maxX - childExtent.minX,
+          childExtent.maxY - childExtent.minY,
+        )
+      ) {
+        child.culled = true;
+        this.culledWidgets.push(child);
+        continue;
+      }
+
+      if (childExtent.minX < out.minX) out.minX = childExtent.minX;
+      if (childExtent.maxX > out.maxX) out.maxX = childExtent.maxX;
+      if (childExtent.minY < out.minY) out.minY = childExtent.minY;
+      if (childExtent.maxY > out.maxY) out.maxY = childExtent.maxY;
+    }
+  }
+
+  /** One reusable extent scratch object per tree level (see `cullSubtree`). */
+  private cullExtentAt(depth: number): CullExtent {
+    let extent = this.cullExtents[depth];
+    if (extent === undefined) {
+      extent = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+      this.cullExtents[depth] = extent;
+    }
+    return extent;
   }
 
   /** Recomputes the content length (and the resulting limits) from the arranged rects. */

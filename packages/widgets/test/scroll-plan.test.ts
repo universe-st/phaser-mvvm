@@ -24,6 +24,8 @@ import {
   planScrollDrag,
   planScrollKey,
   thumbGeometry,
+  cullBand,
+  outsideCullBand,
 } from '../src/scroll-plan';
 
 describe('isScrollable', () => {
@@ -355,5 +357,77 @@ describe('planScrollKey', () => {
 
   it('never pages less than one line', () => {
     expect(planScrollKey('PageDown', 4, 40)?.delta).toBe(40);
+  });
+});
+
+/**
+ * Viewport culling: the arithmetic that decides which content a scroll port stops drawing.
+ *
+ * The widget half (the pruning walk, the flag it writes) is browser-side, but *where* the band ends up
+ * is the part that decides whether a row pops in and out at the edge, so it is pinned here.
+ */
+describe('cullBand', () => {
+  it('covers the viewport plus the margin on both sides', () => {
+    const band = cullBand(200, 400, 300, 500, 1, 50, false, true);
+    expect(band.minY).toBe(350);
+    expect(band.maxY).toBe(950);
+    expect(band.minX).toBe(150);
+    expect(band.maxX).toBe(550);
+  });
+
+  it('divides the offset and the viewport by the holder scale', () => {
+    // Zoomed in to 2x, half as much content fits the same 500 px viewport and the same offset.
+    const band = cullBand(0, 400, 300, 500, 2, 0, false, true);
+    expect(band.minY).toBe(200);
+    expect(band.maxY).toBe(450);
+  });
+
+  it('shrinks the margin with the scale too, so the band never depends on the zoom', () => {
+    const band = cullBand(0, 400, 300, 500, 2, 48, false, true);
+    expect(band.minY).toBe(200 - 24);
+    expect(band.maxY).toBe(450 + 24);
+  });
+
+  it('falls back to scale 1 rather than producing an infinite band', () => {
+    const band = cullBand(0, 100, 300, 500, 0, 0, false, true);
+    expect(band.minY).toBe(100);
+    expect(band.maxY).toBe(600);
+  });
+
+  it('keeps the axes the caller asked for and reuses the result object', () => {
+    const target = { minX: 0, maxX: 0, minY: 0, maxY: 0, axisX: false, axisY: false };
+    const band = cullBand(0, 0, 10, 10, 1, 0, true, false, target);
+    expect(band).toBe(target);
+    expect(band.axisX).toBe(true);
+    expect(band.axisY).toBe(false);
+  });
+});
+
+describe('outsideCullBand', () => {
+  const band = cullBand(0, 500, 300, 400, 1, 50, false, true);
+
+  it('treats a rect that merely touches an edge as visible', () => {
+    // Ends exactly where the band starts / starts exactly where it ends.
+    expect(outsideCullBand(band, 0, 450 - 100, 100, 100)).toBe(false);
+    expect(outsideCullBand(band, 0, 950, 100, 100)).toBe(false);
+  });
+
+  it('culls a rect that is entirely past either edge', () => {
+    expect(outsideCullBand(band, 0, 0, 100, 440)).toBe(true);
+    expect(outsideCullBand(band, 0, 960, 100, 100)).toBe(true);
+  });
+
+  it('reports a zero-sized rect at the content origin as visible while the band contains it', () => {
+    // A widget that has not been arranged yet sits at (0,0) with no size; culling it would hide a
+    // fresh subtree for the frame before its rect arrives.
+    const top = cullBand(0, 0, 300, 400, 1, 50, false, true);
+    expect(outsideCullBand(top, 0, 0, 0, 0)).toBe(false);
+  });
+
+  it('ignores the axis the port does not scroll', () => {
+    // A vertical port keeps a very wide row: it is off the cross axis but on screen vertically.
+    expect(outsideCullBand(band, -5000, 600, 4000, 100)).toBe(false);
+    const both = cullBand(0, 500, 300, 400, 1, 50, true, true);
+    expect(outsideCullBand(both, -5000, 600, 4000, 100)).toBe(true);
   });
 });

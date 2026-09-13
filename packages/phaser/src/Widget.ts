@@ -103,6 +103,20 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
   /** Rect assigned by the engine, in the parent's local coordinates. */
   protected readonly rect: Rect = { x: 0, y: 0, width: 0, height: 0 };
 
+  /**
+   * Whether an enclosing scroll port has decided that this widget is too far outside its viewport to
+   * be worth drawing. **Rendering only** — see {@link willRender}.
+   *
+   * This is deliberately *not* `visible`: five different walks read that flag to mean "this node is
+   * not part of the UI right now" — `inFlow` (a hidden widget collapses out of the layout flow and
+   * `setVisible()` therefore marks the tree dirty), `collectRects` (content extent), focus
+   * collection, the pointer walk in `resolveTargetInTree` and `A11yBridge`. Reusing it for culling
+   * would make a scroll change the layout, the scrollbar and the Tab order, and would force one
+   * relayout per scrolled frame. `culled` carries the one thing culling means — "do not spend a draw
+   * call on this subtree" — and every other subsystem keeps seeing the widget exactly as before.
+   */
+  culled = false;
+
   private readonly widgetChildren: Widget[] = [];
 
   constructor(scene: Phaser.Scene, options: WidgetOptions = {}) {
@@ -763,6 +777,26 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     super.setVisible(value);
     this.markDirty();
     return this;
+  }
+
+  /**
+   * Skips the draw call for a culled subtree.
+   *
+   * `Phaser.GameObjects.Container`'s WebGL renderer asks each child `willRender(camera)` before it
+   * touches any of its geometry, and a `false` there prunes the whole subtree — no per-child draw,
+   * no texture bind, no shader switch. That is the hook viewport culling needs (see
+   * {@link ScrollView}): a page whose content is 16 times taller than its viewport was spending a
+   * full frame on rows nobody could see.
+   *
+   * Nothing else in the framework reads `culled`, so a culled widget is still laid out, still
+   * focusable, still announces itself to assistive technology and still the same size in
+   * `appliedRect`.
+   */
+  override willRender(camera: Phaser.Cameras.Scene2D.Camera): boolean {
+    if (this.culled) {
+      return false;
+    }
+    return super.willRender(camera);
   }
 
   /**

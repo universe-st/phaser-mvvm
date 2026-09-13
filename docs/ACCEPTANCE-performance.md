@@ -160,3 +160,50 @@ PLAN §8 的「连续输入（含 IME）不引发整树布局」用布局引擎�
 | `pnpm size`                                                           | `size check passed`（两组均 within budget）                      |
 | `pnpm test`                                                           | **1352 passed**（core 281、layout 314、phaser 370、widgets 387） |
 | `node scripts/visual-check.mjs`                                       | `[visual-check] ok`：13 场景、96 项 OK、0 MISMATCH、4 张 AX 树   |
+
+---
+
+## 8. 第 109 轮：滚动视口的渲染裁剪（`#/showcase` "All sections" 的卡顿）
+
+**症状（用户报告）**：`#/showcase` 打开 "All sections" 后，右侧画布的滑动与点击明显掉帧（菜单里其它单分区都不明显）。
+
+**定位过程**（Playwright MCP + CDP，dev server 5173，Apple A18 Pro / macOS 26.6.2 / Node 24.18.1，Chromium 窗口 1408×626 CSS）：
+
+1. 逐帧采样 `requestAnimationFrame` 间隔：空闲即 **91 ms**，滑动时 **94 ms** —— 与滑动无关，是**每帧固定成本**。
+2. `game.loop.sleep()` 后同一采样变成 16.7 ms ⇒ 成本在游戏循环里；CPU profile 却只有约 18 ms/帧的 JS，其余记在 `(idle)` ⇒ 时间花在 GPU 提交/等待上。
+3. 给 `WebGLRenderingContext.prototype` 打计数桩：每帧 **`drawElements` 577、`useProgram` 576、`bufferSubData` 861、`bindTexture` 404`**；把场景内容 `setVisible(false)` 后降到 **40 / 17.0 ms**（vsync 地板）。
+4. 按控件类型再切一刀：**只隐藏 61 个 `Graphics`** 就足以回到 45 calls / 17.0 ms。根因因此明确：**Phaser 4 的 `Graphics` 每帧重放命令缓冲并重新三角化**（`GraphicsWebGLRenderer` → `Earcut`），单个体约 0.13 ms；853 个控件的页面有 393 个 `Graphics`，而画布里只看得见其中一小部分。
+5. 关键证据：把舞台内容分别滚到 0 / 3000 / 8000 / 16000，**每帧 draw call 恒为 577** —— 没有任何视口裁剪，ScrollView 的 mask 只是"挡住了像素"，没有省下渲染。
+
+**修法**（不改 API、不改结构，见 [`PITFALLS.md`](./PITFALLS.md) §8.70）：
+
+- `Widget.culled` + `Widget#willRender()`：一个只影响渲染的开关，`ContainerWebGLRenderer` 的 `child.willRender(camera)` 会把整棵被剪子树从这一帧摘掉；布局、焦点、指针路由、无障碍镜像、内容长度全部照旧读 `visible`。
+- `ScrollView#cullContent()`：每帧（`POST_UPDATE`）对内容做一次后序遍历，按**子树实际外接矩形**判可见带（`[offset, offset+viewport] / zoomScale` 外扩 `CULL_MARGIN = 48` px），命中即标记并整棵剪掉；判据是"子树画出来的外接矩形"而不是节点自己的 `appliedRect`，因为 `fill` 容器、绝对定位、虚拟化列表都能让子节点跑到父矩形外面（`#/list` 的空白事故就是这条）。纯几何部分落在 `scroll-plan.ts` 的 `cullBand()` / `outsideCullBand()` 上，含 9 条 Node 单测。
+
+**实测（同一台机器、同一个页面、同一段脚本）**：
+
+| 滚动位置（内容坐标）                                    | 修前 draw calls / 帧 | 修后 draw calls / 帧 | 修前帧时间 | 修后帧时间                |
+| ------------------------------------------------------- | -------------------- | -------------------- | ---------- | ------------------------- |
+| 0                                                       | 577                  | **56**               | 90.4 ms    | **16.8 ms**               |
+| 2000                                                    | 577                  | **76**               | 91.3 ms    | **18.0 ms**               |
+| 4000                                                    | 577                  | **82**               | 91.1 ms    | **18.6 ms**               |
+| 6000                                                    | 577                  | **64**               | 90.5 ms    | **17.5 ms**               |
+| 7787（底部）                                            | 577                  | **80**               | 90.9 ms    | **18.5 ms**               |
+| 真实滚轮手势（70 次 `mouse.wheel`，中位数 / p90 / p95） | —                    | —                    | —          | **18.0 / 25.7 / 27.2 ms** |
+
+裁剪自身的开销：`#/showcase` 892 个控件的完整后序遍历 **0.125 ms/帧**（同一个口，量 20 次的平均）。单分区页面（86 控件）本来就只画 ~94 calls，读数与修前一致，说明裁剪没有把"本来就要画的东西"藏起来。
+
+**"没有画错"的判据（A/B 逐像素）**：把 `ScrollView.prototype.cullContent` 临时替换成空函数并把所有 `culled` 清掉，得到"完全不裁剪"的对照；在 `#/showcase`（4 个口）、`#/list`（1 个）、`#/scroll`（5 个）、`#/options`（6 个）上，每个口取 0 / 0.35 / 0.5 / 1.0 四个偏移截图，**64 对截图逐像素完全相同（0 差异）**。A/B 前每个口先滚到底再回 0 做一次 prime，否则滚动条拇指的"迟到重画"会污染对照（见 §8.70 ③）。
+
+**已跑的门禁**：
+
+| 命令                                       | 结果                                                                                            |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `pnpm typecheck`                           | 5/5 通过                                                                                        |
+| `pnpm test`                                | **1361 passed**（core 281、layout 314、phaser 370、widgets 396——widgets 新增 9 条裁剪几何用例） |
+| `pnpm docs:check`                          | 四关全过（含 vocabulary / idiom / option keys）                                                 |
+| `pnpm size`                                | `size check passed`：18.6 KB / **31.3 KB** min+gzip（预算 25 / 45）                             |
+| `node scripts/visual-check.mjs`            | `[visual-check] ok`：13 场景像素 + 几何 + 4 张 AX 树、0 MISMATCH                                |
+| `#/lifecycle` `window.lifecycle.churn(12)` | 10 项计数在 cycle 1 与 cycle 13 完全相同（无泄漏）                                              |
+
+> 环境说明：本机 DSH 沙箱下 Chrome 无法在默认 profile 建 Crashpad 目录，`scripts/visual-check.mjs` 直接用 `CHROME_PATH` 指向一个把 `--user-data-dir` 指到 `.tmp/` 的本地包装脚本运行（包装脚本只在 `.tmp/`，未入库）。这不是脚本缺陷，见 AGENTS §6。

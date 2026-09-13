@@ -295,3 +295,69 @@ export function planScrollKey(
       return null;
   }
 }
+
+/**
+ * The slice of content a port can currently show, in **content space**.
+ *
+ * Content space is the holder's own coordinate system: the offset is measured in screen pixels while
+ * `appliedRect` is not, so the band divides the offset and the viewport by the holder's scale (`zoom`)
+ * before comparing them.
+ */
+export interface CullBand {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  /** Whether the port scrolls — and therefore culls — on the axis. */
+  axisX: boolean;
+  axisY: boolean;
+}
+
+/** Results of {@link cullBand}, reused by the caller to keep the per-frame pass allocation-free. */
+export function cullBand(
+  offsetX: number,
+  offsetY: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  scale: number,
+  margin: number,
+  axisX: boolean,
+  axisY: boolean,
+  out: CullBand = { minX: 0, maxX: 0, minY: 0, maxY: 0, axisX, axisY },
+): CullBand {
+  const safeScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  const pad = (Number.isFinite(margin) ? Math.max(0, margin) : 0) / safeScale;
+  const width = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+  const height = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+  out.minX = offsetX / safeScale - pad;
+  out.maxX = (offsetX + width) / safeScale + pad;
+  out.minY = offsetY / safeScale - pad;
+  out.maxY = (offsetY + height) / safeScale + pad;
+  out.axisX = axisX;
+  out.axisY = axisY;
+  return out;
+}
+
+/**
+ * Whether a content-space rect misses the band on an axis the port scrolls.
+ *
+ * Only the scrolling axes are tested: the mask hides both, but a node that is out of sight on the
+ * cross axis of a vertical port is content the caller sized wider than the viewport on purpose (a
+ * horizontal strip inside a page), and culling it would fight the layout instead of the frame budget.
+ * Touching edges count as visible, so a rect is culled only once it is entirely out of sight.
+ */
+export function outsideCullBand(
+  band: CullBand,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): boolean {
+  if (band.axisY && (y + height < band.minY || y > band.maxY)) {
+    return true;
+  }
+  if (band.axisX && (x + width < band.minX || x > band.maxX)) {
+    return true;
+  }
+  return false;
+}

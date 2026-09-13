@@ -368,6 +368,7 @@ this.mvvm.mount(page);
 - 分配：排布热路径零新增对象/闭包——`perf.test.ts` 断言对象池（按深度索引的 `EngineContext`）在 200 次 pass 后长度不变、且这些 pass 不产生任何测量。
 - 输入：连续输入（含 IME）不引发整树布局——浏览器实测：在 786 个控件的页面上输入 43 个字符，`passes` 增量为 **0**（输入框尺寸不随文本变化，连一次布局都不需要）；在 119 个控件的页面上输入 43 个字符为 4 次 pass、约 5 次测量/字符（只重测输入框自身子树）。
 - 体积（gzip，不含 Phaser）：`core` + `layout` < 25 KB；`phaser` + `widgets` < 45 KB——由 `pnpm size`（`scripts/size-check.mjs`）在 **minify 后**的 gzip 上判定（库产物故意不 minify，便于堆栈可读；消费方打包时一定会 minify），实测 **18.6 KB** / **31.3 KB**（第 107 轮复测），脚本同时打印未压缩 gzip 值（28.1 KB / 61.5 KB）以便对照。第 5 轮首发时是 18.3 / 14.7 KB：`phaser` + `widgets` 的上涨来自第 5 轮之后 phaser 包长大（页面栈/路由/模态/动效/无障碍镜像/虚拟键盘…陆续进来），不是某一个模块的增量——第 107 轮的指针事件链单独量只有 1.6 KB min+gzip。
+- 滚动视口的渲染裁剪（第 109 轮）：`ScrollView` 每帧把它**画不出来**的内容从这一帧里摘掉（`Widget.culled` + `Widget#willRender`），判据是内容的**子树外接矩形**与可见带（`[offset, offset + viewport] / zoomScale`，外扩 48 px）是否相交；它只影响渲染，布局/焦点/指针路由/无障碍镜像/内容长度仍按 `visible` 走。这不是可选项而是约定：Phaser 4 的 `Graphics` 每帧重放命令缓冲并重新三角化，一个 8298 px 高、只看得见 6 % 的页面在裁剪前每帧要 578 个 draw call（11 fps），裁剪后 56–82 个（52–60 fps），遍历本身 0.125 ms/帧。实测与判据见 [`ACCEPTANCE-performance.md`](./docs/ACCEPTANCE-performance.md) §8，两条坑（不能用 `visible`；节点的 `appliedRect` 不是子树的边界）见 [`PITFALLS.md`](./docs/PITFALLS.md) §8.70。
 
 ---
 
