@@ -101,5 +101,5 @@ OK       events.leaf: #0969da at (405,253)
 
 - `#/events` **没有** `AX_EXPECTATIONS` 条目：这一页的验收对象是事件投递，不是无障碍镜像；镜像代码本轮未改动，`modal`/`pages`/`a11y`/`keyboard` 四张树断言仍在门禁里跑。
 - 像素门禁只覆盖「链的页面画对了」；链的语义（投递顺序、拦截、cancel、disallow）由 §2 的单测与 §3/§3.1 的真机矩阵负责——两者互补，谁都替代不了谁。
-- `pnpm build` / `pnpm build:examples` 作为门禁的前置步骤通过（`vite build`：`dist/assets/index-*.js` 1.82 MB / gzip 483 kB，与改动前同量级）。
+- `pnpm build` / `pnpm size` 通过：`core + layout` min+gzip **18.6 KB**（预算 25）、`phaser + widgets` **31.3 KB**（预算 45）——均有余量；本例新增的 `pointer-chain.ts` 单独量是 **1.6 KB min+gzip**（`esbuild --bundle --minify --external:phaser | gzip -9`），所以 `phaser + widgets` 的读数远高于 AGENTS §6 记的 14.7 KB 不是本轮的增量（那条数字早已滞后，见 §8.41）。`pnpm build:examples`：`dist/assets/index-*.js` 1.82 MB / gzip 483 kB。
 - `pnpm docs:check` 全绿（含 vocabulary 与 idiom）；`check-doc-options.mjs` 195 个键全部被对应包接受。
