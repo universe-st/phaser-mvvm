@@ -460,6 +460,24 @@ this.mvvm.mount(page);
 
 ---
 
+### 10.4 现状校正（第 110 轮；**上面的冻结正文不改**）
+
+§10.1–§10.3 是 v1.1 评审时冻结的决策，正文保持原样（评审依据不能被事后改写）。下面是**落地后的事实**：只列与正文有出入、或正文没写全的条目；没列到的条目按原样成立（`dark`/`light` 双主题、焦点环用 `Graphics` 描边、DPR 感知取整、对象池预算、包名与目录、MIT、Phaser 依赖方式本身等）。
+
+| 位置 | 冻结正文说的 | 现状 |
+| ---- | ------------ | ---- |
+| §10.1 #1 | 「TypeScript + **代码优先 builder**」：视图即函数 `vbox/hbox/grid/label/textField/...` | 这些工厂与容器助手**都在、也没被弃用**（`this.add.vbox/hbox/…`、`this.add.uiLabel/uiButton/uiTextField/…`），但**推荐的默认写法是 Compose DSL**（`Column({…}, () => {…})`）——第 69 轮起，见 §5.1 与 [`guide/09`](./guide/09-compose-dsl.md)。`vbox({…}, [children])` 那种「传 children 数组」的形态没有成为默认。JSON/模板层仍按原文延后到 Phase 2（`@phaser-mvvm/template` 未创建，且全仓不使用 `eval`/`new Function`） |
+| §10.1 #2 | 「`packages/phaser` 是**唯一**允许 import Phaser 的包」 | `packages/widgets` **也直接 import Phaser**（每个控件都在 `new Phaser.GameObjects.…`，构建时 `--external phaser`）——第 98 轮改正。不变的部分：`core`/`layout` 零 Phaser 依赖（连类型都不引），peer `^4.2.0` + devDependency `4.2.1`，本地源码只读 |
+| §10.2 #5 | 「`UIScene` 基类 + **`Page` 生命周期** + 页面栈 + **`ModalStack`** + 轻量 `Router`」 | 全部交付，但名字不同：页面栈是 `PageHost`（`this.mvvm.pages`）+ `PageOptions`，**没有 `Page` 类**（钩子是 `onResume`/`onPause`/`onDispose`/`onBack`，没有 `onEnter`/`onLeave`/`keepAlive`）；模态是 `ModalHost`（`this.mvvm.modal`），**没有 `ModalStack` 这个符号**；`Router` 按原文交付；`UIScene` 提供 `content()`（**建树并自动挂载**，`setContent()` 整页替换）与 `onBack()`，但它**不自动安装插件**——插件条目要自己写在 Game Config 里，缺插件时 `create()` 抛带配置片段的指名错误 |
+| §10.2 #6 | a11y 受限范围：隐藏 DOM 镜像 + `aria-live` + 键盘全可达，不做 WCAG 认证 | 成立；补充三条落地事实：镜像**与控件树同构**（容器 → `region`/`group`/`dialog`，自带 `<input>` 的控件靠 `aria-owns`，第 103 轮）、被盖住的层（模态以外 / `active === false` 的页）必须离开无障碍树（第 101/102 轮修的 V72/V73）、门禁是 CDP `Accessibility.getFullAXTree` 的**恰好这么多节点**断言。**真实屏幕阅读器（VoiceOver/NVDA）人工走查仍未做** |
+| §10.2 #7 | 「**`NavSource` 抽象**统一方向键 / Tab / 手柄 D-Pad+摇杆 / **鼠标悬停**」 | `NavSource` 第 110 轮才真正落地（`NavSource`/`NavSourceHost`/`NavSourceRegistry` + `registerNavSource()`，见 §5.2 与 [`guide/07 §4.1`](./guide/07-input-focus-nav.md)）。两点校正：① 在此之前只有 `nav.ts` 的纯函数，名字并不存在；② **鼠标悬停不属于 `NavSource`** —— 悬停/按下/拖动是 `InputRouter` 的指针语义，`NavSource` 管的是「设备 → `NavAction`」那一层（键盘、手柄、以及 App 自己注册的设备） |
+| §10.3 工具链 | 「测试 `vitest` + **Playwright**（控件截图）；lint **ESLint** flat + Prettier；文档 **TypeDoc**；版本 **Changesets**」 | `vitest`、`tsup`、Prettier、CI 都在用。**未接入**：ESLint、TypeDoc、Changesets（1.0 的版本号与公开面冻结由 [`ADR-0011`](./adr/0011-public-api-freeze.md) 的 `pnpm api:check` 承担，不走 changesets）。**Playwright 明确不引入**：几何/像素/无障碍树验收是零依赖 CDP 脚本 `scripts/visual-check.mjs`（理由见 `AGENTS.md` §8.42） |
+| §10.3 许可证 | 「MIT，`packages/*` 各自带 LICENSE 引用」 | MIT 成立，但**包内没有各自的 LICENSE 文件**：全文在仓库根 `LICENSE`，四个包的 `package.json` 声明 `"license": "MIT"` |
+| §10.3 输入桥与 a11y 层 | 「二者共用同一个 overlay DOM 容器，**由 `UIScene` 创建/销毁**」 | 共用一个容器成立，但容器是 **Phaser 的 `game.domContainer`**（`dom: { createContainer: true }` + `parent` 时才存在），由 `A11yBridge` 与 `DomInputBridge` 各自挂进去、各自销毁自己的节点；**`UIScene` 不参与**——所以用 `UIScene` 之外的方式建页（`ui()`/`render()`，或纯工厂）时无障碍镜像与输入桥同样可用 |
+| §10.3 i18n | 「Phase 1 只提供 formatter/validator 扩展点」 | 成立，实际入口是数据转换器 `BUILT_IN_CONVERTERS`/`applyConverter`（`@phaser-mvvm/core`）与字段的 `validate` 选项；没有内置多语言资源系统 |
+
+> 版本与冻结：四个包在第 110 轮由 `0.0.0` 升到 **`1.0.0`**，公开名字集合（5 个入口点、817 个导出名）冻结在 [`docs/API-SURFACE.json`](./API-SURFACE.json)，由 `pnpm api:check` 守住 —— 见 [ADR-0011](./adr/0011-public-api-freeze.md)。里程碑的交付状态见 §6 的「执行状态」与 [`HANDOVER.md`](./HANDOVER.md) §1.1。
+
 ## 附：第一批实施的任务清单（M0–M1 可立即开跑）
 
 1. 初始化 pnpm workspace、`tsconfig.base.json`、eslint/prettier、vitest、CI。
