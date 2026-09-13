@@ -68,7 +68,7 @@
 
 ## 4. 未做 / 下一步
 
-1. **`#/showcase`（1589 行、工厂 API 写的旧验收页）尚未迁移到 DSL**。它是当前唯一还在教工厂写法的大页面；迁移需要逐分区与 `#status`/`#demo-state` 基线比对（各分区控件数 39/43/35/71/161/81/83/110/107/39 与几何已记录，可直接作为等价性基线）。建议单独一轮做，并保留 `#/showcase` 作为「工厂 API 仍可用」的对照页。
+1. ~~**`#/showcase`（1589 行、工厂 API 写的旧验收页）尚未迁移到 DSL**~~ **已完成（第 8 轮）**：`#/showcase` 现在整页用 DSL 写（`apps/examples/src/scenes/showcase.ts`，2481 行，0 处工厂调用），逐分区控件数与几何的等价性核对见 [`ACCEPTANCE-round8.md`](./ACCEPTANCE-round8.md)；它同时是 `scripts/visual-check.mjs` 的像素门禁（`sizing` 分区）。
 2. `Modifier` 式链式写法**不做**：DSL 刻意复用控件的选项对象（`{ padding, gap, width }`），另造一套链式词汇会违背「一个词汇表」的目标；`visible`/反应式槽位已经覆盖 Compose `Modifier` 的常用语义。
 3. `When`/`ForEach` 这类 helper **不做**：`if`/`for` 原生可用（本轮 §2.1 实测），再加一层包装只会增加概念。
 

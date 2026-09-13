@@ -81,7 +81,7 @@ patch transition = false      → { enter: 0, exit: 0 }
 
 ## 3. 未覆盖 / 有意不做
 
-- **`MMVMPluginConfig` 里的 `onBack`**：仍然推荐用 `this.mvvm.onBack = …`（第 61 轮的 V20：`focus.onBack` 是插件的路由钩子）。`configure({ onBack })` 也能写进去，但文档只教 `mvvm.onBack`——一个应用级回调没有必要走两条路。
+- **`MVVMPluginConfig` 里的 `onBack`**：仍然推荐用 `this.mvvm.onBack = …`（第 61 轮的 V20：`focus.onBack` 是插件的路由钩子）。`configure({ onBack })` 也能写进去，但文档只教 `mvvm.onBack`——一个应用级回调没有必要走两条路。
 - **`configure()` 影响已存在的页面布局**：`align`/`depth`/`container` 这类描述"根怎么建"的选项不会追溯修改已经建好的根（`depth` 会生效，因为它直接写渲染深度；`align` 不会）。这一点写进了 JSDoc。
 - **Game Config 里的 `plugins.scene[].config`**：仍然是 Phaser 不会传递的字段（这是 Phaser 的行为，不是本框架能改的），所以文档不再提"可以传 config"，只教 `MVVMPlugin.configure()` 与实例 `configure()`。
 - **多游戏实例**：静态默认值是**进程级**的；一个页面里跑两个 `Phaser.Game` 会共享它（`resetDefaults()` 只在测试里用）。真实项目不会这么做。

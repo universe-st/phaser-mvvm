@@ -71,3 +71,12 @@ PLAN §1.1 目标 G6 要求「响应式与布局引擎零渲染依赖，可在 N
 - PLAN.md §4.2 测量、§4.3 `PhaserTextMeasurer`
 - PLAN.md §7 测试与质量策略（`layout` 黄金快照）、§8 文本缓存命中率目标
 - ADR-0001（包划分）、ADR-0002（两阶段布局）、ADR-0007（Phaser 4 约束与适配层隔离）
+
+## 现状校正
+
+> 上面的正文写于决策当时，决策本身未变（`layout` 至今零 Phaser 依赖，且没有 `Measurer` 这个接口）。
+
+- `packages/layout/src` 里**没有** `Measurer` / `measureText()` / `TextStyleSpec`。注入点是节点自己的 `LayoutNode.measureContent(constraint)`（`packages/layout/src/types.ts`）：布局包只认尺寸，不认文本。
+- 真正带缓存的度量有两处，都在布局包之外：适配层 `packages/phaser/src/measurer.ts` 的 `TextMeasurer`（`measure(request: TextMeasureRequest)`、`PhaserTextMeasurer`、`textMeasureKey`），以及控件层按场景复用的 `packages/widgets/src/text-metrics.ts`（`textMetricsOf()`，`Label` 在 `measureContent()` 里读它）。
+- 缓存键（`textMeasureKey`）除「文本 + 字体 + 字号 + 字距 + 换行宽度 + 行距」还包含 `fontStyle` / `color` / `align` / `padding` / `useAdvancedWrap` —— 颜色与内边距同样会改变量出来的盒子。
+- 正文提到的 Playwright 截图回归，实际由 `node scripts/visual-check.mjs` 承担（CDP 驱动单个无头 Chrome：几何 + 像素 + 无障碍树断言）；仓库**不引入浏览器测试框架**（`docs/PITFALLS.md` §8.42），交互验收走 Playwright MCP 手工驱动。

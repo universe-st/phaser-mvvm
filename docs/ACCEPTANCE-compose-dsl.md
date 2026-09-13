@@ -8,15 +8,15 @@
 
 ## 1. 本轮交付
 
-| 交付物                                  | 位置                                                                           |
-| --------------------------------------- | ------------------------------------------------------------------------------ |
-| Compose 风格 DSL                        | `packages/widgets/src/compose.ts`（子路径导出 `@phaser-mvvm/widgets/compose`） |
-| DSL 作用域机制（纯逻辑，可 Node 单测）  | `packages/phaser/src/uiscope.ts`                                               |
-| 反应式参数规则（常量 / `Ref` / getter） | `packages/widgets/src/reactive-source.ts`                                      |
-| 逐控件／逐容器验收场景                  | `apps/examples/src/scenes/compose.ts`（`#/compose`，11 个演示分区）            |
-| 使用指南第 9 章                         | `docs/guide/09-compose-dsl.md`                                                 |
-| PLAN 记录                               | `docs/PLAN.md` §5.1                                                            |
-| 缺陷清单（含未修项）                    | `docs/DEFECT-BACKLOG.md`                                                       |
+| 交付物                                  | 位置                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Compose 风格 DSL                        | `packages/widgets/src/compose.ts`（子路径导出 `@phaser-mvvm/widgets/compose`）                               |
+| DSL 作用域机制（纯逻辑，可 Node 单测）  | `packages/phaser/src/uiscope.ts`                                                                             |
+| 反应式参数规则（常量 / `Ref` / getter） | `packages/widgets/src/reactive-source.ts`                                                                    |
+| 逐控件／逐容器验收场景                  | `apps/examples/src/scenes/compose.ts`（`#/compose`，12 个演示分区：第 11 个是 `state`、第 12 个是 `parity`） |
+| 使用指南第 9 章                         | `docs/guide/09-compose-dsl.md`                                                                               |
+| PLAN 记录                               | `docs/PLAN.md` §5.1                                                                                          |
+| 缺陷清单（含未修项）                    | `docs/DEFECT-BACKLOG.md`                                                                                     |
 
 DSL 的写法（与 `#/compose` 场景一致）：
 
@@ -236,7 +236,7 @@ this.mvvm.mount(page);
 
 另外新增：`core/utils/dev.ts` 的 `devLog()`（调试期打点、发布期静默）与告警去重表的容量上限（避免长生命周期应用里字符串无界增长）。
 
-**未修复项**：`packages/layout` 的测量缓存键缺 percent base、pass 内 `invalidate()` 被丢弃、`reset()` 后不重排、`contextPool` 强引用已脱离节点、`'stretch'` 忽略子节点 min/max 等 14 项，以及 phaser/widgets 的 4 项（`Repeat` 视口为 0 时虚拟化退化为 overscan 行、`ScrollView` 内容变短后不重新 clamp、`ThumbGeometry.position` 文档与实现不符、`ScrollView` 视口混用）——已逐条登记在 [`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md) 并标注触发条件与建议修法，下一轮按严重度处理。
+**这些「未修复项」后来都修掉了（第 2–3 轮与后续几轮）**：`packages/layout` 的测量缓存键缺 percent base、pass 内 `invalidate()` 被丢弃、`reset()` 后不重排、`contextPool` 强引用已脱离节点、`'stretch'` 忽略子节点 min/max，以及 phaser/widgets 的 4 项（`Repeat` 视口为 0 时虚拟化退化为 overscan 行、`ScrollView` 内容变短后不重新 clamp、`ThumbGeometry.position` 文档与实现不符、`ScrollView` 视口混用）——[`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md) 里 L1–L8、W1–W4 全部标为**已修复**，证据见 [`ACCEPTANCE-layout-defects.md`](./ACCEPTANCE-layout-defects.md) 与本目录的 `ACCEPTANCE-lifecycle.md` §3。
 
 ---
 
@@ -245,8 +245,8 @@ this.mvvm.mount(page);
 1. **Canvas 渲染器降级路径**未在本轮复测（本轮全部为 WebGL；Canvas 仅做不崩溃保证）。
 2. **触摸／移动端软键盘**未实测（桌面 Chromium 鼠标+键盘覆盖）。
 3. `#/compose` 的 parity 只比较**几何**（`appliedRect` 与节点数），不比较绘制调用序列；绘制差异由 §4 的 `skin.test.ts` 单测覆盖。
-4. 缺陷审计中标注「suspected but unconfirmed」的项（相机 transform 下的命中测试、`filters` 销毁、`ScrollView` 视口混用等）**未确认成立**，登记为待验证而不是缺陷。
-5. 本轮未复跑 `node scripts/visual-check.mjs`（其硬编码场景为 `m0`/`probe`/`stack`，与本轮改动无关；几何断言改用 Playwright MCP 的 `#status` 读取，等价且更直接）。
+4. 缺陷审计中标注「suspected but unconfirmed」的项里，**相机 transform 下的命中测试与 `filters` 销毁仍未确认**（前者后来由 [ADR-0009](./adr/0009-camera-pinned-ui-and-input.md) 与 `#/hud` 覆盖，后者仍待验证）；**`ScrollView` 视口混用（W4）已确认成立并修复**（`contentExtent`，见 [`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md) 与 `ACCEPTANCE-lifecycle.md` §3）。
+5. 本轮未复跑 `node scripts/visual-check.mjs`。**注意：脚本现在的硬编码场景是 13 个**（`m0`/`probe`/`stack`/`hud`/`modal`/`uiscene`/`a11y`/`compose`/`options`/`keyboard`/`showcase`/`pages`/`events`），而且 `#/compose` **自己就是像素门禁**（`SCENE_SETUP.compose` 在运行期改四个槽位，明暗两套共 7 个采样点，见本文 §3.2）。
 
 ---
 

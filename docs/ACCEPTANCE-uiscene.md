@@ -157,6 +157,6 @@ class Bad extends UIScene {
 ## 5. 未验证 / 已知边界
 
 - **场景重启**：`scene.restart()` 会再跑一次 `create()` → `setContent()`；插件在 `SHUTDOWN` 已经把上一棵树销毁（`#/lifecycle` 的 100 次重启门禁覆盖的是那条路径）。本轮没有单独对 `UIScene` 跑 `churn`。
-- **`setContent()` 的动效**：目前是瞬时的（PLAN M8 的"开闭动效钩子"仍未开始），切换没有过渡。
+- **`setContent()` 的动效**：目前是瞬时的，整页替换没有过渡（模态与页面栈的开闭动效已在第 74/78 轮交付，见 [`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)；`setContent()` 这一条至今没接动效）。
 - **`content()` 抛异常时**：页面会停在"旧页已销毁、新页没建成"的状态（`page` 为 `null`）。错误会冒泡到 Phaser 的场景创建流程（示例应用装了 `installErrorReporting()` 会写进 `#status`），但框架没有做事务性回滚——本轮未验。
 - **`onBack()` 的返回值语义**只有 `true` 才拦；返回 `Promise`、抛错等未定义行为未验。

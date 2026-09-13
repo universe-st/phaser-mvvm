@@ -17,7 +17,8 @@ TextField({ value: name, placeholder: '请输入姓名', width: 320 });
 
 // 想只在"用户改了"时做点什么（而不是每次值变化）：
 const runSearch = (value: string) => console.log('search', value);
-TextField({ placeholder: '搜索', onValueChange: runSearch });
+TextField({ placeholder: '搜索', onChange: runSearch }); // onChange 选项 = 只对用户编辑触发
+// 想要"值一变就收到"（含 setValue、ref 写回）用 `onValueChange`，或直接绑 ref。
 
 // 需要拿控件本体时（聚焦、手动校验、读 bridged…）：
 const email = TextField({ label: 'Email', placeholder: 'you@example.com', width: 320 });
@@ -157,23 +158,23 @@ field.on(TEXT_INPUT_EVENTS.SUBMIT, (value: string) => {
 
 ### 快捷键矩阵
 
-| 按键                       | 行为                                                                                                                          |
-| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `←` / `→`                  | 移动光标；按住 `Shift` 扩展选区                                                                                               |
-| `↑` / `↓`                  | 仅 `TextArea`（多行）：上下移动并保持列位置；单行输入框**不消费**这两个键，交给焦点导航                                       |
-| `Home` / `End`             | 行首/行尾；加 `Ctrl`/`Cmd` 为文档首/尾                                                                                        |
-| `Backspace` / `Delete`     | 删除（有选区时删选区）                                                                                                        |
-| `Enter`                    | 单行：提交；多行：插入换行（`submitOnEnter: true` 时改为提交）                                                                |
-| `Ctrl`/`Cmd` + `Enter`     | 一律提交（`TextArea` 的常用提交手势）                                                                                         |
-| `Escape`                   | 回滚到聚焦时的值，然后失焦；**在模态对话框里失焦被拒绝**，于是这次 `Escape` 转交给 `FocusManager` 的 `back`（对话框因此关闭） |
-| `Tab` / `Shift+Tab`        | 不被输入框消费：遍历交给焦点链（DOM 桥路径下由输入框直接转交，见下）                                                          |
-| `Ctrl`/`Cmd` + `A`         | 全选                                                                                                                          |
-| `Ctrl`/`Cmd` + `C`/`X`/`V` | 复制/剪切/粘贴（有 DOM 桥时由浏览器处理）                                                                                     |
+| 按键                       | 行为                                                                                                                                                                                    |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `←` / `→`                  | 移动光标；按住 `Shift` 扩展选区                                                                                                                                                         |
+| `↑` / `↓`                  | 仅 `TextArea`（多行）：上下移动并保持列位置；单行输入框**不消费**这两个键，交给焦点导航                                                                                                 |
+| `Home` / `End`             | 行首/行尾；加 `Ctrl`/`Cmd` 为文档首/尾                                                                                                                                                  |
+| `Backspace` / `Delete`     | 删除（有选区时删选区）                                                                                                                                                                  |
+| `Enter`                    | 单行：提交；多行：插入换行（`submitOnEnter: true` 时改为提交）                                                                                                                          |
+| `Ctrl`/`Cmd` + `Enter`     | 一律提交（`TextArea` 的常用提交手势）                                                                                                                                                   |
+| `Escape`                   | 回滚到聚焦时的值，然后失焦；**失焦之后这条 `Escape` 一定会转交给 `FocusManager` 的 `back`**（无论有没有被陷阱拒绝），所以输入框里的 `Escape` 照样能关对话框、弹页面、到达 `mvvm.onBack` |
+| `Tab` / `Shift+Tab`        | 不被输入框消费：遍历交给焦点链（DOM 桥路径下由输入框直接转交，见下）                                                                                                                    |
+| `Ctrl`/`Cmd` + `A`         | 全选                                                                                                                                                                                    |
+| `Ctrl`/`Cmd` + `C`/`X`/`V` | 复制/剪切/粘贴（有 DOM 桥时由浏览器处理）                                                                                                                                               |
 
 两条实现细节，解释了为什么输入框不会「吃掉」页面的键盘导航：
 
 - 纯 Canvas 路径下，输入框只在**自己持有焦点**时挂一个捕获阶段的 `window` keydown 监听，消费掉的键会 `stopPropagation`，避免场景插件把方向键当成焦点移动。
-- DOM 桥路径下浏览器自己完成编辑，框架只负责「声明这个键归我」（同样是为了不让空格被导航当成激活）。这里有个容易踩的细节：**Phaser 的键盘管理器会丢弃 `defaultPrevented` 的按键**，所以输入框若只是 `preventDefault()` 再指望场景插件处理 `Tab`，那个键就谁也收不到（第 60 轮修复的 V17）。现在 `Tab`/`Shift+Tab` 与「无处可失焦时的 `Escape`」由输入框**直接交给 `FocusManager.handleAction()`**，因此输入框里的 `Tab` 会正常走到下一个控件，模态框里的 `Escape` 也仍然能关闭对话框。
+- DOM 桥路径下浏览器自己完成编辑，框架只负责「声明这个键归我」（同样是为了不让空格被导航当成激活）。这里有个容易踩的细节：**Phaser 的键盘管理器会丢弃 `defaultPrevented` 的按键**，所以输入框若只是 `preventDefault()` 再指望场景插件处理 `Tab`，那个键就谁也收不到（第 60 轮修复的 V17）。现在 `Tab`/`Shift+Tab` 与 `Escape` 都由输入框**直接交给 `FocusManager.handleAction()`**（`Escape` 是先回滚、失焦，再**无条件**报一次 `back`），因此输入框里的 `Tab` 会正常走到下一个控件，`Escape` 也照样关闭对话框、弹出页面或到达应用层。
 
 ---
 
@@ -400,7 +401,7 @@ Button('切数字键盘', { onClick: () => (pin.value = !pin.value) }); // 就�
 
 **它刻意不是输入法**：没有候选词、没有组合态，打不出中文/日文。需要中文的场景走真实键盘（DOM 输入桥，§2）；`VirtualKeyboard` 服务的是"这台设备上没有键盘"。按住 `A` 也不会连打（`activate` 是边沿触发，只有方向键才有连发节流）——自动重复打字几乎总是误输入。
 
-完整的验收页是 `#/keyboard`：假手柄走查、鼠标/触摸按下、大小写与页码、换键集（`kind` ref 与页码）的焦点保持与泄漏门禁、37 个控制节点的可访问性树断言，矩阵见 [`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md)。
+完整的验收页是 `#/keyboard`：假手柄走查、鼠标/触摸按下、大小写与页码、换键集（`kind` ref 与页码）的焦点保持与泄漏门禁、**38** 个控制节点的可访问性树断言，矩阵见 [`ACCEPTANCE-keyboard.md`](../ACCEPTANCE-keyboard.md)。
 
 ---
 
@@ -426,6 +427,6 @@ Button('切数字键盘', { onClick: () => (pin.value = !pin.value) }); // 就�
 - `setValue` 会同步模型（`change` 照发），但**不触发 `onChange` 选项**；"用户编辑"与"值变化"是两个不同的钩子 —— 这是双向绑定既准确又不回环的基础。
 - 校验挂在 `validate` 上、失焦自动跑；错误消息要自己用 `Label` 展示。
 - `TextArea` = `TextField` + 行策略（`rows`/`wrap`/`submitOnEnter`）。
-- 没有键盘的设备（手柄/主机）用 `VirtualKeyboard`：键是 `Button`，于是导航、焦点、指针、无障碍全部复用；换键盘要在 `buildUiSubtree()` 里重建。
+- 没有键盘的设备（手柄/主机）用 `VirtualKeyboard`：键是 `Button`，于是导航、焦点、指针、无障碍全部复用；**换键集是数据槽**（`kind` 写 `ref` 即换），键盘**自己**重建自己的键并把焦点放回去，不需要你手动 `buildUiSubtree()`。
 
 下一篇 [05 列表与滚动](./05-lists-and-scroll.md)：`Repeat` 的键控复用与虚拟化、`ScrollView` 的手势与裁剪。

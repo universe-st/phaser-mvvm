@@ -113,7 +113,7 @@ OK  confirm.ok: #f85149      (danger 填充)
 OK  confirm.cancel: #161b22  (ghost 透明 → 透出对话框表面色，而不是被遮罩压暗的页面色)
 ```
 
-该场景**不检查** `canvas.clear`：遮罩按设计盖满整块画布，角落是「主题背景 × 半透明黑」的混合值，属于 GPU 取整问题而非稳定期望（`CANVAS_CLEAR_SKIP`）。其余四个场景（`m0`/`probe`/`stack`/`hud`）的 `canvas.clear` 照旧。
+该场景**不检查** `canvas.clear`：遮罩按设计盖满整块画布，角落是「主题背景 × 半透明黑」的混合值，属于 GPU 取整问题而非稳定期望（`CANVAS_CLEAR_SKIP`，当前只有 `modal` 一条）。其余**十个**场景（`m0`/`probe`/`stack`/`hud`/`uiscene`/`compose`/`keyboard`/`showcase`/`options`/`events`）的 `canvas.clear` 照旧。
 
 ---
 
@@ -167,4 +167,4 @@ OK  confirm.cancel: #161b22  (ghost 透明 → 透出对话框表面色，而不
 - **真机（iOS Safari）触摸**：本轮只在 CDP 触摸仿真下验收过滚动/滑杆（历史记录见 `ACCEPTANCE-touch.md`）；模态的触摸路径与鼠标共用同一套命中区与 `onActivate`，但**未在真机上跑过**。
 - **手柄**：`back`（B/○）走的是同一条 `handleBack()` 路径（`pollGamepad` → `handleAction('back')`），本轮**未接实体手柄验证**，仅由键盘 `Esc` 覆盖。
 - **`scrim` 的像素混合值**：只断言了不透明度会盖住画面（截图可见），没有把混合结果写成精确像素期望（GPU 取整）。
-- **动画/转场钩子**：`ModalOptions` 目前没有开闭动画；PLAN M8 里的「开闭动效钩子」尚未实现。
+- ~~**动画/转场钩子**：`ModalOptions` 目前没有开闭动画~~ **已交付（第 74 轮）**：`ModalOptions.transition` + `packages/phaser/src/transition.ts` 的 `TransitionRunner`（遮罩淡 alpha、主体淡 alpha + 轻微缩放；时长来自 `theme.motion`，游戏级策略在 `MVVMPluginConfig.transition`）；`visual-check` 在每个场景截图前会等 `mvvm.transitions.pending === 0`。矩阵见 [`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)。

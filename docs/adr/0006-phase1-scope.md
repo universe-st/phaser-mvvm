@@ -65,3 +65,13 @@ PLAN §10.2 已二次评审确认：这三项**在 Phase 1 全做**，但 a11y �
 - PLAN.md §4.3（场景与页面体系、手柄导航、无障碍）、§4.5（`Modal` 控件）
 - PLAN.md §6 里程碑 M8 / M9、§7 验收（泄漏归零、手柄完成完整流程）
 - ADR-0004（DOM 输入桥与 a11y 共用 overlay）、ADR-0007（Phaser 4 约束）
+
+## 现状校正
+
+> 上面的正文写于决策当时，范围与取舍未变；下面是**落地后的实际名字**（正文里的草案名不要在写代码时照抄）。
+
+- **影响范围里的目录不存在**：`packages/phaser/src` 是扁平的（`UIScene.ts`、`modal.ts`、`pages.ts`、`router.ts`、`input.ts`、`focus.ts`、`nav.ts`、`a11y.ts`…），没有 `scene/`、`input/`、`a11y/` 子目录；模态层也不在 widgets，而在 `packages/phaser/src/modal.ts`。
+- `UIScene` **不自动挂载**插件：它用 `requireMVVMPlugin()` 取 `this.mvvm`，缺插件时在 `create()` 里抛出带 Game Config 片段的错误；设计分辨率与**安全区**由 `UIRoot` 负责（`safeArea` 默认开启）。没有 `ui.show(page)` / `ui.back()`：`ui(scene, content)` 只建视图，返回键走 `UIScene.onBack()` + `planBack()`。
+- **没有 `Page` 类**：页面体系是 `pages.ts` 的 `PageHost` + `PageOptions`（钩子为 `onResume`/`onPause`/`onDispose`/`onBack`），没有 `onEnter`/`onLeave`/`keepAlive`。
+- **没有 `ModalStack`/`StackArranger`**：模态是 `modal.ts` 的 `ModalHost`，经 `this.mvvm.modal` 使用（遮罩/焦点陷阱/`Esc`/叠层/动效都在这里）。
+- **没有 `NavSource` 这个符号**：交付的是 `nav.ts`（`NavRepeat`、`keyboardActionOf`、`gamepadActionsOf`、`heldDirectionsOf`、`GAMEPAD_BUTTON_ACTIVATE/BACK`）由 `FocusManager` 消费；PLAN §10 至今仍把「`NavSource` 抽象命名」列为未开始。

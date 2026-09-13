@@ -86,3 +86,15 @@ interface LayoutConstraint {
 - PLAN.md §7 测试策略（layout 黄金快照）、§8 性能预算与体积目标
 - PLAN.md §9 风险：团队学习成本（两阶段布局）
 - ADR-0003（layout 零 Phaser 依赖）、ADR-0008（响应式与调度器，帧对齐刷新）
+
+## 现状校正
+
+> 上面的正文写于决策当时，决策本身未变。以下是**与当前代码不一致的名字与边界**。
+
+- 约束类型是 `BoxConstraints { minWidth, maxWidth, minHeight, maxHeight }`（`packages/layout/src/constraint.ts`），**没有 `mode` 字段**，也没有 `LayoutConstraint` 这个符号；`unbounded()` / `atMost()` / `tight()` / `loose()` 是工厂函数。
+- `LayoutParams` 里**没有 `ignoreLayout`**（仓库里不存在这个键）。实际键表见 `packages/layout/src/params.ts` 的 `LAYOUT_PARAM_KEYS`，除正文列的以外还有 `minWidth`/`maxWidth`/`minHeight`/`maxHeight`、`left`/`top`/`right`/`bottom`、`hideMode`；min/max 钳制是 `LengthValue { value, min?, max? }`。
+- 容器策略是 `box` / `grid` / `stack` / `absolute` / **`scroll`**（`packages/layout/src/types.ts` 的 `ContainerLayout`）：没有 `fit` 容器（`fit` 只是图片的适配模式，见 `packages/widgets/src/fit.ts`），而正文漏了 `scroll`。
+- 测量缓存的键是 `(约束, 百分比基准, node.revision)` —— 百分比基准（containing block）必须一起进键（`packages/layout/src/engine.ts` 文件头与缓存实现），这是第 2 轮修掉的一类缺陷。
+- 脏传播的入口是 `Widget.markDirty()`（`packages/phaser/src/Widget.ts`）+ `LayoutEngine.invalidate()` 里的边界行走（`isRelayoutBoundary`，`packages/layout/src/types.ts`）；**没有 `markNeedsLayout()`**。
+- 像素对齐由 `LayoutEngineOptions.snapMode`（默认 `'round'`，取值 `none`/`round`/`floor`/`ceil`）与 `dpr` 控制，作用对象是**整个矩形**；**没有 `snapTextToPixel()` / `roundPixels`**。
+- 节点契约是 `measureContent(constraint): Size` 与 `applyRect(rect): void`（`packages/layout/src/types.ts`，`Widget` 在 `packages/phaser/src/Widget.ts` 覆写），内容失效走 `markDirty()`；**没有 `onMeasureContent()` / `onArrange()` / `invalidateContent()`**。

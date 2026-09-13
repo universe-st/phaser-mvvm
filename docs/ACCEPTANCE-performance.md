@@ -2,7 +2,7 @@
 
 > 目的：把 PLAN §8 的性能/体积预算从「PR 评审依据」变成**可执行、可复现的门禁**，并实测一遍。此前仓库里没有任何基准：布局测试只是用 `loose(1000, 1000)` 当约束，没有人量过 1000 节点的耗时、无变化帧的开销、缓存命中率或产物体积。
 > 环境：macOS（Apple Silicon），Node v24.18.1，pnpm 10.34.5，浏览器为 Playwright MCP 内置 Chromium（dev server 5173）。
-> 结论：**6 条预算中 5 条实测通过（布局耗时 26× 余量、无变化帧零测量、缓存命中 95.6%、单节点编辑只重测 1 个节点、体积 18.3 KB / 14.7 KB）；第 6 条（文本度量缓存 > 95%）**尚未实现**——`PhaserTextMeasurer` 已导出但控件没在用，登记为待办而不是假装达标。**
+> 结论：**6 条预算中 5 条实测通过（布局耗时 26× 余量、无变化帧零测量、缓存命中 95.6%、单节点编辑只重测 1 个节点、体积 18.3 KB / 14.7 KB）；第 6 条（文本度量缓存 > 95%）当时**尚未实现**——`PhaserTextMeasurer` 已导出但控件没在用，登记为待办。** 第 6 轮把这笔账还清了（**换了一条实现路径**：`packages/widgets/src/text-metrics.ts` 的按场景缓存，`Label`/`TextInputBase` 都在用，稳态命中率 100%），细节见 §4.1 与 §5.1；`PhaserTextMeasurer` 本身至今没有被控件接入（它与 `text-metrics.ts` 功能重叠，是适配层自带的工具）。
 
 ---
 
@@ -115,7 +115,7 @@ PLAN §8 的「连续输入（含 IME）不引发整树布局」用布局引擎�
 
 ## 5. 未达标 / 未验证
 
-1. **文本度量缓存（PLAN §8：命中率 > 95 %，同帧同文本同样式只度量一次）目前不成立**：`PhaserTextMeasurer`（带 LRU 与 `stats`）在 `packages/phaser/src/index.ts` 导出，但 `Label`/`TextInputBase` 都没用它——`Label` 走 Phaser `Text` 自身度量、`TextInputBase`/`Label` 的截断用 `context.measureText` 直接量。这不是本轮引入的问题，而是从未实现的预算。**登记为待办**（见 `DEFECT-BACKLOG.md` §4），可选做法：把 `PhaserTextMeasurer` 接进 `Label.measureContent`/截断路径，并按 (文本, 样式键) 缓存；需要同时处理字体/主题切换时的失效。
+1. ~~**文本度量缓存（PLAN §8：命中率 > 95 %，同帧同文本同样式只度量一次）目前不成立**~~ **已还清（第 6 轮，走的是 `packages/widgets/src/text-metrics.ts` 这条路径）**：它是按场景的 `WeakMap` + LRU，缓存 `Label` 的换行结果与省略号候选宽度、`TextInputBase` 的逐串宽度，两处都在用（`Label.ts`、`TextInputBase.ts`），`#/states` 的 `window.states.textMetrics()` 是常驻读数，稳态命中率 100%（PLAN §8 已按此改写）。**仍然成立的部分**：`PhaserTextMeasurer`（带 LRU 与 `stats`，在 `packages/phaser/src/index.ts` 导出）**至今没有被控件接入**——它与 `text-metrics.ts` 功能重叠，是适配层自带的独立工具，接它属于可选的收敛工作。
 2. **IME 输入**未在浏览器里实测（CDP `Input.insertText` 能触发 `compositionupdate`，但真实 IME 需要中文输入法环境）；本轮只覆盖了逐字符键盘输入。
 3. **排布热路径零分配**用对象池长度稳定性间接证明，未做真正的分配计数（需要 `--expose-gc` 或堆剖析）。
 4. 体积预算只覆盖四个库入口，**未**统计示例应用产物（`apps/examples/dist` 的 1.6 MB 是含 Phaser 的验收页，不属于预算范围）。

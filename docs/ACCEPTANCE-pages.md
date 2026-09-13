@@ -176,4 +176,4 @@ depth  1（报错那次没有改动栈）
 | 幽灵页在无障碍镜像里的节点                              | 淡出期间保留（它还在屏幕上），销毁后必须移除                         | 21 → 21（`departingRouted=false` 期间）→ **18**（销毁后）                                                                                                      |
 | `modal.open()` 传空 lambda                              | 应当指名报错（既有契约）                                             | 抛错（`modal.open(): the content built no widget`），未影响后续操作                                                                                            |
 
-仍然存在的**已知缺口**（不是缺陷，是缺 demo）：`Repeat` 的 `options.update` 原地更新路径只有 Node 单测覆盖，示例页里没有用到它（`#/list` 走的是键控重建）。转场与它的交叉（更新一行时该行正在淡出）因此没有被浏览器验证过。
+仍然存在的**已知缺口**（不是缺陷，是缺 demo）：`Repeat` 的 `options.update` 原地更新路径在 `#/list` 上没有用（那边走的是键控重建）——**第 87 轮起 `#/options` 有它的 A/B 卡**（原地刷新 vs 销毁重建，读数 `upd.calls`/`upd.builds`，见 [`ACCEPTANCE-options.md`](./ACCEPTANCE-options.md) §7.1）。转场与它的交叉（更新一行时该行正在淡出）仍然没有被浏览器验证过。

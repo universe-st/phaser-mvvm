@@ -76,3 +76,10 @@
 - PLAN.md §8 体积目标（gzip 不含 Phaser）、§9 风险（Phaser 4.x API 漂移）
 - PLAN.md M0 里程碑（Phaser 依赖策略落地）
 - ADR-0001（包划分与依赖方向）、ADR-0003（layout 零 Phaser 依赖）、ADR-0007（Phaser 4 约束与适配层隔离）
+
+## 现状校正
+
+> 上面的正文写于决策当时，决策本身未变（`phaser` 是 npm 上的 peer dependency，本地源码副本可选只读）。
+
+- 「只有 `packages/phaser` 允许 `import` Phaser」**不再成立**：`packages/widgets` 也直接 `import Phaser`（`Image`/`Label`/`Panel`/`Button`/`Slider`/`ScrollView`/`Repeat`/`Branch`/`Divider`/`VirtualKeyboard`/`TextInputBase`/`factories` 等，`packages/widgets/package.json` 同样声明 `peerDependencies.phaser: ^4.2.0`，构建 `--external phaser`）。约束的其余部分不变：`core`/`layout` 零 Phaser 依赖，`apps/` 只依赖 `widgets`。
+- 例外条款仍然有效且被遵守：`packages/phaser/src/uiscope.ts` 是纯逻辑（只 `import type Phaser`，可在 Node 单测），`packages/widgets` 的纯逻辑模块（`text-edit`/`text-truncate`/`scroll-plan`/`branch-plan`/`keyboard-plan`/`slider-geometry`/`zoom-plan`…）同样零 Phaser。

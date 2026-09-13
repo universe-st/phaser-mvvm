@@ -17,7 +17,7 @@
 
 ## 8.4 选项审计：拼错的选项会被指名
 
-**选项审计：拼错的选项会被指名**（第 83 轮）：`splitOptions()` 是**唯一**的选项漏斗（容器直接进来、叶子控件经 `splitWidgetOptions()` 进来），它在开发模式下检查每个键是否属于「布局参数 / 该控件的键 / 基类键」，不属于就 `warn()`：`unknown option "pading" on "kb.page" — it is ignored. Did you mean "padding"?`（纯逻辑在 `packages/phaser/src/option-keys.ts`，建议匹配走大小写/包含/编辑距离，并列时**不给建议**；发布模式零输出）。**给控件加选项时把它加进该控件的 `*_KEYS` 列表**——漏了会让用户看到假警告；布局参数名单是 `@phaser-mvvm/layout` 的 `LAYOUT_PARAM_KEYS`（`keyof LayoutParams`，写错编译不过）。两道门禁：`scripts/visual-check.mjs` 对每个场景收集 `Runtime.consoleAPICalled` 里的 `unknown option` 并失败，同时用 `#/compose` 的 `window.compose.typo()` 做**阳性对照**（必须真的报出 `pading` → `padding`，否则门禁是死的）；全示例走查（21 场景 + `#/showcase` 的 `showAll()` + `#/compose` 全分区）必须零未知键警告，这同时是键表完整性的门禁。矩阵见 [`ACCEPTANCE-options.md`](./docs/ACCEPTANCE-options.md)。
+**选项审计：拼错的选项会被指名**（第 83 轮）：`splitOptions()` 是**唯一**的选项漏斗（容器直接进来、叶子控件经 `splitWidgetOptions()` 进来），它在开发模式下检查每个键是否属于「布局参数 / 该控件的键 / 基类键」，不属于就 `warn()`：`unknown option "pading" on "kb.page" — it is ignored. Did you mean "padding"?`（纯逻辑在 `packages/phaser/src/option-keys.ts`，建议匹配走大小写/包含/编辑距离，并列时**不给建议**；发布模式零输出）。**给控件加选项时把它加进该控件的 `*_KEYS` 列表**——漏了会让用户看到假警告；布局参数名单是 `@phaser-mvvm/layout` 的 `LAYOUT_PARAM_KEYS`（`keyof LayoutParams`，写错编译不过）。两道门禁：`scripts/visual-check.mjs` 对每个场景收集 `Runtime.consoleAPICalled` 里的 `unknown option` 并失败，同时用 `#/compose` 的 `window.compose.typo()` 做**阳性对照**（必须真的报出 `pading` → `padding`，否则门禁是死的）；全示例走查（**全部 23 个注册场景** + `#/showcase` 的 `showAll()` + `#/compose` 全分区）必须零未知键警告，这同时是键表完整性的门禁。矩阵见 [`ACCEPTANCE-options.md`](./docs/ACCEPTANCE-options.md)。
 
 ## 8.5 调试日志
 
@@ -542,7 +542,6 @@ Panel({ direction: 'vertical', height: 'fill', padding: 12 }, () => {
 **判据一句话**：链只改变"谁拿到事件"，而"事件没到过的地方不应留下任何痕迹"。加新钩子/新拦截点时，先问一遍：**这次事件到底有没有到过那个控件？**
 
 **顺带记一个探针坑（同一轮踩到）**：`#/events` 的两块读数标签原本高度自适应，台账从 1 行长到 4 行时页面高了 34px、根部 `stack` 居中所致整体上移，于是"先读坐标再按下"的那一下落到了 `l4` 上，现象与"拦截没生效"一模一样。**会随使用变化高度的读数必须定高**（`height: 64`），否则探针会在读与点之间漂移（§8.47 的同一条纪律）。
-
 
 ## 8.70 视口裁剪：**布局矩形不是子树的边界**，而"隐藏"不能借用 `visible`（第 109 轮）
 

@@ -31,12 +31,12 @@ CI（`.github/workflows/ci.yml`）在 push 与 PR 上运行：Prettier 检查 �
 
 ## 4. 架构边界（硬约束）
 
-1. **只有 `packages/phaser` 允许 `import phaser`。** `core` 与 `layout` 必须零 Phaser 依赖（含类型引入）；`widgets` 通过 `@phaser-mvvm/phaser` 间接使用。见 [ADR-0001](./docs/adr/0001-package-layout.md)、[ADR-0003](./docs/adr/0003-layout-is-renderer-agnostic.md)。
+1. **Phaser 只出现在适配层与控件层**。`core` 与 `layout` 必须零 Phaser 依赖（含类型引入）；`packages/phaser` 与 `packages/widgets` 都把 `phaser` 当 peer dependency（`^4.2.0`）**直接 `import`**（每个控件都在 `new Phaser.GameObjects.…`；构建时一律 `--external phaser`）；`apps/` 只依赖 `widgets`。见 [ADR-0001](./docs/adr/0001-package-layout.md)、[ADR-0003](./docs/adr/0003-layout-is-renderer-agnostic.md)、[ADR-0005](./docs/adr/0005-phaser-dependency.md)。
 2. **布局算法不依赖渲染**：文本度量通过注入的 `Measurer` 接口获得；测试用等宽假测量器，保证黄金快照确定。
 3. **裁剪用 Mask filter**（`FilterList#addMask`），不要用 v3 的 `setMask(graphics)` 思路 —— `GeometryMask` 在 v4 仅 Canvas 可用。见 [ADR-0007](./docs/adr/0007-phaser4-webgl-constraints.md)。
 4. **响应式副作用必须归入 `EffectScope`**：`destroy()` 里 `scope.stop()` + 注销输入 + 归还对象池。泄漏回归（场景创建→销毁 100 次后计数归零）是硬门禁。
 5. **UI 刷新默认帧对齐**（`flush: 'frame'`），不要用 `sync` 绕过批量刷新。见 [ADR-0008](./docs/adr/0008-reactivity-and-scheduler.md)。
-6. **`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`**：这个 flag 只是「暂时没有测试也不至于失败」，四个包现在都有实打实的用例（合计 1316：core 281 / layout 314 / phaser 337 / widgets 384），**不要**为了「有测试」而写空断言。
+6. **`packages/widgets` 的 `test` 脚本带 `--passWithNoTests`**：这个 flag 只是「暂时没有测试也不至于失败」，四个包现在都有实打实的用例（合计 1361：core 281 / layout 314 / phaser 370 / widgets 396），**不要**为了「有测试」而写空断言。
 
 ## 5. 何时需要写 ADR
 
@@ -48,7 +48,7 @@ CI（`.github/workflows/ci.yml`）在 push 与 PR 上运行：Prettier 检查 �
 
 流程：按 [`docs/adr/README.md`](./docs/adr/README.md) 的模板新建 `NNNN-<slug>.md`，把受影响的历史 ADR 状态改为 `Superseded by ADR-XXXX`，并在 PR 描述中链接。
 
-## 6. 测试要求（PLAN §7）
+## 6. 测试要求（PLAN §7 的目标形态 + 仓库现状）
 
 | 层                   | 要求                                                                            |
 | -------------------- | ------------------------------------------------------------------------------- |
@@ -56,6 +56,12 @@ CI（`.github/workflows/ci.yml`）在 push 与 PR 上运行：Prettier 检查 �
 | `layout`             | 用例 ≥ 40 + JSON 黄金快照零漂移（含 RTL、极窄容器、`auto` 列数、跨行列冲突）    |
 | `phaser` / `widgets` | Playwright headless Chrome（WebGL）截图回归 + 交互脚本；关键控件截图差异 < 0.5% |
 | 性能                 | 1000 节点布局、1000 行虚拟列表、连续输入 10 s 无掉帧、无内存增长趋势            |
+
+> **现状与上表的差异**（写测试前先读，别按 PLAN 的目标形态开工）：
+>
+> - `phaser`/`widgets` 的单测是**纯 Node vitest**（`vitest run --passWithNoTests`，当前 370 / 387 条），不启动渲染器；
+> - 浏览器层**不引入测试框架**（[`PITFALLS.md`](./docs/PITFALLS.md) §8.42）：自动化几何/像素/无障碍树断言由 `node scripts/visual-check.mjs`（CDP + 无头 Chrome）承担，交互矩阵用 Playwright MCP 手工驱动并写进 `docs/ACCEPTANCE-*.md`；
+> - 覆盖率门禁与 ESLint 尚未接入（CI 只跑 Prettier + typecheck + test + build + 示例构建）；**体积门禁已有** `pnpm size`，但未接进 CI，提交前手动跑。
 
 ## 7. 性能预算（PR 评审依据，PLAN §8）
 

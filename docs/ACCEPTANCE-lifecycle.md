@@ -95,7 +95,7 @@
 
 **修法**：`VirtualScrollTarget` 增加 `contentExtent`（列表真实长度，与任何视口无关，来自新的纯函数 `contentExtentOf(itemCount, itemExtent, gap)`），`measureContentExtent()` 直接用它，非有限值才回退旧公式。
 
-**修复后实测**：同一场景把列表高度改成 100 或 400，端口 `maxOffset` 始终是 4998，`scrollContent` 恒为 5198；滚到底后挂载的最后两行是 `row-199`/`row-200`（末行可达）。
+**修复后实测**：同一场景把列表高度改成 100 或 400，端口 `maxOffset` 始终是 4998，`contentExtent` 恒为 5198；滚到底后挂载的最后两行是 `row-199`/`row-200`（末行可达）。
 
 同时修正了 `#/compose` 的 `list` 演示：虚拟化 `List` 此前没有滚动驱动（外面没套 `Scroll`，只能看到静态的前 12 行）。现在改为 `Scroll{height:260} → List{height:'fill', virtualize}`，实测：
 
@@ -148,7 +148,7 @@
 1. 门禁依赖 `scene.restart()`；**没有**覆盖 `scene.stop()/start()`、多场景同时挂 UI、以及场景被 `SceneManager.remove()` 的路径。
 2. `textures` 计数在 Node 侧无法断言（需要渲染器），只有浏览器门禁覆盖。
 3. `tweens`/`timers` 恒为 0，是因为本轮页面里没有聚焦的输入框（光标闪烁定时器只在聚焦时存在）；「聚焦后重启是否留下定时器」尚未实测。
-4. 本轮未复跑 `node scripts/visual-check.mjs`（其硬编码场景 `m0`/`probe`/`stack` 与本轮改动无关；几何断言由 Playwright MCP 的 `#status` 覆盖）。
+4. 本轮未复跑 `node scripts/visual-check.mjs`。注意脚本现在的硬编码场景是 **13 个**（`m0`/`probe`/`stack`/`hud`/`modal`/`uiscene`/`a11y`/`compose`/`options`/`keyboard`/`showcase`/`pages`/`events`），**`#/lifecycle` 至今不在里面**——本页的泄漏门禁仍然只由 `window.lifecycle.churn()` 的读数承担。
 
 ---
 

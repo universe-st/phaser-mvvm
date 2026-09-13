@@ -74,3 +74,12 @@ Phaser 4 把 FX 与 Mask 统一进 **Filter** 体系，这对「滚动裁剪」�
 - PLAN.md §4.5（`ScrollView`、`TextArea` 的裁剪依赖）、§9 风险（Mask filter 开销与精度）
 - PLAN.md §6 里程碑 M7、§7 测试策略（截图回归 + 泄漏测试）
 - ADR-0001（只有 `packages/phaser` 依赖 Phaser）、ADR-0005（依赖版本与升级策略）
+
+## 现状校正
+
+> 上面的正文写于决策当时，「WebGL 下用 Mask filter、不用 `GeometryMask`」这条决策未变；下面是实现落地后的实际形状。
+
+- 裁剪的实际实现：**WebGL 走 `filters.internal.addMask('__WHITE')`**，**非 WebGL（Canvas 渲染器）回退 `GeometryMask`**——`packages/widgets/src/ScrollView.ts` 在 `!renderer.gl` 时用 `shape.createGeometryMask()` 并打印一条指名的 `console.warn`，每帧重画该 mask。决策里写的「独立相机视口裁剪」这条备选路径**没有落地**（同文件里的 `focusClipCamera()` 是 WebGL 路径自己的 framebuffer 相机）。
+- 遮罩代码**不在 `packages/phaser` 的单一模块里**：`addMask` 调用就在控件层（`packages/widgets/src/ScrollView.ts`），仓库里**没有** `applyClip()` / `clearClip()` / `ClipRegion` 这套抽象。
+- `TextArea` **不自己做裁剪**（纯 Canvas 的多行字段靠内容滚动偏移，不建 mask）。
+- 「只有 `packages/phaser` 能 import Phaser」不成立：`widgets` 直接 import（见 [ADR-0001](./0001-package-layout.md) 与 [ADR-0005](./0005-phaser-dependency.md) 的现状校正）。

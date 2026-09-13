@@ -78,3 +78,11 @@
 - PLAN.md §1.2 非目标（a11y 受限范围）、§9 风险（IME、DPR 对齐）
 - PLAN.md M5 里程碑（文本框：`TextField`、`TextArea`、DOM 输入桥、光标/选区/快捷键/剪贴板/掩码/校验/IME）
 - ADR-0006（Phase 1 范围）、ADR-0008（响应式与调度器，输入不引发整树布局）
+
+## 现状校正
+
+> 上面的正文写于决策当时，决策本身未变（DOM 桥 + 纯 Canvas 两条路径都还在）。
+
+- overlay 的宿主**不是 `UIScene` 创建的**：它是 Phaser 自己的 `game.domContainer`（靠 Game Config 的 `dom: { createContainer: true }`），`packages/widgets/src/input-bridge.ts` 的 `resolveContainer()` 与 `packages/phaser/src/a11y.ts` 的 `domContainerOf()` 读的是同一个对象，`UIScene` 只负责建树/挂载与销毁控件。缺 `domContainer` 时桥会打印指名的开发期警告。
+- 关掉 DOM 桥、改走纯 Canvas 路径的选项叫 **`dom: false`**（`TextInputBase` 的 `dom?: boolean`，默认 `true`；只读读数 `domRequested`），**没有 `bridge: false`**。
+- 失焦回调不叫 `onCommit`：字段的实际选项是 `onChange`（只对用户编辑触发）、`onSubmit`（Enter / Ctrl+Enter）、`onFocus` / `onBlur`，另有 `change` / `submit` 两个事件。

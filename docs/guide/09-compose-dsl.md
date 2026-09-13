@@ -95,15 +95,15 @@ DSL 是**独立入口**（`@phaser-mvvm/widgets/compose`），不在包根导出
 
 ## 3. 容器
 
-| Composables      | 对应控件                | 备注                                                                        |
-| ---------------- | ----------------------- | --------------------------------------------------------------------------- |
-| `Column` / `Row` | 透明盒子（`BoxWidget`） | 与 Compose 一致：它们自己不画背景                                           |
-| `Panel`          | `Panel`                 | 会画背景的容器（Compose 里对应 `Surface`/`Card`），卡片／对话框／页面根用它 |
-| `Grid`           | `GridWidget`            | `columns` / `columns: 'auto'` / `gap` / `span`                              |
-| `Stack`          | `StackWidget`           | 子节点重叠，`align: 'start' \| 'center' \| 'end'`                           |
-| `Absolute`       | `AbsoluteWidget`        | 子节点用 `position: 'absolute'` + `left/top/…`                              |
-| `Scroll`         | `ScrollView`            | 内容 lambda 必须建**恰好一个**根控件                                        |
-| `List`           | `Repeat`                | keyed、可虚拟化，见 §6                                                      |
+| Composables      | 对应控件                | 备注                                                                                                                         |
+| ---------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `Column` / `Row` | 透明盒子（`BoxWidget`） | 与 Compose 一致：它们自己不画背景                                                                                            |
+| `Panel`          | `Panel`                 | 会画背景的容器（Compose 里对应 `Surface`/`Card`），卡片／对话框／页面根用它                                                  |
+| `Grid`           | `GridWidget`            | `columns` / `columns: 'auto'` / `rowGap` + `columnGap`；**没有 `gap`**，跨行列由子节点的 `gridColumnSpan`/`gridRowSpan` 决定 |
+| `Stack`          | `StackWidget`           | 子节点重叠，`align: 'start' \| 'center' \| 'end'`                                                                            |
+| `Absolute`       | `AbsoluteWidget`        | 子节点用 `position: 'absolute'` + `left/top/…`                                                                               |
+| `Scroll`         | `ScrollView`            | 内容 lambda 必须建**恰好一个**根控件                                                                                         |
+| `List`           | `Repeat`                | keyed、可虚拟化，见 §6                                                                                                       |
 
 两种调用形式都支持，内容和选项的顺序随你：
 
@@ -367,4 +367,4 @@ DSL 的「隐式父子关系」来自 `@phaser-mvvm/phaser` 的 `uiscope.ts`，�
 ## 9. 下一步
 
 - 需要**完全控制**（自定义控件、动态增删、直接操作显示列表）时，任何一层都可以退回工厂 API：DSL 建的是普通控件，`addWidget`/`removeWidget`/`setVisible` 一样能用。
-- 本章没有覆盖的能力（模态、路由、无障碍镜像）在 PLAN 的 M8/M9，尚未实现——参考 [08 §5 差异清单](./08-lifecycle-and-pitfalls.md)。
+- 本章没有覆盖的**页面级能力**都已交付：模态 `this.mvvm.modal`（[07 §6](./07-input-focus-nav.md)、`#/modal`）、路由 `this.mvvm.router`（[07 §7.2](./07-input-focus-nav.md)、`#/router`）、无障碍镜像 `A11yBridge`（`#/a11y`）、页面栈 `this.mvvm.pages`（`#/pages`）。仍未做的见 [08 §5](./08-lifecycle-and-pitfalls.md)：真实屏幕阅读器与真实手柄硬件的验证、`@phaser-mvvm/template`（Phase 2）。

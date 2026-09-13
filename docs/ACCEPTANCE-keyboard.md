@@ -7,16 +7,16 @@
 
 ## 1. 交付物
 
-| 产物                                                    | 说明                                                                                                                               |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/widgets/src/keyboard-plan.ts`                 | **纯逻辑**（零 Phaser）：按键表（33 键 × 两页 + 13 键小键盘）、标签、键宽、`pageOf()`、`pressShift()`/`afterTyping()` 大小写状态机 |
-| `packages/widgets/src/VirtualKeyboard.ts`               | 控件本体（`extends Panel`）：页/大小写状态、槽位与按键控件的对应、把一次按键变成一次编辑；键本身由 DSL 画（键是 `Button`）         |
-| `packages/widgets/src/compose.ts` → `VirtualKeyboard()` | DSL 入口：`withUiParent()` 认领行（见 §6 V47），键宽来自 `keyWidth()`                                                              |
-| `TextInputBase.insertText/deleteText/setCaretIndex`     | 第 80 轮加的公开编辑 API，键盘用它写字段（与真实按键同一条 `applyEdit` 路径）                                                      |
-| `TextInputBase.setValue` 语义修正                       | 程序化写值**现在会同步模型绑定**，但不触发页面的 `onChange`（见 §6 V49）                                                           |
-| `packages/widgets/test/keyboard-plan.test.ts`           | 15 个 Node 单测：行结构/槽位唯一性/两页字符可达性/标签与 ⇧⇪/键宽/一次性与锁定/松手回到小写/页码切换                                |
-| `apps/examples/src/scenes/keyboard.ts`（`#/keyboard`）  | 常驻验收页：一个字段 + 文字/数字两种键盘 + 换键盘按钮；逐帧发布 `kb.*` 与每个键的 `pt.kb.<id>`/`st.kb.<id>`                        |
-| `scripts/visual-check.mjs`                              | `keyboard` 进像素矩阵（`kb.keyboard` 面板底色、`kb.key.enter` 主键底色，明暗两套）与 `AX_EXPECTATIONS`（37 个控制节点逐一断言）    |
+| 产物                                                    | 说明                                                                                                                                                                            |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/widgets/src/keyboard-plan.ts`                 | **纯逻辑**（零 Phaser）：按键表（33 键 × 两页 + 13 键小键盘）、标签、键宽、`pageOf()`、`pressShift()`/`afterTyping()` 大小写状态机                                              |
+| `packages/widgets/src/VirtualKeyboard.ts`               | 控件本体（`extends Panel`）：页/大小写状态、槽位与按键控件的对应、把一次按键变成一次编辑；键本身由 DSL 画（键是 `Button`）                                                      |
+| `packages/widgets/src/compose.ts` → `VirtualKeyboard()` | DSL 入口：`withUiParent()` 认领行（见 §6 V47），键宽来自 `keyWidth()`                                                                                                           |
+| `TextInputBase.insertText/deleteText/setCaretIndex`     | 第 80 轮加的公开编辑 API，键盘用它写字段（与真实按键同一条 `applyEdit` 路径）                                                                                                   |
+| `TextInputBase.setValue` 语义修正                       | 程序化写值**现在会同步模型绑定**，但不触发页面的 `onChange`（见 §6 V49）                                                                                                        |
+| `packages/widgets/test/keyboard-plan.test.ts`           | 16 个 Node 单测（本轮新增这批；后续轮次又补了几条）：行结构/槽位唯一性/两页字符可达性/标签与 ⇧⇪/键宽/一次性与锁定/松手回到小写/页码切换                                         |
+| `apps/examples/src/scenes/keyboard.ts`（`#/keyboard`）  | 常驻验收页：一个字段 + 文字/数字两种键盘 + 换键盘按钮；逐帧发布 `kb.*` 与每个键的 `pt.kb.<id>`/`st.kb.<id>`                                                                     |
+| `scripts/visual-check.mjs`                              | `keyboard` 进像素矩阵（`kb.keyboard` 面板底色、`kb.key.enter` 主键底色，明暗两套）与 `AX_EXPECTATIONS`（**38** 个控制节点逐一断言，第 101 轮加了 `对话框里输入` 后从 37 变 38） |
 
 `#status` 的几何（一次性上报，第一帧后）：`kb.keyboard=@380,297 520x150`、`kb.field=@380,249 520x36`、`kb.key.q=@463,307 30x28`、`kb.key.enter=@733,409 66x28`。
 
@@ -79,16 +79,16 @@
 
 第 81 轮把 `VirtualKeyboard` 交出来时，"换键盘"要调用方自己 `buildUiSubtree()` + `addWidget/removeWidget`，而且必须把 `onSubmit` 之类的选项**再抄一遍**——两份选项就是两次机会漏东西（V48 已经漏过一次）。第 82 轮把 `kind` 做成普通数据槽：键盘自己重建自己的键。
 
-| #   | 断言                                       | 实测                                                                                                                                                              |
-| --- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | 写 `ref` 即换键集（鼠标点按钮 / 手柄 `A`） | `setKind('numeric')` → 键 33 → **13**、`focusables` 37 → 17、面板几何仍是 `520x150`；`counts.widgets` 49 → 29                                                     |
-| 2   | 键探针跟着重建走                           | 数字键盘上 `pt.kb.q=gone`、`st.kb.q=gone`，`pt.kb.n7=@604,389`、`st.kb.enter=normal`                                                                              |
-| 3   | 选项不会在重建中丢失（V48 的根因消失）     | 换键盘**之后**用 `A` 打数字得 `"77"`、`Enter` 提交计数 +1（`onSubmit` 只有一份）                                                                                  |
-| 4   | 换键集**保住焦点**（同一个键 id 还在）     | 焦点在 `keyboard.enter` 时换键集 → 仍是 `keyboard.enter`（两种键盘都有）                                                                                          |
-| 5   | 换键集**兜底**到第一个键（原键 id 没了）   | 焦点在 `keyboard.q` 时切数字键盘 → `keyboard.n1`，紧接着按 `A` 打出 `"1"`（手柄玩家不会"焦点消失"）                                                               |
-| 6   | 页码键与可访问名                           | `123` → 键 33 → **32**（真的没有 `⇧`）、`st.kb.shift=gone`、焦点回到 `keyboard.page`；该键的可访问名在符号页是 `Letters`（名字跟着去向走，不是复述当前页）        |
-| 7   | 可访问性树跟着重建走                       | 初始 37 个控制节点 → 数字键盘 **17**（13 键 + 3 按钮 + 字段）→ 符号页 **36**，`textbox` 始终只有 1 个、无重名                                                     |
-| 8   | 换键集不泄漏                               | `swapChurn(20)`（翻 `kind` ref）与 `pageChurn(20)`（按 20 次 `123`）前后 `widgets/themeListeners/pointerTargets/focusables/displayList` 完全相同（49/50/39/37/1） |
+| #   | 断言                                       | 实测                                                                                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | 写 `ref` 即换键集（鼠标点按钮 / 手柄 `A`） | `setKind('numeric')` → 键 33 → **13**、`focusables` 37 → 17、面板几何仍是 `520x150`；`counts.widgets` 49 → 29                                                                                                                                                                                          |
+| 2   | 键探针跟着重建走                           | 数字键盘上 `pt.kb.q=gone`、`st.kb.q=gone`，`pt.kb.n7=@604,389`、`st.kb.enter=normal`                                                                                                                                                                                                                   |
+| 3   | 选项不会在重建中丢失（V48 的根因消失）     | 换键盘**之后**用 `A` 打数字得 `"77"`、`Enter` 提交计数 +1（`onSubmit` 只有一份）                                                                                                                                                                                                                       |
+| 4   | 换键集**保住焦点**（同一个键 id 还在）     | 焦点在 `keyboard.enter` 时换键集 → 仍是 `keyboard.enter`（两种键盘都有）                                                                                                                                                                                                                               |
+| 5   | 换键集**兜底**到第一个键（原键 id 没了）   | 焦点在 `keyboard.q` 时切数字键盘 → `keyboard.n1`，紧接着按 `A` 打出 `"1"`（手柄玩家不会"焦点消失"）                                                                                                                                                                                                    |
+| 6   | 页码键与可访问名                           | `123` → 键 33 → **32**（真的没有 `⇧`）、`st.kb.shift=gone`、焦点回到 `keyboard.page`；该键的可访问名在符号页是 `Letters`（名字跟着去向走，不是复述当前页）                                                                                                                                             |
+| 7   | 可访问性树跟着重建走                       | 初始 **38** 个控制节点（第 101 轮加了 `对话框里输入`）→ 数字键盘 **17**（13 键 + 3 按钮 + 字段）→ 符号页 **36**，`textbox` 始终只有 1 个、无重名                                                                                                                                                       |
+| 8   | 换键集不泄漏                               | `swapChurn(20)`（翻 `kind` ref）与"翻页 20 次 + `churn(20)`"前后 `widgets/themeListeners/pointerTargets/focusables/displayList` 完全相同（这一轮的基线是 49/50/39/**37**/1；第 101 轮加了对话框后 §9 的基数是 50/51/40/**38**/1）。**`pageChurn` 这个探针不存在**，翻页用 `press('page')` + `churn(n)` |
 
 第 6 条顺带修掉了第 81 轮留下的一个**文档与代码不一致**（V50）：计划函数 `keyboardRows()` 一直说"符号页没有 `⇧`"，但控件只是**重新贴标签**，`⇧` 明明还在屏上——单测断言的是计划、浏览器看到的是控件，两边从没对上过。现在页码切换是换键集，两边一致。
 

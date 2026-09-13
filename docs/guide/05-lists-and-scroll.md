@@ -44,19 +44,19 @@ const scroll = Scroll({ width: 360, height: 240, direction: 'vertical', scrollba
 
 ## 3. 方法、属性与事件
 
-| 成员                                    | 说明                                                                                             |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `setContent(widget)`                    | 换内容（**旧内容会被销毁**），偏移归零，重新解析虚拟化目标                                       |
-| `setScrollOffset(number \| {x, y})`     | 设置偏移（数字只作用于主轴），会按边界夹取/回弹                                                  |
-| `scrollBy(dx, dy)`                      | 相对移动（不滚的轴会被忽略）                                                                     |
-| `scrollTo(number \| 'top' \| 'bottom')` | 绝对定位到某个偏移或两端                                                                         |
-| `stopScroll()`                          | 立刻结束甩动                                                                                     |
-| `get offset` / `get maxOffset`          | 主轴当前/最大偏移                                                                                |
-| `get offsetX/Y` / `get maxOffsetX/Y`    | 分轴偏移                                                                                         |
-| `get viewport` / `get contentSize`      | 视口尺寸 / 内容尺寸（普通内容由已排布矩形汇总；内容是虚拟化列表时取列表的 `maxOffset + 视口高`） |
-| `get scrollable`                        | 主轴上内容是否比视口长                                                                           |
-| `get isDragging`                        | 是否正在拖拽                                                                                     |
-| `get content` / `get scrollTarget`      | 内容控件 / 被驱动的虚拟化列表（如果有）                                                          |
+| 成员                                    | 说明                                                                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `setContent(widget)`                    | 换内容（**旧内容会被销毁**），偏移归零，重新解析虚拟化目标                                                                          |
+| `setScrollOffset(number \| {x, y})`     | 设置偏移（数字只作用于主轴），会按边界夹取/回弹                                                                                     |
+| `scrollBy(dx, dy)`                      | 相对移动（不滚的轴会被忽略）                                                                                                        |
+| `scrollTo(number \| 'top' \| 'bottom')` | 绝对定位到某个偏移或两端                                                                                                            |
+| `stopScroll()`                          | 立刻结束甩动                                                                                                                        |
+| `get offset` / `get maxOffset`          | 主轴当前/最大偏移                                                                                                                   |
+| `get offsetX/Y` / `get maxOffsetX/Y`    | 分轴偏移                                                                                                                            |
+| `get viewport` / `get contentSize`      | 视口尺寸 / 内容尺寸（普通内容由已排布矩形汇总；内容是虚拟化列表时取列表的 `contentExtent`——**全部行**的长度，与当前挂载了几行无关） |
+| `get scrollable`                        | 主轴上内容是否比视口长                                                                                                              |
+| `get isDragging`                        | 是否正在拖拽                                                                                                                        |
+| `get content` / `get scrollTarget`      | 内容控件 / 被驱动的虚拟化列表（如果有）                                                                                             |
 
 | 事件      | 触发                | 载荷                               |
 | --------- | ------------------- | ---------------------------------- |

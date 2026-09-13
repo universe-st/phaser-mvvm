@@ -3,27 +3,27 @@
 - **验收场**：[`#/list`](../../apps/examples/src/scenes/list.ts)（`window.listDemo` 暴露几何、窗口与创建计数）
 - **被测实现**：[`packages/widgets/src/Repeat.ts`](../../packages/widgets/src/Repeat.ts)、[`packages/widgets/src/repeat-plan.ts`](../../packages/widgets/src/repeat-plan.ts)（`computeVisibleRange` / `diffKeys` / `planRepeatUpdate`）、`ScrollView` 的视口裁剪与 `InputRouter` 的命中
 - **本轮（第 63 轮）**：把这一页从"看起来对"变成**可断言**——新增 `listDemo.created()`（自启动以来构建过多少行）、`offset/scrollTo/scrollRows`、`window/visibleKeys/viewport`、`point/pointMounted`、`counts/churn/state`；并修掉页面自己写错的一句复用说明（见 §4）
-- **验收方式**：Playwright MCP（真实鼠标；断言前 `bringToFront()`）+ Node 单测（`packages/widgets/test/repeat.test.ts` 等 220 条 `Repeat`/plan 用例）
+- **验收方式**：Playwright MCP（真实鼠标；断言前 `bringToFront()`）+ Node 单测（`packages/widgets/test/repeat.test.ts` **54** 条 + `scroll-plan.test.ts` **49** 条；本记录里"220 条"是当时那一批的旧口径）
 - **全仓门禁**：`pnpm -r run test` 1096 passed、`typecheck` 5/5、`prettier --check .`、`docs:check`、`size` 18.2 KB min+gzip、`build:examples`、`visual-check` 5 场景
 
 ---
 
 ## 1. 被测行为
 
-| #   | 行为         | 判据                                                                                                  |
-| --- | ------------ | ----------------------------------------------------------------------------------------------------- |
-| L1  | 初始窗口     | 220 行、只挂载 14 行（`p000..p013`）、`maxOffset = 220 × 38 − 408`                                    |
-| L2  | 滚动一步一行 | 每滚一行**只构建一行**（`created` 每步 +1），窗口 `first/last` 同步推进、挂载数保持有界               |
-| L3  | 大跨度跳转   | 一次跳 20 行：窗口整体换人（`p017..p033`），构建数 = 新进入的行数，不是整表重建                       |
-| L4  | 到底         | `offset == maxOffset`、`last` = 最后一行、末行可达                                                    |
-| L5  | 键控复用     | **窗口内交换两行**（key 集合不变）→ `created` 不增长，且行顺序按新顺序重排                            |
-| L6  | 删除         | 删一行：`total −1`、偏移不变、只补建从下方进入窗口的那一行                                            |
-| L7  | 新增         | `+1` 行：`total +1`、窗口向右扩一行                                                                   |
-| L8  | 过滤         | 窗口跟着过滤后的集合走（`Player 01` → 10 行，`maxOffset=0`）；无匹配 → 空状态 + 计数归零              |
-| L9  | `canExecute` | 列表空时 Clear 按钮自动禁用 → 它**从焦点集合里消失**                                                  |
-| L10 | 视口裁剪     | **overscan 行（挂载但在视口外）不可点**：点它不删行（V23 在虚拟化列表上的复测）                       |
-| L11 | 焦点         | 点行内按钮后再滚到别处（该行被卸载）：不报错、焦点释放                                                |
-| L12 | 泄漏         | `churn(20)`（来回滚 10 个窗口）后 `widgets`/`themeListeners`/`pointerTargets`/`focusables` 全部回基线 |
+| #   | 行为         | 判据                                                                                                                                             |
+| --- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| L1  | 初始窗口     | 220 行、只挂载 14 行（`p000..p013`）、`maxOffset = 220 × 38 − 4 − 408 = 7948`（`itemExtent` 含行距，`contentExtentOf()` 要减去最后一行的 `gap`） |
+| L2  | 滚动一步一行 | 每滚一行**只构建一行**（`created` 每步 +1），窗口 `first/last` 同步推进、挂载数保持有界                                                          |
+| L3  | 大跨度跳转   | 一次跳 20 行：窗口整体换人（`p017..p033`），构建数 = 新进入的行数，不是整表重建                                                                  |
+| L4  | 到底         | `offset == maxOffset`、`last` = 最后一行、末行可达                                                                                               |
+| L5  | 键控复用     | **窗口内交换两行**（key 集合不变）→ `created` 不增长，且行顺序按新顺序重排                                                                       |
+| L6  | 删除         | 删一行：`total −1`、偏移不变、只补建从下方进入窗口的那一行                                                                                       |
+| L7  | 新增         | `+1` 行：`total +1`、窗口向右扩一行                                                                                                              |
+| L8  | 过滤         | 窗口跟着过滤后的集合走（`Player 01` → 10 行，`maxOffset=0`）；无匹配 → 空状态 + 计数归零                                                         |
+| L9  | `canExecute` | 列表空时 Clear 按钮自动禁用 → 它**从焦点集合里消失**                                                                                             |
+| L10 | 视口裁剪     | **overscan 行（挂载但在视口外）不可点**：点它不删行（V23 在虚拟化列表上的复测）                                                                  |
+| L11 | 焦点         | 点行内按钮后再滚到别处（该行被卸载）：不报错、焦点释放                                                                                           |
+| L12 | 泄漏         | `churn(20)`（来回滚 10 个窗口）后 `widgets`/`themeListeners`/`pointerTargets`/`focusables` 全部回基线                                            |
 
 ---
 
@@ -75,7 +75,7 @@ churn(20) before { widgets: 89, themeListeners: 92, pointerTargets: 25, focusabl
 ## 4. 未覆盖 / 有意不做
 
 - **5000 行 / 帧率**：PLAN M7 的 "5000 项稳定 60 fps" 需要真实帧率测量；本轮只断言挂载数与构建数（`#/lifecycle` 与 `visual-check` 覆盖泄漏与几何）。用 Playwright MCP 测帧率必须 `bringToFront()`，否则 rAF 被节流（见 `ACCEPTANCE-touch.md` §4）。
-- **`Repeat` 的 `update` 回调路径**（`repeateOptions.update` 原地更新而不重建）：`#/list` 没有用它，只有 Node 单测覆盖。
+- **`Repeat` 的 `update` 回调路径**（`RepeatOptions.update` 原地更新而不重建）：`#/list` 没有用它——**第 87 轮起 `#/options` 有它的 A/B 卡**（`update:` + `upd.calls`/`upd.builds` 读数，见 [`ACCEPTANCE-options.md`](./ACCEPTANCE-options.md) §7.1），Node 单测另有覆盖。
 - **重复 key 的降级**：`planRepeatUpdate.duplicates` 只由 Node 单测覆盖。
 - ~~**触摸滚动这个列表**~~：第 77 轮已补（§6 有真实触摸拖动的帧预算数字）。
 - **`focusables` 的逐帧发布**：`#/list` 目前只有 `listDemo.focusables()`（按需），没有逐帧 `st.*`/`focusables` 行——需要时再补。

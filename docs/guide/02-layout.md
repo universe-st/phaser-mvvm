@@ -125,7 +125,7 @@ Row({ gap: 8, alignItems: 'center' }, () => {
 它的实现只有一句：`Widget.inFlow` 现在等于 `inFlowOf(visible, hideMode)`（`packages/layout/src/params.ts`）。因此
 
 - **保留的是布局槽位**：节点照常被测量与摆放（`measureContent` 仍会被调用），只是渲染器不画它；
-- **不影响交互**：`collectFocusables` 要求 `visible !== false`（[`focus.ts`](../../packages/phaser/src/focus.ts)），输入路由走树时也整棵跳过 `visible === false` 的节点（`resolveTargetInTree`），而 Phaser 自己的命中测试同样跳过不可见对象——三道都拦着，所以「隐藏但占位」的节点既不能聚焦也点不到。它们**仍然留在路由的注册集合里**（`collectInteractive` 不看 `visible`），这是有意的：显示回来时不需要一次结构性刷新就能立刻恢复交互；
+- **不影响交互**：`collectFocusable` 要求 `visible !== false`（[`focus.ts`](../../packages/phaser/src/focus.ts)），输入路由走树时也整棵跳过 `visible === false` 的节点（`resolveTargetInTree`），而 Phaser 自己的命中测试同样跳过不可见对象——三道都拦着，所以「隐藏但占位」的节点既不能聚焦也点不到。它们**仍然留在路由的注册集合里**（`collectInteractive` 不看 `visible`），这是有意的：显示回来时不需要一次结构性刷新就能立刻恢复交互；
 - 运行期示例见 `#/compose` 的 Flow 分区（同一行里并排演示 `collapse` 与 `keep` 的差别）。
 
 ---
@@ -278,7 +278,7 @@ create(): void {
 
 ## 9. 实战二：仪表盘（`grow` / `fill` / 百分比 / grid）
 
-按窗口自适应，参考 `#/dashboard`：
+按窗口自适应，思路上参考 `#/dashboard`（注意那一页用的是固定 `columns: 4`，不是下面这种 `columns: 'auto'` + `minColumnWidth` 的写法）：
 
 ```ts
 render(this.mvvm, () => {
@@ -393,7 +393,7 @@ widget.layoutParams.width = 240; // ❌ 引擎不知道要重算，界面不会�
 
 `setLayoutParams` 是**部分合并**（`mergeParams`）：只覆盖你写到的键，没写的保持原值。所以 `setLayoutParams({ height: 100 })` 不会悄悄把 `position: 'absolute'` 或 `width: 'fill'` 重置掉。
 
-容器还有对称的第二个入口 —— **`setContainerOptions(patch)`**：布局参数描述控件**自己的盒子**（`width`/`padding`/`grow`…），容器选项描述它**怎么摆子节点**（`gap`/`alignItems`/`columns`…）。两个都是部分合并、都会 `markDirty()`，键不认识时会在开发模式下指名告警（与建树时的选项审计同一条规则）。
+容器还有对称的第二个入口 —— **`setContainerOptions(patch)`**：布局参数描述控件**自己的盒子**（`width`/`padding`/`grow`…），容器选项描述它**怎么摆子节点**（`gap`/`alignItems`/`columns`…）。两个都是部分合并、都会 `markDirty()`；对**有选项对象的容器**（box/grid/stack），键不认识时会在开发模式下指名告警（与建树时的选项审计同一条规则）。**两个例外**：非容器上调用会报「not a container，patch 被忽略」；而 `absolute` 容器**没有选项对象**（`{ type: 'absolute' }`），它的补丁会被静默丢弃——这类容器本来也没有可调的子节点排布选项。
 
 ### 声明式写法：间距与尺寸也是槽位（第 105 轮）
 

@@ -3,20 +3,20 @@
 本章目标：**跑起来**。你会配好一个 Phaser 4 游戏、注册框架的工厂、搭出第一个页面（标题 + 两张卡片 + 一个按钮），并搞清「一帧里框架到底做了什么」。
 
 > 前置：Node 24、pnpm 10。仓库根目录执行 `pnpm install`（依赖已装过就不用重复装）。
-> 本章代码对应示例场景 [`apps/examples/src/scenes/gallery.ts`](../../apps/examples/src/scenes/gallery.ts) 的简化版，可直接对照阅读。
+> 本章代码对应示例场景 [`apps/examples/src/scenes/dashboard.ts`](../../apps/examples/src/scenes/dashboard.ts) 的简化版（卡片页 + 按钮 + 读数），可直接对照阅读；「每个控件的所有形态」看 `#/gallery` 与 `#/showcase`。
 
 ---
 
 ## 1. 先看清四个包的分工
 
-| 包                     | 你什么时候会 import 它                                | 里面有什么                                                                                       |
-| ---------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `@phaser-mvvm/widgets` | 几乎总是                                              | `Panel`/`Label`/`Button`/`Image`/`Spacer`/`Divider`/`TextField`/`TextArea`/`ScrollView`/`Repeat` |
-| `@phaser-mvvm/phaser`  | 配插件、`vbox/hbox/grid`、绑定、主题                  | `MVVMPlugin`、`Widget`、`UIRoot`、`vbox`/`hbox`/`grid`/`stack`/`absolute`、`bind*` 系列          |
-| `@phaser-mvvm/layout`  | 写自定义控件或做纯布局测试时才直接 import             | `LayoutEngine`、`LayoutParams` 类型、arranger 算法                                               |
-| `@phaser-mvvm/core`    | 写 ViewModel、用 `ref`/`computed`/`BindingContext` 时 | 响应式内核、调度器、路径表达式编译                                                               |
+| 包                     | 你什么时候会 import 它                                | 里面有什么                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@phaser-mvvm/widgets` | 几乎总是                                              | `Panel`/`Label`/`Button`/`Image`/`Slider`/`Spacer`/`Divider`/`TextField`/`TextArea`/`ScrollView`/`Repeat`/`VirtualKeyboard`/`Branch`（+ `compose` DSL） |
+| `@phaser-mvvm/phaser`  | 配插件、`vbox/hbox/grid`、绑定、主题、页面体系        | `MVVMPlugin`、`Widget`、`UIRoot`、`vbox`/`hbox`/`grid`/`stack`/`absolute`、`bind*` 系列、`UIScene`/`pages`/`modal`/`router`                             |
+| `@phaser-mvvm/layout`  | 写自定义控件或做纯布局测试时才直接 import             | `LayoutEngine`、`LayoutParams` 类型、arranger 算法                                                                                                      |
+| `@phaser-mvvm/core`    | 写 ViewModel、用 `ref`/`computed`/`BindingContext` 时 | 响应式内核、调度器、路径表达式编译                                                                                                                      |
 
-**硬约束**：只有 `packages/phaser` 能 `import phaser`。你在业务代码里当然可以照常 `import Phaser from 'phaser'`（写场景必须），但框架自身的 `core`/`layout` 与渲染无关，这也是它们能在 Node 里单测的原因。
+**硬约束**：`core` 与 `layout` **零 Phaser 依赖**（连类型都不引），所以它们能在 Node 里单测。`packages/phaser` 与 `packages/widgets` 都把 `phaser` 当 peer dependency **直接 `import`**（控件就是 `new Phaser.GameObjects.…`；构建时 `--external phaser`），`apps/` 只依赖 `widgets`。你在业务代码里当然也可以照常 `import Phaser from 'phaser'`。
 
 ---
 
@@ -32,7 +32,7 @@ import { installWidgetFactories } from '@phaser-mvvm/widgets';
 // 注册 this.add.vbox / hbox / uiGrid / uiStack / uiAbsolute / uiRect
 installFactories();
 // 注册 this.add.uiLabel / uiPanel / uiButton / uiImage / uiSpacer / uiDivider /
-//        uiTextField / uiTextArea / uiRepeat / uiScroll
+//        uiSlider / uiTextField / uiTextArea / uiRepeat / uiScroll
 installWidgetFactories();
 
 new Phaser.Game({
@@ -155,10 +155,7 @@ new Phaser.Game({ /* … */ scene: [HelloScene] });
 ### 这段代码在发生什么
 
 - 每个 composable（`Panel`/`Row`/`Text`/…）都 **`scene.add.existing()`** 了一个控件，所以它已经在显示列表里；但**还没参与布局**。内容 lambda 里创建的控件会在创建时挂到当前容器上（[09 §7](./09-compose-dsl.md) 讲这套作用域机制）。
-- `UIScene` 的 `create()`（或手写的 `render(this.mvvm, () => { … })`）是关键一步，等价于 `const page = ui(this, () => { … }); this.mvvm.mount(page);`：
-
-- 每个 composable（`Panel`/`Row`/`Text`/…）都 **`scene.add.existing()`** 了一个控件，所以它已经在显示列表里；但**还没参与布局**。内容 lambda 里创建的控件会在创建时挂到当前容器上（[09 §7](./09-compose-dsl.md) 讲这套作用域机制）。
-- `render(this.mvvm, () => { … })` 是关键一步，等价于 `const page = ui(this, () => { … }); this.mvvm.mount(page);`：
+- `render(this.mvvm, () => { … })` 是关键一步（`UIScene` 里就是它的 `content()`），等价于 `const page = ui(this, () => { … }); this.mvvm.mount(page);`：
   1. `root.addWidget(page)`：把页面挂到 `UIRoot` 下，并**立刻布局一次**；
   2. `refreshInteraction()`：重新收集可聚焦控件与指针目标，于是新页面上的按钮马上能点、能 Tab；
   3. 页面在 `UIRoot` 的 `stack`（默认 `align: 'center'`）里居中显示。
@@ -221,7 +218,7 @@ this.add.uiButton({
 });
 ```
 
-好处是「任何控件都能用任何布局参数」；拼错键名时 TypeScript 通常会在字面量里直接报错，而在绕开类型检查（先存变量、`as` 断言、动态拼键）的场景里**开发模式下框架会指名警告**：`[phaser-mvvm] unknown option "pading" on "panel" — it is ignored. Did you mean "padding"?`（第 83 轮的选项审计；发布模式下不打印）。查表时以本指南的选项表为准。
+好处是「任何控件都能用任何布局参数」；拼错键名时 TypeScript 通常会在字面量里直接报错，而在绕开类型检查（先存变量、`as` 断言、动态拼键）的场景里**开发模式下框架会指名警告**：`[phaser-mvvm] unknown option "pading" on "kb.page" — it is ignored. Did you mean "padding"?`（`on "…"` 里的名字来自你给控件写的 `name` 选项，没写名字就不带这一段；第 83 轮的选项审计；发布模式下不打印）。查表时以本指南的选项表为准。
 
 ---
 

@@ -60,7 +60,7 @@ MVVMPlugin.configure({ safeArea: false });
 | S4  | 极端值：390×120 的视口 + 4000 的 inset | 夹到 **30 / 30 / 97 / 97**（每条边最多占该轴 25%，见下）                                                                              |
 | S5  | 改变 inset 但**不改变尺寸**            | `padding` 保持旧值——inset 只在 **resize** 时重读（手机上是旋转／窗口变化触发）；`#/config` 为此暴露了 `window.config.resize()`        |
 
-**夹取（`clampSafeArea`）**：刘海是**物理**像素高度，视口一矮（横屏、小窗）它就可能比整个界面还高——S4 里 120px 高配 4000 的 inset，如果照单全收就没有任何空间留给 UI。规则是**每条边最多占该轴的四分之一**，且逐轴独立（横屏时左右两组 inset 各自与宽度比）。负数 / `NaN` / 缺失一律当 0：这些数字都来自 DOM 测量，接受一个 `-12px` 的内边距比忽略一次坏读数更糟。纯函数 6 例单测见 `packages/phaser/test/safe-area.test.ts`。
+**夹取（`clampSafeArea`）**：刘海是**物理**像素高度，视口一矮（横屏、小窗）它就可能比整个界面还高——S4 里 120px 高配 4000 的 inset，如果照单全收就没有任何空间留给 UI。规则是**每条边最多占该轴的四分之一**，且逐轴独立（横屏时左右两组 inset 各自与宽度比）。负数 / `NaN` / 缺失一律当 0：这些数字都来自 DOM 测量，接受一个 `-12px` 的内边距比忽略一次坏读数更糟。纯函数单测（`insetsInsideCanvas` / `cssInsetsToDesign` / `clampSafeArea` 共 14 例，其中夹取 6 例）见 `packages/phaser/test/safe-area.test.ts`。
 
 ### 2.4 顺带说明的三条边界
 

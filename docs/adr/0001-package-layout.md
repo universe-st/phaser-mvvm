@@ -70,3 +70,12 @@ apps/examples ──► widgets ──► phaser ──┬──► layout
 - PLAN.md §10.1 决策 1（TypeScript + 代码优先 builder）
 - PLAN.md §10.3（包名与目录、工具链、许可证）
 - ADR-0003（layout 零 Phaser 依赖）、ADR-0005（Phaser 依赖方式）
+
+## 现状校正
+
+> 上面的正文写于决策当时，决策本身未变。以下是**与当前代码不一致的名字与边界**（决策条目一律保留原文）。
+
+- 调度器是**四**档：`sync` / `pre` / `post` / `frame`（`packages/core/src/reactivity/scheduler.ts` 的 `FlushMode`，`post` 有独立的队列），不是三档。
+- 「`@phaser-mvvm/phaser` 是唯一允许 `import phaser` 的包」**不再成立**：`packages/widgets` 也把 `phaser` 当 peer dependency 直接 `import`（每个控件都在 `new Phaser.GameObjects.…`，`packages/widgets/package.json` 声明 `peerDependencies.phaser: ^4.2.0`，构建同样 `--external phaser`）。不变的只有一条：`core`/`layout` 零 Phaser 依赖（连类型都不引）。
+- `@phaser-mvvm/widgets` 里**没有 `Modal`**：模态层是 `packages/phaser/src/modal.ts` 的 `ModalHost`，经 `this.mvvm.modal` 使用；`widgets` 现有控件是 `Label`/`Panel`/`Button`/`Image`/`Spacer`/`Divider`/`Branch`/`TextField`/`TextArea`/`Slider`/`ScrollView`/`Repeat`/`VirtualKeyboard`。
+- 「类型对齐需要 `tsconfig` 引用」没有采用：`tsconfig.base.json` 里没有 `references`/`composite`，每个包各自 `tsc -p tsconfig.json`（`noEmit`），跨包解析靠 workspace 协议（`workspace:*`）。

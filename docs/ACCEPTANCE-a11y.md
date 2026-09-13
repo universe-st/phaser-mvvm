@@ -22,7 +22,7 @@
 **修法**（四条一起做，因为它们是同一个问题的四个面）：
 
 1. **一个控件一个节点**：控件如果**自己就有 DOM 元素**（`Widget#getA11yDomElement()`，文本框的桥元素），镜像节点就 `aria-hidden` 让位，由那个元素承载 role/name/state；桥建不出来时（没有 DOM 容器）返回 `null`，镜像节点仍是唯一表面——**回退路径是诚实的**。
-2. **角色感知的 ARIA**（`a11yAttributes()`，纯函数 + 13 条单测）：值域属性只写给真的支持它的角色；`textbox` 这类内容型角色的节点文本只写**值本身**（`a11yText()`）。
+2. **角色感知的 ARIA**（`a11yAttributes()`，纯函数 + 9 条单测，该文件共 15 条）：值域属性只写给真的支持它的角色；`textbox` 这类内容型角色的节点文本只写**值本身**（`a11yText()`）。
 3. **DOM 焦点跟随框架焦点**（`A11yBridge#focusChanged()`）：镜像节点带 `tabindex="-1"`（可被程序聚焦，**不进 Tab 序**），框架焦点变化时把 DOM 焦点移过去；字段则聚焦它自己的 `<input>`（本来就走这条）。焦点移动失败时，才退回 `announceFocus()` 用 `aria-live` 播报——**播报从"唯一手段"变成"兜底"**。
 4. **被聚焦控件每帧同步**：`sync()` 改成"变了才写"（签名比对），所以插件可以对当前焦点控件每帧调一次——滑杆用方向键改值、开关回车翻转、提交后出现的校验错误，都不再需要应用手写 `sync()`。
 
@@ -75,18 +75,18 @@ DOM 焦点：框架 focus('a11y.plain') → document.activeElement = 那个 mirr
 
 ### 2.1 节点与属性（`#/a11y`，14 个节点）
 
-| 控件                 | 镜像节点                                                          |
-| -------------------- | ----------------------------------------------------------------- |
-| `Button('普通按钮')` | `button "普通按钮"`                                               |
-| `Button(toggle)`     | `checkbox "接收通知" checked=true`                                |
-| `Button(disabled)`   | `button "不可用按钮" **disabled**`（**禁用控件也在镜子里**）      |
-| `Slider`             | `slider "音量" v=40`                                              |
-| `TextField`          | `textbox "名字"`（`label` 选项 → 可访问名；无则退到 placeholder） |
-| `TextArea`           | `textbox "备注"`                                                  |
-| 交互式 `Panel`       | `button "可点击的卡片"`                                           |
-| `Scroll`             | `region "按钮区域" v=0`，`hint` 说明"纵向滚动区，可滚 0px"        |
-| 滚动区里的 6 个按钮  | 6 个 `button`，各带自己的文本                                     |
-| `Text`（非控件）     | **没有节点**（`Label` 由拥有它的控件读出，不单独播报）            |
+| 控件                 | 镜像节点                                                                                                                                                           |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Button('普通按钮')` | `button "普通按钮"`                                                                                                                                                |
+| `Button(toggle)`     | `checkbox "接收通知" checked=true`                                                                                                                                 |
+| `Button(disabled)`   | `button "不可用按钮" **disabled**`（**禁用控件也在镜子里**）                                                                                                       |
+| `Slider`             | `slider "音量" v=40`                                                                                                                                               |
+| `TextField`          | `textbox "名字"`（`label` 选项 → 可访问名；无则退到 placeholder）                                                                                                  |
+| `TextArea`           | `textbox "备注"`                                                                                                                                                   |
+| 交互式 `Panel`       | `button "可点击的卡片"`                                                                                                                                            |
+| `Scroll`             | `region "按钮区域"`，`hint` 说明"<方向> scrolling area, <maxOffset> px of travel"（英文常量，第 76 轮起值域属性只写给支持它的角色，所以 `region` **不再**带 `v=`） |
+| 滚动区里的 6 个按钮  | 6 个 `button`，各带自己的文本                                                                                                                                      |
+| `Text`（非控件）     | **没有节点**（`Label` 由拥有它的控件读出，不单独播报）                                                                                                             |
 
 `Label`（`a11y.title`/`a11y.hint`/`a11y.tail`）与两个纯布局容器都不在镜像里：节点数 14 = 可交互控件数，`focusables` 13（不含禁用按钮）。
 
@@ -160,9 +160,9 @@ live 区域属性（`Accessibility.getFullAXTree` 读出的计算值）：`role=
 ## 4. 未覆盖 / 有意不做
 
 - **真实屏幕阅读器**（VoiceOver / NVDA / TalkBack）：本轮只断言 DOM —— 也就是"喂给屏幕阅读器的原料"；**没有用真实 SR 听过一遍**。这是本记录里最重要的未验证项。
-- **浏览模式与焦点模式的交互**：镜像节点刻意不可聚焦，因此 SR 的"表单控件列表"里能看到控件、但 `Tab` 由游戏接管；这种分工**未在真实 SR 上验证过体验**。
+- **浏览模式与焦点模式的交互**：镜像节点不进 `Tab` 序（`tabindex="-1"`），但框架焦点变化时**会**把 DOM 焦点移过去（第 76 轮改动，见 §0），所以 `Tab` 由游戏接管、程序化焦点跟随框架；这种分工**未在真实 SR 上验证过体验**。
 - **`aria-activedescendant` / roving tabindex**：没有做（那是"复刻浏览器原生语义"的范畴，PLAN §1.2 明确排除）。
-- **层级/角色语义**：没有 `aria-owns`、没有树形结构（列表 → 行 → 单元格只以平铺控件呈现）。
+- ~~**层级/角色语义**：没有 `aria-owns`、没有树形结构~~ **已交付（第 103 轮）**：镜像与控件树同构（`A11yBridge#nest()`），容器是具名 `group`/`region`/`dialog`，文本框自带的 `<input>` 靠 `aria-owns` 挂进它该属于的节点；常驻门禁是 `visual-check` 的 `AX_STRUCTURE_EXPECTATIONS`。见 §11。
 - **本地化播报文案**：`checked`/`disabled`/`invalid` 等词是英文常量，未走主题或 i18n。
 - **`aria-live` 的节流**：连续快速变化（拖动滑杆）会连续播报；没有做合并/防抖。
 
@@ -214,11 +214,11 @@ live 区域属性（`Accessibility.getFullAXTree` 读出的计算值）：`role=
 
 根因：模态层挡住了指针（画布命中）也接管了焦点作用域，但**读屏软件走的是无障碍树**——桥把 `input.widgets ∪ focus.focusables` 里每个有描述的控件都镜像出来，与"哪一层在上面"无关；而文本框这类**自带 DOM 元素**的控件，其表面就是那个隐藏 `<input>`，遮住镜像节点根本不够。
 
-修法（`packages/phaser/src/a11y.ts`）：桥新增 `isBehindModal(widget)` —— 顶层模态的 `content` 是"当前活着的表面"，不在它子树里的控件一律 `aria-hidden`（镜像节点与它自己的 DOM 元素都标），而**当前持有 DOM 焦点的控件永不隐藏**（`aria-hidden` 标在聚焦元素上是无效 ARIA，浏览器可能直接丢掉焦点）。缓存签名里带上 `inert`，所以开关模态时重新应用；模态的 `open`/`close` 本来就会 `refreshInteraction()`，时序不需要新的钩子。
+修法（`packages/phaser/src/a11y.ts`）：桥新增 `isInert(widget)`（当时叫 `isBehindModal`，第 102 轮推广到页面栈后改名）—— 顶层模态的 `content` 是"当前活着的表面"，不在它子树里的控件一律 `aria-hidden`（镜像节点与它自己的 DOM 元素都标），而**当前持有 DOM 焦点的控件永不隐藏**（`aria-hidden` 标在聚焦元素上是无效 ARIA，浏览器可能直接丢掉焦点）。缓存签名里带上 `inert`，所以开关模态时重新应用；模态的 `open`/`close` 本来就会 `refreshInteraction()`，时序不需要新的钩子。
 
 **常驻门禁**：`scripts/visual-check.mjs` 的 `AX_EXPECTATIONS` 新增 `modal` 一条（该场景的 `SCENE_SETUP` 本来就开着 `confirm` 对话框），只列对话框自己的两个控件（`取消` / `删除`），而 AX 门禁的语义是"**控制节点恰好这么多**"——于是"被盖住的页面按钮还在树里"会当场红掉。实测修后 `a11y tree ok for modal (2 control nodes, no duplicates)`；同一次运行里 `a11y` 14 个、`keyboard` 38 个（第 101 轮新增的 `对话框里输入` 按钮算第 38 个）。
 
-**正对照**：把 `isBehindModal` 强制返回 `false` 再跑一次 —— `modal` 这一条如期失败（`1 check(s) failed`），恢复后重新全绿。
+**正对照**：把 `isInert` 强制返回 `false` 再跑一次 —— `modal` 这一条如期失败（`1 check(s) failed`），恢复后重新全绿。
 
 > 这一条**无法用 Node 单测回归**：它验的是浏览器算出来的无障碍树，所以门禁落在 `visual-check` 的 AX 表上（与第 76 轮 V42/V43 同一条路）。
 

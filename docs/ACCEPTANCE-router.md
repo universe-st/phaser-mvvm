@@ -152,6 +152,6 @@ user/2/posts  pt.home.user.2=gone          pt.user.posts=gone        pt.posts.ba
 - **URL 路由 / 深链接**：PLAN 明确不做。`Router` 从不读 `location`，没有历史条目，浏览器后退键不会离开页面（示例应用里改哈希会整页重载，这是示例自己的约定）。
 - **通配符、可选段、查询串、类型化参数**：不做。路由是「名字 + 字符串参数」，需要更多就该由应用自己解析。`routeParams<T>()` 只解决类型层的可选性问题，不做运行时校验。
 - **守卫 / 重定向 / 懒加载**：不做。要拦一次导航就在 `navigate()` 之前判断——那是普通代码，框架不必发明 API。
-- **页面转场（推入/弹出的动画）**：路由不带动效（第 74 轮的 `TransitionRunner` 是通用件，但页面转场要处理"被盖住的页仍在树上"，语义要单独设计）。
+- **页面转场（推入/弹出的动画）**：**已交付（第 78 轮）**——`RouteOptions = Omit<PageOptions, 'name'>`，`navigate()` 直接把选项交给 `pages.push()`，所以每次导航都走 `page-motion.ts` 的默认进出场（`PageOptions.transition` 可逐条覆盖），实测见 [`ACCEPTANCE-pages.md`](./ACCEPTANCE-pages.md) §5。路由自己不做第二套动效。
 - **像素门禁**：`#/router` 没进 `scripts/visual-check.mjs` 的场景列表——首页由已被像素断言覆盖过的控件（`Panel`/`Button`/`TextField`/`Text`）组成，新增采样点不会带来新信息；它的几何仍写进 `#status`，行为由本文件的矩阵覆盖。
 - **真机**：触摸用 CDP 触摸域验证（与 [`ACCEPTANCE-touch.md`](./ACCEPTANCE-touch.md) 同一套做法），iOS/Android 真机未跑。

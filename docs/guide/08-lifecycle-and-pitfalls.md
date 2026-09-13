@@ -17,9 +17,10 @@
 
 场景 shutdown / destroy
   └─ MVVMPlugin.dispose()
-        ├─ 摘掉键盘/主题/场景事件监听
-        ├─ router.detach()、focusManager.dispose()
+        ├─ 摘掉键盘/指针/手柄监听、router.detach()、focusManager.dispose()
+        ├─ 释放页面栈与模态层
         └─ uiRoot.destroy(true)   → 整棵控件树销毁
+  场景事件监听（PRE_UPDATE/scale resize…）只在 destroy() 里摘掉（见下方 §2 的说明）
 ```
 
 **你几乎不需要手动做清理**，插件会在场景关闭时全拆掉。需要你自己负责的只有两件事：
@@ -227,18 +228,18 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 4.6 「触摸（移动端）不对」
 
-| 检查项                                           | 结论 / 修法                                                                                                                                                                        |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 触摸点了没反应，鼠标却正常？                     | Phaser 的触摸指针是 `pointers[1]`，需要 `activePointers ≥ 1`（默认值就是 1）；只有真机/模拟出的 `TouchEvent` 才会驱动它，鼠标事件不会                                              |
-| 触摸抬起后控件一直亮着（像 hover）？             | 这是本轮修掉的缺陷 V11：`handleUp` 曾无条件恢复 hover。框架现在只在**鼠标**按压后恢复；自定义控件不要自己在 `pointerup` 里 `setHovered(true)`                                      |
-| 想区分鼠标与触摸（例如只在鼠标下显示悬停提示）？ | 读 `pointer.wasTouch`（框架内部用的就是这个标记：`isHoverPointer`）。`wasTouch === true` 的指针不参与轮询式 hover                                                                  |
-| 想支持双指缩放？                                 | `ScrollView` 的 `zoom: true` / `zoom: { min, max }`（见 [05 §8.5](./05-lists-and-scroll.md)）；虚拟化列表不支持，会 `warn` 并忽略                                                  |
-| 多指会不会互相干扰？                             | 不会：`InputRouter` 的按压按**指针**记账，`ScrollView`/`Slider` 的拖动只认抓住它的那根手指。多指要在游戏配置里开 `input: { activePointers: 2 }`（默认 1 时第二根手指没有指针可用） |
-| 需要双指手势（缩放、旋转）？                     | 目前**未实现**：框架没有 pinch/rotate 语义，也没有「双指滚动」；多指输入本身是通的，手势要自行在 Phaser 层实现（实测见 `docs/ACCEPTANCE-touch.md` §3.5）                           |
-| 中文长句不换行、横着溢出容器？                   | 早期版本会（Phaser 只在空格断行）；现在框架补了逐码点兜底断行，若你自定义控件直接用了 `Phaser.GameObjects.Text`，请自行调用 `rewrapOverflowingLines()`（见 03 章 `Text` 的坑）     |
-| 字母下伸部（`g`/`y` 的尾巴）被切掉一小条？       | Phaser 文本画布高度取自字体度量并会被截断（见 03 章 `Text` 的坑）；框架已用 `glyphPadding()` 补上，自定义控件直接 `new Phaser.GameObjects.Text()` 时需要自己 `setPadding()`        |
-| 真机上列表滚动会和页面滚动打架？                 | `ScrollView` 会 `preventDefault`（backlog V3 记录了"最内层不可滚动时也拦截"的取舍）；真机验收前先确认这一条是否符合预期                                                            |
-| 软键盘弹出后布局错位？                           | `Scale.RESIZE` 下视口变化会触发重新布局，但**尚未在移动端模拟器里验收过**（见 `docs/ACCEPTANCE-touch.md` §5）                                                                      |
+| 检查项                                           | 结论 / 修法                                                                                                                                                                                                                                          |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 触摸点了没反应，鼠标却正常？                     | Phaser 的触摸指针是 `pointers[1]`，需要 `activePointers ≥ 1`（默认值就是 1）；只有真机/模拟出的 `TouchEvent` 才会驱动它，鼠标事件不会                                                                                                                |
+| 触摸抬起后控件一直亮着（像 hover）？             | 这是本轮修掉的缺陷 V11：`handleUp` 曾无条件恢复 hover。框架现在只在**鼠标**按压后恢复；自定义控件不要自己在 `pointerup` 里 `setHovered(true)`                                                                                                        |
+| 想区分鼠标与触摸（例如只在鼠标下显示悬停提示）？ | 读 `pointer.wasTouch`（框架内部用的就是这个标记：`isHoverPointer`）。`wasTouch === true` 的指针不参与轮询式 hover                                                                                                                                    |
+| 想支持双指缩放？                                 | `ScrollView` 的 `zoom: true` / `zoom: { min, max }`（见 [05 §8.5](./05-lists-and-scroll.md)）；虚拟化列表不支持，会 `warn` 并忽略                                                                                                                    |
+| 多指会不会互相干扰？                             | 不会：`InputRouter` 的按压按**指针**记账，`ScrollView`/`Slider` 的拖动只认抓住它的那根手指。多指要在游戏配置里开 `input: { activePointers: 2 }`（默认 1 时第二根手指没有指针可用）                                                                   |
+| 需要双指手势（缩放、旋转）？                     | **捏合缩放已实现**（上一行，`#/scroll` 的 `scroll.nested` 有常驻验收，见 `docs/ACCEPTANCE-touch.md` §3.6）；**旋转仍未实现**，也没有「双指滚动」语义；多指输入本身是通的，需要别的手势请在 Phaser 层自己实现                                         |
+| 中文长句不换行、横着溢出容器？                   | 早期版本会（Phaser 只在空格断行）；现在框架补了逐码点兜底断行，若你自定义控件直接用了 `Phaser.GameObjects.Text`，请自行调用 `rewrapOverflowingLines()`（见 03 章 `Text` 的坑）                                                                       |
+| 字母下伸部（`g`/`y` 的尾巴）被切掉一小条？       | Phaser 文本画布高度取自字体度量并会被截断（见 03 章 `Text` 的坑）；框架已用 `glyphPadding()` 补上，自定义控件直接 `new Phaser.GameObjects.Text()` 时需要自己 `setPadding()`                                                                          |
+| 真机上列表滚动会和页面滚动打架？                 | 滚轮路径由 `ScrollView` 自己 `preventDefault`（只在 `onWheel` 里）；**触摸路径没有自己的 preventDefault**，页面级默认行为由 Phaser 的 `TouchManager` 捕获接管（backlog V3 记录了"最内层不可滚动时也拦截"的取舍）；真机验收前先确认这一条是否符合预期 |
+| 软键盘弹出后布局错位？                           | `Scale.RESIZE` 下视口变化会触发重新布局，但**尚未在移动端模拟器里验收过**（见 `docs/ACCEPTANCE-touch.md` §5）                                                                                                                                        |
 
 > 触摸的完整状态矩阵与驱动方式（CDP `Input.dispatchTouchEvent` 配方）见 [`ACCEPTANCE-touch.md`](../ACCEPTANCE-touch.md)。
 
@@ -259,13 +260,26 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 5.1 尚未实现（不要照着 PLAN 写）
 
-| PLAN 提到的东西                                            | 状态                                                                                                                                                                         |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `UIScene` / `Page` / `PageStack` / `ModalStack` / `Router` | **M8 未开始**。目前一个场景 = 一个 `UIRoot`（`this.mvvm.root`）                                                                                                              |
-| `Modal` 控件（遮罩 + 对话框 + 焦点陷阱 + ESC）             | **M8 未开始**。可用 `stack` + `setCapture` + `trapFocus` 自己拼（07 §6）                                                                                                     |
-| `A11yBridge`（隐藏 DOM 镜像 + `aria-live`）                | **M9 未开始**。目前只有文本框的隐藏元素带 `aria-label`                                                                                                                       |
-| `@phaser-mvvm/template`（JSON/模板层）                     | **Phase 2 未创建**                                                                                                                                                           |
-| ESLint / coverage 门禁                                     | 仍未接入（CI 只跑 Prettier + typecheck + test + build + 示例构建）。**体积门禁已有**：`pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定），但尚未接进 CI，提交前手动跑 |
+| PLAN 提到的东西                                                               | 状态                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@phaser-mvvm/template`（JSON/模板层）                                        | **Phase 2 未创建**                                                                                                                                                                                         |
+| `NavSource` 抽象（方向键 / Tab / 手柄 D-Pad+摇杆 / 鼠标悬停合成一个具名抽象） | **没有这个符号**。交付的是 `packages/phaser/src/nav.ts`（`NavRepeat`/`keyboardActionOf`/`gamepadActionsOf`/`heldDirectionsOf`）由 `FocusManager` 消费；PLAN §10 至今仍把「`NavSource` 抽象命名」列为未开始 |
+| 真实屏幕阅读器（VoiceOver/NVDA）人工走查、真实手柄硬件验证                    | **未做**。已做的是假手柄驱动 + CDP 无障碍树断言（`#/gallery`/`#/keyboard`/`#/a11y`，见 [`ACCEPTANCE-a11y.md`](../ACCEPTANCE-a11y.md)）                                                                     |
+| ESLint / coverage 门禁                                                        | 仍未接入（CI 只跑 Prettier + typecheck + test + build + 示例构建）。**体积门禁已有**：`pnpm size`（`scripts/size-check.mjs`，按 min+gzip 判定），但尚未接进 CI，提交前手动跑                               |
+
+### 5.1.1 已交付，但名字与 PLAN 的草案不同
+
+`UIScene`/页面栈/模态/`Router`/无障碍镜像/动效**都已经在代码里**（M8、M9 已交付）。差别只在名字，写代码时按右列：
+
+| PLAN 草案                                              | 代码里的实际名字                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `UIScene`（自动挂载插件、`ui.show(page)`/`ui.back()`） | `packages/phaser/src/UIScene.ts`：`content()` 建树并自动挂载、`setContent()` 整页替换、`onBack()` 先于应用层；它**不自动挂载插件**，缺插件时用 `requireMVVMPlugin()` 抛出带 Game Config 片段的错误，也没有 `ui.show`/`ui.back`（`ui()` 只建视图）。见 [`ACCEPTANCE-uiscene.md`](../ACCEPTANCE-uiscene.md) |
+| `Page` / `PageStack` / `keepAlive`                     | `packages/phaser/src/pages.ts` 的 `PageHost` + `PageOptions`（`onResume`/`onPause`/`onDispose`/`onBack`），经 `this.mvvm.pages` 使用；没有 `Page` 类，也没有 `keepAlive`/`onEnter`/`onLeave`                                                                                                              |
+| `Modal` 控件 / `ModalStack` / `StackArranger`          | 模态**不是控件**：`packages/phaser/src/modal.ts` 的 `ModalHost`，经 `this.mvvm.modal.open()` 使用（遮罩拦截 + 焦点陷阱 + `Esc`/遮罩关闭 + 叠层 + 开闭动效）；`#/modal` 是常驻验收页                                                                                                                       |
+| `Router`                                               | `packages/phaser/src/router.ts` + `route-plan.ts`，经 `this.mvvm.router` 使用（`routes`/`route()`/`navigate`/`replace`/`back`/`current`/`history`）；**不读 `location`**，`navigate` 就是 `pages.push`。见 [`ACCEPTANCE-router.md`](../ACCEPTANCE-router.md)                                              |
+| `A11yBridge`                                           | `packages/phaser/src/a11y.ts`：隐藏 DOM 镜像（与控件树同构，容器是 `group`/`region`/`dialog`）+ `aria-live` 播报；`visual-check` 的 `AX_EXPECTATIONS`/`AX_STRUCTURE_EXPECTATIONS` 是常驻门禁，`#/a11y` 是验收页                                                                                           |
+| 打开/关闭动效                                          | `transition.ts` 的 `TransitionRunner`（不产生 Phaser tween），策略来自 `MVVMPluginConfig.transition`、逐层覆盖用 `ModalOptions.transition`/`PageOptions.transition`；**交互语义当帧生效，只有画面延后**                                                                                                   |
+| 设计分辨率与安全区                                     | 由 `UIRoot` 负责（`safeArea` 默认开启，读 `env(safe-area-inset-*)`），不是 `UIScene`；`#/config` 是验收页                                                                                                                                                                                                 |
 
 ### 5.2 名义差异（功能在，但 API 与 PLAN 的草案不同）
 
@@ -291,7 +305,7 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ## 6. 仓库约定（改代码前必读）
 
-1. **只有 `packages/phaser` 可以 `import phaser`**；`core`/`layout` 零 Phaser 依赖（含类型），`widgets` 只能通过 `@phaser-mvvm/phaser` 间接使用。
+1. **Phaser 只出现在适配层与控件层**：`core`/`layout` 零 Phaser 依赖（含类型）；`packages/phaser` 与 `packages/widgets` 都把 `phaser` 当 peer dependency **直接 `import`**（每个控件都在 `new Phaser.GameObjects.…`，构建 `--external phaser`），`apps/` 只依赖 `widgets`。`packages/phaser/src/uiscope.ts` 与 `packages/widgets` 的纯逻辑模块（`text-edit`/`text-truncate`/`scroll-plan`/`branch-plan`/`keyboard-plan`…）必须保持零 Phaser，因为它们要在 Node 里单测。
 2. **开发期包入口指向源码**（`types`/`import` → `src/index.ts`），所以改源码在 dev 里立刻生效；CJS 消费方需要先 `build`。**永远不要手改 `dist/`**。
 3. **`dist/`、`.tmp/`、`coverage/` 都是生成物**（已 gitignore）：截图、日志、临时脚本放 `.tmp/`。
 4. 提交前：`pnpm format` → 受影响包 `typecheck` + `test`；碰到控件外观/几何/交互的改动跑 `node scripts/visual-check.mjs`。
@@ -441,15 +455,15 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 事件名
 
-| 常量 / 事件                  | 值                  | 触发者                                                                   |
-| ---------------------------- | ------------------- | ------------------------------------------------------------------------ |
-| `WIDGET_EVENTS.ACTIVATE`     | `'widget:activate'` | 任何控件（载荷 `source`）；⚠️ 常量本身**未从包入口导出**，请直接写字面量 |
-| `WIDGET_EVENTS.STATE_CHANGE` | `'widget:state'`    | 任何控件（载荷 `WidgetState`）；同上                                     |
-| `BUTTON_EVENTS.CHANGE`       | `'change'`          | `Button` 开关模式（载荷 `boolean`）                                      |
-| `TEXT_INPUT_EVENTS.CHANGE`   | `'change'`          | `TextField`/`TextArea`（载荷 `string`）                                  |
-| `TEXT_INPUT_EVENTS.SUBMIT`   | `'submit'`          | `TextField`/`TextArea`（载荷 `string`）                                  |
-| `MODEL_CHANGE_EVENT`         | `'change'`          | `bindModel` 监听的用户编辑事件                                           |
-| `'scroll'` / `'content'`     | —                   | `ScrollView`                                                             |
+| 常量 / 事件                  | 值                  | 触发者                                                                           |
+| ---------------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| `WIDGET_EVENTS.ACTIVATE`     | `'widget:activate'` | 任何控件（载荷 `source`）；常量从 `@phaser-mvvm/phaser` 的包入口导出             |
+| `WIDGET_EVENTS.STATE_CHANGE` | `'widget:state'`    | 任何控件（载荷 `WidgetState`）；同上（只在状态**真的变了**时发）                 |
+| `BUTTON_EVENTS.CHANGE`       | `'change'`          | `Button` 开关模式（载荷 `boolean`）                                              |
+| `TEXT_INPUT_EVENTS.CHANGE`   | `'change'`          | `TextField`/`TextArea`（载荷 `string`；**程序化 `setValue` 也发**）              |
+| `TEXT_INPUT_EVENTS.SUBMIT`   | `'submit'`          | `TextField`/`TextArea`（载荷 `string`）                                          |
+| `MODEL_CHANGE_EVENT`         | `'change'`          | `bindModel` 监听的值变化事件（用户编辑与程序化写入都会发，绑定靠等值短路防回环） |
+| `'scroll'` / `'content'`     | —                   | `ScrollView`                                                                     |
 
 > ⚠️ 文本框**没有** `focus`/`blur` 事件（用构造选项 `onFocus`/`onBlur`）。
 
@@ -469,11 +483,11 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ### 工厂键
 
-| 来源                                  | 键                                                                                                                                 |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `installFactories()`（phaser）        | `this.add.vbox`、`hbox`、`uiGrid`、`uiStack`、`uiAbsolute`、`uiRect`                                                               |
-| `installWidgetFactories()`（widgets） | `this.add.uiLabel`、`uiPanel`、`uiButton`、`uiImage`、`uiSpacer`、`uiDivider`、`uiTextField`、`uiTextArea`、`uiRepeat`、`uiScroll` |
-| 便捷查询                              | `FACTORY_KEYS`、`WIDGET_FACTORY_KEYS`、`factoriesInstalled()`、`widgetFactoriesInstalled()`                                        |
+| 来源                                  | 键                                                                                                                                             |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `installFactories()`（phaser）        | `this.add.vbox`、`hbox`、`uiGrid`、`uiStack`、`uiAbsolute`、`uiRect`                                                                           |
+| `installWidgetFactories()`（widgets） | `this.add.uiLabel`、`uiPanel`、`uiButton`、`uiImage`、`uiSpacer`、`uiDivider`、`uiSlider`、`uiTextField`、`uiTextArea`、`uiRepeat`、`uiScroll` |
+| 便捷查询                              | `FACTORY_KEYS`、`WIDGET_FACTORY_KEYS`、`factoriesInstalled()`、`widgetFactoriesInstalled()`                                                    |
 
 ---
 

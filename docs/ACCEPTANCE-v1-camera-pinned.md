@@ -20,13 +20,13 @@
 
 ### 2.1 定位阶段：直接调 Phaser 的命中测试
 
-对同一个按钮调 `manager.hitTest(pointer, [button], camera)`：
+对同一个按钮调 `manager.hitTest(pointer, [button], camera)`（今天可以在页面里复现：`window.hud.hitTest(name, x, y)` 返回同一个 `hits.length`，配合 `hud.pinRoot(on)` / `hud.scroll(x, y)` 摆状态）：
 
-| 状态                        | `hitTest` 命中数 | `inputCandidate` | 命中区 |
-| --------------------------- | ---------------- | ---------------- | ------ |
-| 相机未滚动                  | **1**            | true             | 启用   |
-| 只钉根 + 相机滚动 (260,140) | **0**            | true             | 启用   |
-| **整棵树都钉 + 相机滚动**   | **1**            | true             | 启用   |
+| 状态                        | `hitTest` 命中数 |
+| --------------------------- | ---------------- |
+| 相机未滚动                  | **1**            |
+| 只钉根 + 相机滚动 (260,140) | **0**            |
+| **整棵树都钉 + 相机滚动**   | **1**            |
 
 即：命中测试本身能过，前提是**整棵树**都是 `scrollFactor 0`；但过了它之后还有我们那道二次校验。
 
@@ -64,6 +64,6 @@
 
 ## 4. 未做 / 后续
 
-1. **常驻演示场景**：目前验收靠运行时探针（临时代码），仓库里还没有「相机钉住的 HUD」场景；建议在 `apps/examples` 加一个（相机滚动 + 钉住 UI + 可点击控件 + `pt.*` 发布），并把点击/悬停写进 Playwright 验收。
-2. **`addWidget` 继承根 scrollFactor**：现在需要显式调用 `setScrollFactor` 之后新增的子树才会被钉住；做成自动继承更不易出错（ADR-0009 §后果已列）。
-3. **触摸**：本轮的点击都来自鼠标事件；触摸下钉住 UI 的命中未复测。
+1. ~~**常驻演示场景**：仓库里还没有「相机钉住的 HUD」场景~~ **已交付**：`#/hud`（`apps/examples/src/scenes/hud.ts`：2400×1600 滚动世界 + 钉住的 HUD 页 + `pt.*` 发布 + `window.hud` 探针），并且是 `scripts/visual-check.mjs` 的场景之一（像素 + `CANVAS_CLEAR_AT`）；矩阵见 [`ACCEPTANCE-hud.md`](./ACCEPTANCE-hud.md)。
+2. ~~**`addWidget` 继承根 scrollFactor**~~ **已实现**：`Widget.addWidget()` 在父节点已被钉住（`scrollFactor !== 1`）时对新子树调 `setScrollFactorAll(...)`，所以钉住之后新增的控件自动跟着钉住（`packages/phaser/src/Widget.ts`）。
+3. ~~**触摸**：本轮的点击都来自鼠标事件~~ **已补**：`#/hud` 的 `window.hud.pointers()` 分开读触摸指针与兼容鼠标事件，矩阵见 [`ACCEPTANCE-hud.md`](./ACCEPTANCE-hud.md)。真机触摸仍未跑。

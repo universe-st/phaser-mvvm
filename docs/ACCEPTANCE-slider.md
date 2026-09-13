@@ -114,7 +114,7 @@ Container 的 displayOrigin = size / 2
 
 - ~~键盘操作~~：第 42 轮已完成（见 §5）。
 - **刻度/`steps` 标记、双向区间（RangeSlider）、垂直方向**：未实现。
-- **`a11y` 镜像**（ADR-0004 规划的 DOM 无障碍层）：滑杆尚未接入。
+- ~~**`a11y` 镜像**（ADR-0004 规划的 DOM 无障碍层）：滑杆尚未接入。~~ **已接入**：`Slider` 的 `a11y` 描述是 `role: 'slider'` + `value`/`min`/`max`（`aria-valuenow`/`aria-valuemin`/`aria-valuemax`），`#/a11y` 里有「音量」滑杆，`visual-check` 的 `AX_EXPECTATIONS.a11y` 逐条断言它（见 §9.1 与 [`ACCEPTANCE-a11y.md`](./ACCEPTANCE-a11y.md)）。
 
 ---
 

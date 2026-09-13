@@ -22,7 +22,7 @@ Button('保存', {
 });
 ```
 
-拆包在构造函数里完成（`splitOptions` / `splitWidgetOptions`）。选项接口是闭合类型，直接在字面量里拼错键名会被 TypeScript 报出来；绕开类型检查时（先存变量、`as` 断言、动态拼键）**开发模式下框架会指名警告**：`unknown option "pading" on "panel" — it is ignored. Did you mean "padding"?`（第 83 轮的选项审计，见 [`ACCEPTANCE-options.md`](../ACCEPTANCE-options.md)；发布模式零输出）。以本章表格为准。
+拆包在构造函数里完成（`splitOptions` / `splitWidgetOptions`）。选项接口是闭合类型，直接在字面量里拼错键名会被 TypeScript 报出来；绕开类型检查时（先存变量、`as` 断言、动态拼键）**开发模式下框架会指名警告**：`unknown option "pading" on "kb.page" — it is ignored. Did you mean "padding"?`（`on "…"` 里的名字取你写的 `name` 选项，没写就不带这一段；第 83 轮的选项审计，见 [`ACCEPTANCE-options.md`](../ACCEPTANCE-options.md)；发布模式零输出）。以本章表格为准。
 
 `name` / `visible` / `focusOrder` 这三个**基类选项**每个控件都接受（它们直接落到 `Widget` 的字段上）；其余选项见各控件自己的表格。
 
@@ -96,7 +96,7 @@ button.on('widget:state', (state) => console.log('state →', state));
 | `List(opts, item)`        | `this.add.uiRepeat`    | `uiRepeat(scene, opts)` / `repeat(scene, opts)` | `Repeat`     |
 | `Scroll(opts?, content?)` | `this.add.uiScroll`    | `scrollView(scene, opts, children?)`            | `ScrollView` |
 
-容器同理：`Column`↔`vbox`、`Row`↔`hbox`、`Grid`↔`uiGrid`、`Stack`↔`uiStack`、`Absolute`↔`uiAbsolute`、`Rect`↔`uiRect`（后六个由 `@phaser-mvvm/phaser` 的 `installFactories()` 注册）。DSL 的名字与 Compose 对齐：`Column`/`Row` 比 `vbox`/`hbox` 更说明问题，`Surface` 是 `Panel` 的别名。
+容器同理：`Column`↔`vbox`、`Row`↔`hbox`、`Grid`↔`uiGrid`、`Stack`↔`uiStack`、`Absolute`↔`uiAbsolute`、`Rect`↔`uiRect`（后六个由 `@phaser-mvvm/phaser` 的 `installFactories()` 注册）。DSL 的名字与 Compose 对齐：`Column`/`Row` 比 `vbox`/`hbox` 更说明问题。
 
 ---
 

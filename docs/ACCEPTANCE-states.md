@@ -29,6 +29,8 @@
 | `image.plain` / `label.plain` / `spacer.plain` | Image / Label / Spacer                        | normal   | 纯展示控件始终 `normal`                        |
 | `row.button`                                   | 虚拟化 List 行内 Button（两层 ScrollView 内） | normal   | 裁剪/虚拟化后状态机仍正确                      |
 
+> 第 4 轮建页时是 14 个探针；此后又补了 6 个（当前共 **20** 个）：`button.setToggle` / `button.clearToggle`（程序化写值要上报，V70）、`cmd.label`（`bindCommand` 的 `canExecute` 禁用）、`slider.volume` / `slider.stepped` / `slider.disabled`（滑杆矩阵，见 [`ACCEPTANCE-slider.md`](./ACCEPTANCE-slider.md)）。下文表格里出现的 “14 个探针 / 14/14” 都是第 4 轮的读数。
+
 `reveal(name)` 会把探针上方每一层 `ScrollView` 滚到让它可见——**这是必需的**：折叠在视口外的探针，其 `pt.` 坐标落在画布之外，指针事件根本到不了控件（第一次扫描时 `row.button` 就是这样报 `normal` 的假阴性）。
 
 ---

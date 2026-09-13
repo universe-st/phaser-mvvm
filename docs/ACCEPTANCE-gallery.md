@@ -25,7 +25,7 @@
 | 7   | **键盘走查**（caption 承诺的行为） | Tab ×7 到达 `toggle`，`Space` → `true`、`Enter` → `false` ✓                                                                    |
 | 8   | Tab 顺序与环绕                     | `primary → secondary → ghost → danger → small → large → loading → toggle → primary …`，**跳过 disabled** ✓                     |
 
-第 7 条是这一页自己写下的承诺（"Tab / arrows to move focus · Enter or Space to activate · gamepad supported"）：键盘部分已实测；**手柄部分未验证**（Playwright 无法注入 Gamepad API 输入，见 §4）。
+第 7 条是这一页自己写下的承诺（"Tab / arrows to move focus · Enter or Space to activate · gamepad supported"）：键盘部分已实测；**手柄部分当时未验证**——第 64 轮起有了答案：`apps/examples/src/fake-pad.ts` 会把 `navigator.getGamepads` 换成一个可编程的假手柄（`main.ts` 装成 `window.fakePad`），整条手柄路径因此可以在浏览器里跑，见 [`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md)。
 
 ## 3. 未做的像素验证（诚实记录）
 
@@ -33,7 +33,7 @@
 
 ## 4. 剩余缺口
 
-- **手柄**：`MVVMPlugin` 每帧轮询 0 号手柄，但浏览器自动化里没有可注入的 Gamepad API；`nav.ts` 的手柄映射只有 Node 单测（`packages/phaser/test/nav.test.ts`）。
+- **手柄**：`MVVMPlugin` 每帧轮询 0 号手柄。~~浏览器自动化里没有可注入的 Gamepad API~~ **已解决（第 64 轮）**：`apps/examples/src/fake-pad.ts` 替换 `navigator.getGamepads`，浏览器里能驱动整条手柄路径（`nav.ts` 的映射另有 `packages/phaser/test/nav.test.ts` 的 Node 单测，本页的连发速率见 [`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md) §2.3）。真实手柄硬件仍未验。
 - 画廊没有覆盖 `Panel({ interactive: true })`（可激活卡片）与 `Image` 的 `fit: 'none'`：两者都已在别的页面/单测出现，但如果要保持"这一页=全部状态"，值得补。
 
 ## 5. 门禁

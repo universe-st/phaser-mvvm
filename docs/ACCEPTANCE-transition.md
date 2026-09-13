@@ -201,8 +201,8 @@ patch({ transition: false })          → { enter: 0, exit: 0 }
 
 ## 5. 未覆盖 / 有意不做
 
-- **页面栈的转场**（`pages.push/pop` 的滑动/淡入）与 `Branch()` 分支切换的转场：`TransitionRunner` 是通用件，但两者的目标都不止一层（整页替换、被覆盖页仍在树上），语义要单独设计，本轮不做，也不假装做了。
-- **主题里的动效时长令牌**：PLAN §4 的令牌清单里有「动效时长」，目前时长写在 `DEFAULT_ENTER`/`DEFAULT_EXIT` 与 `transition` 选项里；等 `#/theme` 令牌体系铺开时再挂过去（否则就是两个真相）。
+- ~~**页面栈的转场**（`pages.push/pop` 的滑动/淡入）~~ **已交付（第 78 轮）**：`page-motion.ts` 规划推进/返回，`pages.ts` 做交叉淡入淡出（被盖住的页仍在树上，靠 `Widget#routingEnabled = false` 挡住指针），`PageOptions.transition` 逐页覆盖，实测见 [`ACCEPTANCE-pages.md`](./ACCEPTANCE-pages.md) §5。仍然没做的是 **`Branch()` 分支切换的转场**与 **`UIScene.setContent()` 的整页替换动效**（后者的缺口记在 [`ACCEPTANCE-uiscene.md`](./ACCEPTANCE-uiscene.md) §5）。
+- ~~**主题里的动效时长令牌**~~ **已交付（第 80 轮）**：`theme.motion` 就是那对时长（`enter: 160` / `exit: 120`），`transition.ts` 从此处读默认值，见 [`ACCEPTANCE-theme.md`](./ACCEPTANCE-theme.md)（注意仓库里**没有** `#/theme` 这个场景；主题相关的验收页是 `#/config` 与 `#/compose` 的 Theme 分区）。
 - **真机（iOS Safari / Android Chrome）验证**：`prefers-reduced-motion` 用 CDP 仿真验证，系统级开关的真机行为未测；触摸路径用了 CDP 触摸域（等效于上一轮 `ACCEPTANCE-touch.md` 的做法）。
 - ~~**`delay` 与 `fromScale/toScale` 的浏览器实测**~~：第 91 轮补齐（§2 的 T16–T19），连 `duration: 0` 的终态语义一起量了，并在同一轮修掉 V61。
 - **画布被缩放（`?fit=`）下的动效**：动效只改 alpha/scale，与设计像素换算无关，未在 `FIT` 下单独跑一遍。

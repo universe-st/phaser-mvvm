@@ -4,7 +4,7 @@
 
 > 对应示例：[`#/gallery`](../../apps/examples/src/scenes/gallery.ts)（Tab/方向键焦点 + 开关按钮）、[`#/scroll`](../../apps/examples/src/scenes/scroll.ts)（键盘滚动 + 嵌套滚轮）。
 
-> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)）：焦点相关的选项（`focusOrder`、`focusable`、`disabled`）与工厂写法完全通用，`FocusManager`/`InputRouter` 则始终通过 `this.mvvm.focus` / `this.mvvm.input` 操作，与你怎么建控件无关。
+> **本章代码用 Compose 风格 DSL 书写**（[09 章](./09-compose-dsl.md)）：焦点相关的选项（`focusOrder`、`disabled`、以及 `Button`/`Slider`/`TextField` 等的可聚焦性）与工厂写法完全通用；`focusable` **不是选项键**（它是控件自己的字段，由控件类型决定：`Button`/`Slider`/`ScrollView`/`TextInputBase`/交互式 `Panel` 天生可聚焦），`FocusManager`/`InputRouter` 则始终通过 `this.mvvm.focus` / `this.mvvm.input` 操作，与你怎么建控件无关。
 
 ---
 
@@ -239,7 +239,7 @@ this.mvvm.focus.refresh(); // 树变了之后重新收集（插件已自动做�
 
 ### `trapFocus`：焦点陷阱
 
-模态对话框需要「焦点不逃逸」。`FocusManager` 提供了开关（`ModalStack` 属 **M8，尚未实现**，但你可以自己用）：
+模态对话框需要「焦点不逃逸」。`FocusManager` 提供了开关（**模态层已经交付**：`this.mvvm.modal.open()`／`ModalHost` 自己就用它，见 [§6](./07-input-focus-nav.md)；你也可以自己在别的层上用）：
 
 ```ts
 import { FocusManager } from '@phaser-mvvm/phaser';
@@ -612,13 +612,15 @@ Column({ label: '字段区域', gap: 8 }, () => {
 });
 
 // 对话框的名字就是内容根控件的 `label`（镜像给模态的 content 根 role="dialog" + aria-modal）
-this.mvvm.modal.open(() =>
+const dialog = this.mvvm.modal.open(() =>
   Panel({ label: '删除这一项？', width: 420 }, () => {
     Text('删除这一项？');
-    Button('删除', { onClick: () => this.mvvm.modal.remove() });
+    Button('删除', { onClick: () => dialog.close() });
   }),
 );
 ```
+
+`ModalHost` 没有 `remove()`：要么拿住 `open()` 返回的 `ModalHandle` 调 `close()`（如上），要么用 `closeTop()` / `closeAll()` 从宿主侧关闭。
 
 `ScrollView` 自己报 `role="region"`，所以它装的控件也在它里面；被盖住的内容（模态之外、栈里被盖住的那几页）一律 `aria-hidden`，**只有持有 DOM 焦点的控件及其祖先链例外**。
 

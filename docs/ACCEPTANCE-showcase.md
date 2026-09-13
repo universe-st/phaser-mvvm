@@ -178,7 +178,7 @@ holder.C       x=74   width=60  visible=true    ← 左移 142-74 = 68 = 60 + 8 
 
 ### 7.5 像素门禁（本页第一次进 `scripts/visual-check.mjs`）
 
-`SCENE_SETUP.showcase = 'window.showcase.showAndReport("sizing")'`，四个采样点（`PIXEL_EXPECTATIONS` / `LIGHT_EXPECTATIONS` 各一套）：
+`SCENE_SETUP.showcase = 'await window.showcase.showAndReport("sizing")'`（setup 包在一个 async IIFE 里、由脚本 `await`，因为 `showAndReport()` 要等两帧才读得到几何），四个采样点（`PIXEL_EXPECTATIONS` / `LIGHT_EXPECTATIONS` 各一套）：
 
 | 采样点                        | 位置               | 暗色      | 亮色      | 它保护什么                                                                                 |
 | ----------------------------- | ------------------ | --------- | --------- | ------------------------------------------------------------------------------------------ |

@@ -7,14 +7,14 @@
 
 ## 1. 交付物
 
-| 产物                                                      | 说明                                                                                                                                                                                   |
-| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/layout/src/params.ts` → `LAYOUT_PARAM_KEYS`     | `LayoutParams` 的运行时键表（`readonly (keyof LayoutParams)[]`，写错键名编译不过）。审计需要把"我不读的布局键"与"谁也读不到的键"分开，只能把名单写下来                                 |
-| `packages/phaser/src/option-keys.ts`（纯逻辑，零 Phaser） | `unknownOptionKeys(bag, known)`、`suggestOptionKey(key, known)`（大小写 / 包含 / 编辑距离 ≤2，并列时**不给建议**）、`reportUnknownOptions()`；导出三个函数与 `BASE_WIDGET_OPTION_KEYS` |
-| `packages/phaser/src/LayoutWidget.ts` → `splitOptions()`  | 唯一的选项漏斗：容器直接用，叶子控件经 `splitWidgetOptions()` 进来 —— 在这里做审计，**所有**控件与容器一次性覆盖，DSL 也一样（DSL 交的是同一个扁平对象）                               |
-| `packages/phaser/test/option-keys.test.ts`                | 12 个 Node 单测：已知键不误报、拼错必报、`undefined` 跳过、排序去重、布局键表自洽（无重复）、大小写/换位/少字母的建议、并列时沉默、短键阈值更严                                        |
-| `#/compose` 的 `window.compose.typo(key, value, kind)`    | 验收仪器：在一个隔离作用域里造一个带错键的 `Panel`/`TextField`/`Button`，返回捕获到的警告。既证明整条链路（DSL → 扁平包 → `splitOptions` → `warn()`），也是"门禁不是死的"阳性对照      |
-| `scripts/visual-check.mjs`                                | 常驻门禁两条：① 每个场景（`Runtime.consoleAPICalled`）出现任何 `unknown option` 警告即失败；② `#/compose` 必须**真的**报出 `pading` → `padding`（阳性对照），否则失败                  |
+| 产物                                                      | 说明                                                                                                                                                                                                     |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/layout/src/params.ts` → `LAYOUT_PARAM_KEYS`     | `LayoutParams` 的运行时键表（`readonly (keyof LayoutParams)[]`，写错键名编译不过）。审计需要把"我不读的布局键"与"谁也读不到的键"分开，只能把名单写下来                                                   |
+| `packages/phaser/src/option-keys.ts`（纯逻辑，零 Phaser） | `unknownOptionKeys(bag, known)`、`suggestOptionKey(key, known)`（大小写 / 包含 / 编辑距离 ≤2，并列时**不给建议**）、`reportUnknownOptions()`；导出三个函数与 `BASE_WIDGET_OPTION_KEYS`                   |
+| `packages/phaser/src/LayoutWidget.ts` → `splitOptions()`  | 唯一的选项漏斗：容器直接用，叶子控件经 `splitWidgetOptions()` 进来 —— 在这里做审计，**所有**控件与容器一次性覆盖，DSL 也一样（DSL 交的是同一个扁平对象）                                                 |
+| `packages/phaser/test/option-keys.test.ts`                | 13 个 Node 单测：已知键不误报、拼错必报、`undefined` 跳过、排序去重、布局键表自洽（无重复）、大小写/换位/少字母的建议、并列时沉默、短键阈值更严（第 107 轮又加了一条：任意控件都接受两个指针事件链钩子） |
+| `#/compose` 的 `window.compose.typo(key, value, kind)`    | 验收仪器：在一个隔离作用域里造一个带错键的 `Panel`/`TextField`/`Button`，返回捕获到的警告。既证明整条链路（DSL → 扁平包 → `splitOptions` → `warn()`），也是"门禁不是死的"阳性对照                        |
+| `scripts/visual-check.mjs`                                | 常驻门禁两条：① 每个场景（`Runtime.consoleAPICalled`）出现任何 `unknown option` 警告即失败；② `#/compose` 必须**真的**报出 `pading` → `padding`（阳性对照），否则失败                                    |
 
 ## 2. 开发模式：指名 + 建议（实测输出）
 
@@ -36,12 +36,12 @@
 
 阳性对照只证明"能报"，**零误报**才证明键表是完整的 —— 少写一个合法键，用它的人就会看到假警告。验收方式是走遍整个示例应用：
 
-| 走查                                                                    | 结果                             |
-| ----------------------------------------------------------------------- | -------------------------------- |
-| 21 个场景逐个加载（`m0`…`keyboard`）                                    | `unknown option` 警告 **0** 条   |
-| `#/showcase` 的 `showAll()`（每个控件、每组布局参数，175 个被跟踪控件） | **0** 条                         |
-| `#/compose` 的全部 DSL 分区逐个切换                                     | **0** 条                         |
-| `node scripts/visual-check.mjs`（8 个场景，含像素与 AX 断言）           | 全绿，且新门禁没有报出任何未知键 |
+| 走查                                                                                                   | 结果                             |
+| ------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| 全部场景逐个加载（当时注册表里是 21 个：`m0`…`keyboard`；**现在是 23 个**，多了 `router` 与 `events`） | `unknown option` 警告 **0** 条   |
+| `#/showcase` 的 `showAll()`（每个控件、每组布局参数，175 个被跟踪控件）                                | **0** 条                         |
+| `#/compose` 的全部 DSL 分区逐个切换                                                                    | **0** 条                         |
+| `node scripts/visual-check.mjs`（8 个场景，含像素与 AX 断言）                                          | 全绿，且新门禁没有报出任何未知键 |
 
 > 这条走查同时是 `LAYOUT_PARAM_KEYS` 的完整性门禁：漏写一个布局键（比如 `gridColumnSpan`），用到它的示例页立刻会报假警告，走查当场变红。
 
@@ -58,14 +58,14 @@ $ node scripts/visual-check.mjs
 
 ## 5. 命令与结果
 
-| 命令                                               | 结果                                                                                                |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `pnpm -r run typecheck`                            | 5/5 包通过（`LAYOUT_PARAM_KEYS` 是 `keyof LayoutParams`，写错即编译失败）                           |
-| `pnpm -r run test`                                 | **1273** 用例（layout 313 / core 281 / phaser 320 / widgets 359），新增 `option-keys.test.ts` 12 条 |
-| `pnpm exec prettier --check .` / `pnpm docs:check` | 通过                                                                                                |
-| `pnpm run build:examples` / `pnpm size`            | 通过；体积仍在预算内                                                                                |
-| `node scripts/visual-check.mjs`                    | ok（像素明暗两套 + AX 树 + 新增的选项审计两条）                                                     |
-| 21 场景走查 + `showAll()` + 全 DSL 分区            | 零未知键警告                                                                                        |
+| 命令                                               | 结果                                                                                                                                |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -r run typecheck`                            | 5/5 包通过（`LAYOUT_PARAM_KEYS` 是 `keyof LayoutParams`，写错即编译失败）                                                           |
+| `pnpm -r run test`                                 | **1273** 用例（本轮读数：layout 313 / core 281 / phaser 320 / widgets 359），新增 `option-keys.test.ts` 12 条（该文件现在是 13 条） |
+| `pnpm exec prettier --check .` / `pnpm docs:check` | 通过                                                                                                                                |
+| `pnpm run build:examples` / `pnpm size`            | 通过；体积仍在预算内                                                                                                                |
+| `node scripts/visual-check.mjs`                    | ok（像素明暗两套 + AX 树 + 新增的选项审计两条）                                                                                     |
+| 21 场景走查 + `showAll()` + 全 DSL 分区            | 零未知键警告                                                                                                                        |
 
 ## 6. 未验证与已知边界（诚实清单）
 
@@ -210,7 +210,7 @@ $ node scripts/visual-check.mjs
 ### 8.5 观测到的、**不是**本轮缺陷的两件事
 
 - **键盘要"口自己"持有焦点才会滚动**：`ScrollView.onAction` 的第一句是 `if (!this.focused) return false`，所以焦点在口**内部的按钮**上时，方向键既不让口滚动、也不会沿着内容走（口内的内容不是可聚焦链）。这是既有设计（V28/V35 的形状：口的动作是"认领方向"，走查靠焦点移动 + reveal），`#/scroll` 的验收也是这么写的；本轮只是把它记下来，没有改。
-- **CDP / Playwright 的滚轮增量在本机会翻倍**：`Input.dispatchMouseEvent{deltaY:100}` 到页面里变成 `deltaY: 200`（实测，`dpr = 1`），合成 `WheelEvent` 则原样送达。所以**量滚轮距离要用合成事件**，或者只比较两侧比值 —— 第 87 轮的 `wheelSpeed` A/B 正是比值，才没有踩到。已记入 [`PITFALLS.md`](./PITFALLS.md) §8.49。
+- **CDP / Playwright 的滚轮增量在本机会翻倍**：`Input.dispatchMouseEvent{deltaY:100}` 到页面里变成 `deltaY: 200`（实测，`dpr = 1`），合成 `WheelEvent` 则原样送达。所以**量滚轮距离要用合成事件**，或者只比较两侧比值 —— 第 87 轮的 `wheelSpeed` A/B 正是比值，才没有踩到。已记入 [`PITFALLS.md`](./PITFALLS.md) §8.50（**不是** §8.49，那一条讲的是双轴口的"轴"由键决定）。
 
 ---
 

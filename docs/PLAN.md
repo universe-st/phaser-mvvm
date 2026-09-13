@@ -40,11 +40,11 @@
 | 所有 GameObject 都混入了 `Filters` | `src/gameobjects/GameObject.js:49` 混入 `Components.Filters`；`components/FilterList.js#addMask` | **WebGL 下裁剪必须用 Mask filter**（`enableFilters().filters.internal.addMask(...)`），这是 `ScrollView` 裁剪的官方路径 |
 | `GeometryMask` 在 v4 仅 Canvas 可用 | `src/display/mask/GeometryMask.js` 文档 + `MIGRATION-GUIDE.md` 第 3 节 | 不能用 v3 的 `setMask(graphics)` 思路做滚动裁剪，必须走 filter mask 或相机视口方案 |
 | Canvas 渲染器已弃用 | `changelog/v4/4.0/MIGRATION-GUIDE.md` 第 2 节 | 框架只保证 WebGL 路径正确；Canvas 仅做降级不崩溃 |
-| 场景插件可用配置注入 | `src/core/Config.js:604-640`：`plugins.scene = [{ key, plugin, systemKey, sceneKey }]` | 框架以 `sceneKey: 'mvvm'` 暴露 `this.mvvm`，生命周期挂 `SHUTDOWN/DESTROY` |
-| 工厂可注册自定义 Game Object | `src/gameobjects/GameObjectFactory.js:197` `register(factoryType, fn)`（参考 `ContainerFactory.js:31`） | 支持 `this.add.vbox/hbox/grid/label/textField/...` 与 `GameObjectCreator` 配置式创建 |
+| 场景插件可用配置注入 | `src/core/Config.js:604-640`：`plugins.scene = [{ key, plugin, systemKey, sceneKey }]` | 框架用 `{ key: 'MVVMPlugin', plugin: MVVMPlugin, mapping: 'mvvm' }` 注册，于是 `this.mvvm` 可用（**插件配置对象仍由 Phaser 丢弃**：第 66 轮起改用 `MVVMPlugin.configure()` 设游戏级默认值），生命周期挂 `SHUTDOWN/DESTROY` |
+| 工厂可注册自定义 Game Object | `src/gameobjects/GameObjectFactory.js:197` `register(factoryType, fn)`（参考 `ContainerFactory.js:31`） | 已实现：`this.add.vbox/hbox/uiGrid/uiStack/uiAbsolute/uiRect`（`packages/phaser`）+ `uiLabel/uiPanel/uiButton/uiImage/uiSpacer/uiDivider/uiSlider/uiTextField/uiTextArea/uiRepeat/uiScroll`（`packages/widgets`）。**没有** `GameObjectCreator` 版本（配置式创建未实现） |
 | 输入默认 `topOnly = true` | `src/input/InputPlugin.js:185`、`setTopOnly()` | UI 遮挡关系天然生效，但需要框架显式管理「输入拦截层」防止点击穿透到游戏 |
 | 文本度量存在公开工具 | `src/gameobjects/text/MeasureText.js`、`TextStyle#metrics` | 适配层可封装测量器并做 LRU 缓存 |
-| `NineSlice` 可拉伸描边贴图 | `src/gameobjects/nineslice/NineSlice.js` | `Panel`/`Button` 皮肤走九宫格；无贴图时用 `Graphics` 画圆角矩形兜底 |
+| `NineSlice` 可拉伸描边贴图 | `src/gameobjects/nineslice/NineSlice.js` | 九宫格皮肤是**可选增强、尚未使用**：当前所有皮肤都由 `Graphics` 程序化绘制（`packages/widgets/src/appearance.ts`、`packages/phaser/src/skin.ts`），仓库里没有任何 `NineSlice` 调用 |
 | 本地 dist 体积大 | `dist/phaser.esm.js` ≈ 8.5 MB | 依赖走 npm `phaser@4.2.1`（见 §10 决策 2）；本地源码**只作为只读参考**用于核对 API 与 v4 变更，不链接进构建 |
 
 ---
@@ -55,17 +55,19 @@
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ apps/examples (Vite)          apps/form-demo                 │  示例与验收场
+│ apps/examples (Vite)                                         │  示例与验收场
 ├──────────────────────────────────────────────────────────────┤
 │ @phaser-mvvm/template         JSON/模板 → builder 编译（P2）  │  可选层
 ├──────────────────────────────────────────────────────────────┤
-│ @phaser-mvvm/widgets          Panel/Label/TextField/Button/  │  控件库
-│                               TextArea/Image/Spacer/Divider/  │
-│                               ScrollView/Repeat/Modal(P2)     │
+│ @phaser-mvvm/widgets          Label/Panel/Button/Image/      │  控件库
+│                               Slider/Spacer/Divider/TextField/│  （与 phaser 一样
+│                               TextArea/ScrollView/Repeat/     │   直接 import
+│                               VirtualKeyboard/Branch + DSL    │   phaser）
 ├──────────────────────────────────────────────────────────────┤
 │ @phaser-mvvm/phaser           Widget 基类(Container 适配)、   │  Phaser 适配层
-│                               UIRoot、测量器、输入/焦点路由、 │  （唯一允许
-│                               ScenePlugin、工厂注册、主题绑定 │    依赖 Phaser）
+│                               UIRoot、测量器、输入/焦点/导航、│  （与 widgets 都直接
+│                               ScenePlugin、工厂注册、主题、   │   依赖 Phaser）
+│                               模态/页面栈/Router/UIScene      │
 ├──────────────────────────────────────────────────────────────┤
 │ @phaser-mvvm/layout           纯布局引擎：约束、测量、排布、   │  零 Phaser 依赖
 │                               脏标记、缓存、像素对齐          │  → 可单测
@@ -76,9 +78,9 @@
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**依赖方向：** `core` 与 `layout` **互不依赖**（两者都没有任何运行时依赖，可独立使用与单测）；`phaser` 依赖 `core` + `layout`；`widgets` 依赖前三者。分层图自上而下是「谁依赖谁」，不是「数据流向」。
+**依赖方向：** `core` 与 `layout` **互不依赖**（两者都没有任何运行时依赖，可独立使用与单测）；`phaser` 依赖 `core` + `layout`；`widgets` 依赖前三者。分层图自上而下是「谁依赖谁」，不是「数据流向」。**Phaser 只允许出现在 `phaser` 与 `widgets` 两个包**：`core`/`layout` 连类型都不引 Phaser；`widgets` 的每个控件都在 `new Phaser.GameObjects.…`，所以它把 `phaser` 当 peer dependency 直接 import（构建 `--external phaser`）。`widgets` 里另有若干**纯逻辑模块**（`text-edit`/`text-truncate`/`scroll-plan`/`repeat-plan`/`branch-plan`/`keyboard-plan`/`slider-geometry`/`zoom-plan`/`fit`/`color`）必须零 Phaser，因为它们要在 Node 里单测。
 
-**关键架构决策：布局引擎不依赖 Phaser。** 测量通过 `TextMeasurer` 接口注入（Phaser 适配层用真实 `Text` 度量，测试用等宽假测量器）。这样布局算法 100% 可单元测试、可在 Node 中跑回归快照，也让未来支持其他渲染后端成为可能。
+**关键架构决策：布局引擎不依赖 Phaser。** 测量通过节点自己的 `LayoutNode.measureContent(constraint)` 注入（适配层与控件层各自实现：`packages/phaser/src/measurer.ts` 的 `TextMeasurer`，以及控件层按场景复用的 `packages/widgets/src/text-metrics.ts`；测试用等宽假测量器）。这样布局算法 100% 可单元测试、可在 Node 中跑回归快照，也让未来支持其他渲染后端成为可能。
 
 ### 3.2 包结构
 
@@ -87,21 +89,28 @@ phaser-mvvm/
 ├─ pnpm-workspace.yaml
 ├─ tsconfig.base.json                  # strict: true, noUncheckedIndexedAccess
 ├─ packages/
-│  ├─ core/          src/{reactivity,collections,binding,expression,scheduler,util}
-│  ├─ layout/        src/{constraint,params,measure,arrange,arrangers,nodepool,snap}
-│  ├─ phaser/        src/{Widget,UIRoot,measurer,input,focus,nav,a11y,plugin,factory,theme,pool}
-│  │                 src/scene/{UIScene,Page,PageStack,ModalStack,Router}   # M8
-│  ├─ widgets/       src/{panel,label,textfield,textarea,button,image,spacer,divider,scrollview,repeat,modal}
-│  └─ template/      src/{parser,compiler,renderer}            # Phase 2
+│  ├─ core/          src/{reactivity,binding,utils}/ + index.ts
+│  │                 （表达式编译在 binding/expression.ts、调度器在 reactivity/scheduler.ts）
+│  ├─ layout/        src/{engine,constraint,params,box,grid,stack,scroll,geom,types,internal}.ts
+│  ├─ phaser/        src/{Widget,LayoutWidget,UIRoot,UIScene,measurer,input,focus,nav,a11y,
+│  │                        theme,skin,plugin,plugin-config,factory,binding,uiscope,ui-build,
+│  │                        container-options,option-keys,widget-state,require-plugin,
+│  │                        pages,modal,router,back-plan,page-motion,transition,reveal,
+│  │                        pointer-chain,pointer-claim}.ts
+│  │                 （对象池在 layout 引擎里，适配层没有 pool 模块）
+│  ├─ widgets/       src/{Label,Panel,Button,Image,Slider,Spacer,Divider,TextField,TextArea,TextInputBase,ScrollView,Repeat,VirtualKeyboard,Branch}.ts + {compose,factories,options,appearance,…}.ts
+│  │                 （**模态不在本包**：模态层是 phaser 的 `modal.ts`/`ModalHost`）
+│  └─ template/      src/{parser,compiler,renderer}            # Phase 2（尚未创建）
 ├─ apps/
-│  ├─ examples/      # 控件画廊（每个控件一页）+ 性能基准页
-│  └─ form-demo/     # 完整 MVVM 表单：校验、列表、对话框、主题切换
-└─ docs/             # PLAN.md、ADR/、api/、widget-spec/
+│  ├─ examples/      # 23 个场景（控件画廊 + 各验收页）+ `#status`/`#demo-state` 读数
+│  └─ form-demo/     # 完整 MVVM 表单：规划中，尚未创建（现有表单示例在 `#/form`）
+└─ docs/             # PLAN.md、adr/（10 篇）、guide/、ACCEPTANCE-*.md、PITFALLS.md、DEFECT-BACKLOG.md、HANDOVER.md
+                     # api/（TypeDoc）、widget-spec/ 均未创建
 ```
 
-构建：`tsup`（ESM + CJS + `.d.ts`）；测试：`vitest`（core/layout 纯 Node）+ 无头 Chrome 截图/几何断言（`scripts/visual-check.mjs`，Playwright 于 M4 起接入）；文档：`typedoc`；版本：`changesets`。
+构建：`tsup`（ESM + CJS + `.d.ts`，`phaser` 一律 `--external`）；测试：`vitest`（四个包都在纯 Node 下跑，`phaser`/`widgets` 带 `--passWithNoTests`）+ 无头 Chrome 的几何/像素/无障碍树断言（`scripts/visual-check.mjs`，**零依赖 CDP 脚本，不引入 Playwright 或任何浏览器测试框架**）；文档门禁：`pnpm docs:check`（`check-doc-snippets.mjs` + `check-doc-options.mjs`）；体积门禁：`pnpm size`（`scripts/size-check.mjs`，本地跑，未接进 CI）。`typedoc` 与 `changesets` **尚未接入**。
 
-**CI 实际门禁（M0 起）**：`prettier --check .` + `pnpm -r typecheck` + `pnpm -r test` + `pnpm -r build` + `pnpm build:examples`。**ESLint 与体积门禁（size-limit）推迟到 M4**（M0–M2 由 `tsc --strict` + Prettier 覆盖，避免在没有可复用代码前引入配置负担），**覆盖率门禁（core ≥90%）在 M4 随 `@vitest/coverage-v8` 接入**。
+**CI 实际门禁（M0 起）**：`prettier --check .` + `pnpm -r typecheck` + `pnpm -r test` + `pnpm -r build` + `pnpm build:examples`。**ESLint 与覆盖率门禁至今没有接入**（`@vitest/coverage-v8` 未安装、没有 vitest 配置文件、ci.yml 里也没有对应步骤）；体积门禁由 `pnpm size` 承担且只在本地跑。guide 的 [`08-lifecycle-and-pitfalls.md` §5](./guide/08-lifecycle-and-pitfalls.md) 维护了一份「PLAN 草案 vs 已实现代码」的差异清单。
 
 ---
 
@@ -109,10 +118,10 @@ phaser-mvvm/
 
 ### 4.1 响应式内核（`@phaser-mvvm/core`）
 
-- **API**：`ref(v)`、`reactive(obj)`（深度 Proxy）、`computed(fn)`（惰性 + 缓存 + 自动依赖收集）、`watch(source, cb, { immediate, deep, flush })`、`effect(fn)`、`effectScope()`、`ObservableArray/Map/Set`、`makeObservable(instance)`（把类字段转为访问器，供 ViewModel 使用）。
+- **API**：`ref(v)`、`shallowRef(v)`、`reactive(obj)`（深度 Proxy，**集合也走它**：`reactive(new Map())`/`reactive(new Set())`，没有单独的 `ObservableArray/Map/Set` 类）、`computed(fn)`（惰性 + 缓存 + 自动依赖收集）、`watch(source, cb, { immediate, deep, flush })`、`effect(fn)`、`effectScope()`、`makeObservable(instance)`（把类字段转为访问器，供 ViewModel 使用）。
 - **依赖算法**：`activeEffect` 栈 + 每 effect 的 `deps: Set<Dep>`，每次执行前清理失效依赖（避免条件分支残留订阅导致的「幽灵更新」）。
-- **调度器**：三类刷新时机 —— `sync`（立即，仅内部）、`pre`（微任务批量，ViewModel 变更后用）、`frame`（**默认给 UI 用**，在 Phaser 帧循环的固定点统一 flush，保证一帧内多次改数据只布局一次）。
-- **ViewModel 约定**：普通类 + `makeObservable`，可选 `onMount/onUnmount`、`dispose()`；框架不强制继承任何基类。
+- **调度器**：**四类**刷新时机 —— `sync`（立即，仅内部）、`pre`（微任务批量，ViewModel 变更后用）、`post`（在 `pre` 之后、与 Phaser 的 `POST_UPDATE` 对齐，`watchPostEffect()` 用它）、`frame`（**默认给 UI 用**，在 Phaser 帧循环的固定点统一 flush，保证一帧内多次改数据只布局一次）。绑定层的 `flush` 同样是这四档（`packages/phaser/src/binding.ts` 的 `BindingFlush`，默认 `frame`）。
+- **ViewModel 约定**：普通类 + `makeObservable`；框架不强制继承任何基类。**没有** `onMount`/`onUnmount` 这类 ViewModel 生命周期钩子（`mount()` 收的是控件，不是 ViewModel）。
 - **防环**：绑定写回时值相等短路；`trigger` 深度上限 + 开发模式警告（渲染/布局期间写状态）。
 - **生命周期安全**：所有 effect 归入 `EffectScope`，控件销毁时 `scope.stop()`，从根上杜绝订阅泄漏。
 
@@ -121,52 +130,54 @@ phaser-mvvm/
 **模型**：两阶段 `measure → arrange`（Flutter/WPF 思路），单向下行传约束、上行回尺寸。
 
 ```
-LayoutConstraint { minW, maxW, minH, maxH, mode: 'unbounded'|'atMost'|'exactly' }
+BoxConstraints { minWidth, maxWidth, minHeight, maxHeight }   // 由 tight()/loose()/atMost()/unbounded() 构造
 LayoutParams {
-  width, height,            // number | 'auto' | '50%' | 'fill' | { min?, max? }
-  grow, shrink, basis,      // 主轴伸缩（flex 语义，可选实现）
-  margin { t, r, b, l }, padding { t, r, b, l },
+  width, height,            // number | 'auto' | '50%' | 'fill' | { value, min?, max? }
+  minWidth, maxWidth, minHeight, maxHeight,
+  grow, shrink, basis,      // 主轴伸缩（flex 语义）
+  margin, padding,          // number | [t,r] | [t,r,b,l] | { top, right, bottom, left }
   alignSelf: 'auto'|'start'|'center'|'end'|'stretch',
-  aspectRatio, position: 'flow'|'absolute', ignoreLayout,
+  aspectRatio, position: 'flow'|'absolute', hideMode: 'collapse'|'keep',
+  left, top, right, bottom,
   gridColumn, gridRow, gridColumnSpan, gridRowSpan,
   order
 }
 ```
 
-- **测量**：叶节点（`Label`/`Image`）用注入的 `Measurer` 求内容尺寸；容器按自身策略（box/grid）组合子尺寸；百分比基于父内容盒解析，`fill`/`grow` 在排布阶段分配剩余空间。
-- **排布策略（Arranger）**：
-  - `BoxArranger`：`direction: 'vertical' | 'horizontal'`；`justifyContent: start|center|end|space-between|space-around|space-evenly`；`alignItems: start|center|end|stretch`；`gap/rowGap/columnGap`；`wrap: boolean` + `lineAlign`（流式换行）。
-  - `GridArranger`：`columns: number | 'auto'`、`rows`、`columnGap/rowGap`、`cellAlign/cellVAlign`、跨列/跨行、`autoFlow: row|column`；auto 列数由 `minColumnWidth` 推导。
-  - `StackArranger`：子节点层叠（z 由 depth 决定），用于对话框/遮罩/角标。
-  - `AbsoluteArranger`：`position: 'absolute'` 子节点按 `x/y/right/bottom/anchor` 定位，脱离文档流。
-  - `FitArranger`：等比缩放适配（把设计尺寸的子树塞进目标框）。
+- **测量**：叶节点（`Label`/`Image`）用注入的测量能力求内容尺寸（节点自己的 `measureContent(constraint)`，文本则走 `packages/phaser/src/measurer.ts` 的 `TextMeasurer` 或控件层的 `text-metrics.ts`）；容器按自身策略（box/grid/stack/**scroll**/absolute）组合子尺寸；百分比基于父内容盒解析，`fill`/`grow` 在排布阶段分配剩余空间。
+- **排布策略**（纯函数 `measureBox`/`arrangeBox`、`measureGrid`/`arrangeGrid`、`measureStack`/`arrangeStack`、`measureAbsolute`/`arrangeAbsolute`、`measureScroll`/`arrangeScroll`，没有 `*Arranger` 类）：
+  - box：`direction: 'vertical' | 'horizontal'`；`justifyContent: start|center|end|space-between|space-around|space-evenly`；`alignItems: start|center|end|stretch`；`gap/rowGap/columnGap`；`wrap: boolean` + `alignContent`（流式换行时行与行之间的分布）。
+  - grid：`columns: number | 'auto'`、`rows`、`columnGap/rowGap`、`justifyItems`（横向）/`alignItems`（纵向）、跨列/跨行、`autoFlow: row|column`；auto 列数由 `minColumnWidth` 推导，`minRowHeight` 只在 `rows` 固定时参与。
+  - stack：子节点层叠（**z 序由容器子节点顺序决定**，`StackLayoutOptions` 只有一个 `align`；`depth` 只用来把 UI 根/图层抬到游戏之上）。
+  - absolute：`position: 'absolute'` 的子节点按 `left/top/right/bottom` 定位，脱离文档流（没有 `x`/`y`/`anchor` 键）。
+  - `FitArranger`（把设计尺寸的子树等比缩进目标框）**未实现**；今天只有 `Image` 的 `fit` 选项（`packages/widgets/src/fit.ts`）。
 - **缓存的正确性**：测量结果以 **(约束, 百分比基准, 内容修订号)** 为键缓存。内容（文本、子节点、样式、主题）变化时递增修订号；约束或基准变化自动失效（基准即 `layout(root, constraint, percentBase)` 的 `percentBase` 与容器 `contentSize`，百分比/`fill` 依赖它，缺了它就会读到别的包含块下的旧答案）。排布**增量重算**：干净且矩形未变的子树会被跳过（`stats.skippedSubtrees`），被标脏或位于 `dirtyPath` 上的子树一定重排。
 - **脏标记的消费时机**：每趟 pass 开始时消费上一轮累积的脏标记；pass 运行期间（`measureContent`/`applyRect`/同步 watcher 中）新产生的 `invalidate()` 保留到下一趟，不会被本趟清掉。
-- **脏传播与重布局边界**：`markNeedsLayout()` 向上冒泡时，遇到「尺寸不受父约束影响的节点」（固定尺寸 / 内容自适应且约束未变）即停止 —— 形成 relayout boundary（Flutter 同款思路），这是万级节点也能保持 O(变化量) 的关键。
-- **像素对齐**：内部保留亚像素位置；在 `arrange` 末尾对**文本与细线**做 DPR 感知的取整（可配置 `snapTextToPixel`、`roundPixels`），兼顾清晰度与整体齐整。
-- **零分配目标**：`Rect/Constraint` 用对象池；排布路径不产生临时闭包/数组。
+- **脏传播与重布局边界**：`Widget.markDirty()` 递增修订号并交给 `LayoutEngine.invalidate()` 向上冒泡，遇到「尺寸不受父约束影响的节点」（固定尺寸 / 内容自适应且约束未变）即停止 —— 形成 relayout boundary（Flutter 同款思路，判据是 `isRelayoutBoundary`），这是万级节点也能保持 O(变化量) 的关键。
+- **像素对齐**：内部保留亚像素位置；在 `arrange` 末尾对**整个矩形**做 DPR 感知的取整（`LayoutEngineOptions.snapMode: 'none'|'round'|'floor'|'ceil'` 默认 `'round'` + `dpr`；`UIRoot` 把同样的选项暴露给页面）。
+- **零分配目标**：复用 `EngineContext` 池与每节点的子记录，排布路径不产生临时闭包/数组（`Rect`/`Size`/`BoxConstraints` 是普通对象，**没有对象池**；`perf.test.ts` 断言的是池长度稳定）。
 
 ### 4.3 Phaser 4 适配层（`@phaser-mvvm/phaser`）
 
 - **`Widget` 基类**：`extends Phaser.GameObjects.Container`，同时实现布局节点接口。
-  - 拥有 `layoutParams`、`measuredSize`、`onMeasureContent(constraint)`、`onArrange(rect)`（子类在此把矩形落到实际 GameObject 上，如 `Text.setWordWrapWidth`、`NineSlice.setSize`、遮罩矩形）。
-  - 拥有 `scope: EffectScope`，`destroy()` 时 `scope.stop()` + 注销输入 + 归还对象池 + 断开主题订阅。
-  - 统一状态机：`normal | hover | pressed | disabled | focused | error`，`skin` 决定每状态的视觉（九宫格 / Graphics）。
-- **`UIRoot`**：每个 UI 页面一个根容器（设计分辨率 + 安全区），监听 `scale.on('resize')` 重新计算约束并触发一次布局；处理 DPR、`scrollFactor(0)`、depth 分层、可选的独立 UI 相机。
+  - 拥有 `layoutParams`、`measureContent(constraint): Size`、`applyRect(rect): void`（子类在此把矩形落到实际 GameObject 上，如 `Text.setWordWrapWidth`、遮罩矩形），以及只读的 `appliedRect`；**没有** `on…` 前缀的同名方法，也没有 `measuredSize`。
+  - 拥有 `scope: EffectScope`，`destroy()` 时 `scope.stop()` + 注销输入 + 归还复用的记录 + 断开主题订阅。
+  - 统一状态机：`normal | hover | pressed | disabled | focused | error`，外观由主题令牌 + 控件选项（`variant`/`tone`/`size`）决定，笔画由 `Graphics` 程序化绘制（九宫格皮肤未实现）。
+- **`UIRoot`**：每个 UI 页面一个根容器（设计分辨率 + 安全区），监听 `scale.on('resize')` 重新计算约束并触发一次布局；选项是 `align`/`depth`/`dpr`/`snapMode`/`container`/`safeArea` —— **它不设置 `scrollFactor`**（钉住 UI 由调用方 `page.setScrollFactor(0)` 决定，见 [ADR-0009](./adr/0009-camera-pinned-ui-and-input.md)），也没有「独立 UI 相机」选项。
 - **测量器 `PhaserTextMeasurer`**：包装 `Text` 度量 + LRU 缓存（键：文本 + 字体 + 字号 + 字距 + 换行宽度 + 行距），命中率高时可显著降低 `measureText` 调用。
 - **输入与焦点**：
   - `InputRouter`：统一把 pointer/keyboard 事件分发给控件；面板级「拦截层」（透明矩形，命中即吞掉事件）阻止点击穿透到游戏世界；支持 `topOnly` + 捕获阶段拦截。
   - **指针事件链（第 107 轮，见 [ADR-0010](./adr/0010-pointer-event-chain.md)）**：命中测试之上补一条 Android 风格的有序链（`pointer-chain.ts`，纯逻辑、Node 单测）。`down` 自根向下逐个询问 `onPointerIntercept`（第一个 `true` 拿走事件、更深节点完全收不到），最深节点用 `onPointerEvent` 决定**消费**（`true`）还是**向上冒泡**；消费即拥有整次手势，之后的 `move`/`up` 只沿**保留的路径**投递、**从不重新命中测试**（指针离开控件/嵌套口/画布照样送达，`event.inside` 说明还在不在里面）；手势进行中祖先仍可拦截，被夺走的一方收到带原因的 `cancel`；子控件用 `requestDisallowInterceptPointer()`（复用 `pointer-claim.ts` 的认领表）禁止祖先拦截。两个钩子同时是基类选项。**与既有点击机器是相加关系**：无人消费时按下/悬停/激活/阈值判定原样执行；消费则抑制 `activate()`；被拦截的按下连「按下」都不算（不留状态、不抢焦点、抬手不点击）。每次分发产出 `PointerChainTrace`（`InputRouter#lastChain`/`#chains()`/`onPointerChain`），常驻验收场 `#/events`。
   - `FocusManager`：Tab/Shift+Tab 焦点链、方向键导航、焦点环（filter glow 或九宫格描边）、Enter/Space 激活、焦点丢失清理。
-  - 长按、双击、拖拽阈值等手势语义统一在 `InputRouter` 内实现，控件只订阅语义事件。
+  - 手势语义：**只有拖拽阈值**（`InputRouterOptions.dragThreshold`，默认 8px）在 `InputRouter` 里实现；**长按与双击没有实现**（双击/三击只存在于纯 Canvas 文本字段的选词里，见 `TextInputBase`），控件只订阅语义事件。
 - **场幕集成**：
-  - `MVVMPlugin extends Phaser.Plugins.ScenePlugin`，`sceneKey: 'mvvm'`，暴露 `this.mvvm.mount(vm, view)`、`this.mvvm.theme`、`this.mvvm.layout()`；在 `SHUTDOWN/DESTROY` 自动卸载全部页面与绑定。
-  - 工厂注册：`this.add.vbox/hbox/grid/stack/label/textField/button/image/spacer/divider/scrollView`，以及 `GameObjectCreator` 版本支持配置式创建。
+  - `MVVMPlugin extends Phaser.Plugins.ScenePlugin`，在 Game Config 里以 `mapping: 'mvvm'` 注册，暴露 `this.mvvm.mount(widget)`（**一个控件参数**，不是 `mount(vm, view)`）、`this.mvvm.theme`、`this.mvvm.flush()`（**没有 `layout()`**：立即布局是 `UIRoot.flushLayout()`）；在 `SHUTDOWN/DESTROY` 自动卸载全部页面与绑定。
+  - 工厂注册：`this.add.vbox/hbox/uiGrid/uiStack/uiAbsolute/uiRect` 与 `uiLabel/uiPanel/uiButton/uiImage/uiSpacer/uiDivider/uiSlider/uiTextField/uiTextArea/uiRepeat/uiScroll`；**没有 `GameObjectCreator` 版本**。
   - 推荐用法：`UIScene`（UI 场景，常驻）叠加在游戏场景之上（`scene.launch`）。
 - **场景与页面体系（Phase 1 交付）**：
   - `UIScene` 基类（**已交付，第 68 轮**）：`content()` 建树 + 自动挂载（规则与 `ui()`/`render()` 相同）、`setContent()` 整页替换、`onBack()` 在 `back` 路由中先于应用层、`page`/`contentInfo` 读数、缺插件时的指名错误（`requireMVVMPlugin()`）。**与本节早期草案的差异**：不解 `MVVMPlugin`（插件仍由 Game Config 注册，缺了就在 `create()` 里报出修法）、也没有 `ui.show(page)`/`ui.back()`——多页面用 `this.mvvm.pages`，整页替换用 `setContent()`。**设计分辨率与安全区**由 `UIRoot` 负责：第 72 轮起 `safeArea`（默认开启）读取 `env(safe-area-inset-*)` 并把它设成根的内边距，见 [`ACCEPTANCE-mobile.md`](./ACCEPTANCE-mobile.md)。
-  - `Page`：一个页面 = 一个 ViewModel + 一个视图工厂 + 生命周期（`onEnter/onLeave/onPause/onResume`），页面间可传参；页面栈支持返回与缓存策略（`keepAlive`）。
-  - `ModalStack`：对话框/弹窗层（`StackArranger` + 遮罩），支持焦点陷阱（焦点不逃逸到下层）、ESC/返回键关闭、遮罩点击策略（`closable`）、多弹窗层级、打开/关闭动效钩子（**已交付，第 74 轮**）：动效不在 `ModalStack` 内部写死，而是 `transition.ts` 的 `TransitionRunner`（逐帧、成组、目标抢占）——遮罩只淡 alpha、主体淡 alpha + 轻微缩放，时长/缓动由 `MVVMPluginConfig.transition` 定策略、`ModalOptions.transition` 逐对话框覆盖；**关闭当帧完成所有交互语义（弹栈、焦点归还、指针捕获），只有图层的销毁被推迟到出场动画结束**，`this.mvvm.transitions.pending` 是"还有多少目标在动"。见 [`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)。
+  - 页面（**已交付，第 62 轮**）：`packages/phaser/src/pages.ts` 的 `PageHost` + `PageHandle`，选项 `PageOptions`（`name`/`onResume`/`onPause`/`onDispose`/`onBack`/`transition`），经 `this.mvvm.pages` 使用；页面间可传参。**没有 `Page` 类、没有 `keepAlive`**（被盖住的页由构造方式保持存活，不是选项），也没有 `onEnter`/`onLeave`。
+  - `ModalHost`（**已交付**，`packages/phaser/src/modal.ts`，经 `this.mvvm.modal` 使用；PLAN 早期叫 `ModalStack`）：对话框/弹窗层（`stack` 容器 + 遮罩），支持焦点陷阱（焦点不逃逸到下层）、ESC/返回键关闭、遮罩点击策略、多弹窗层级、打开/关闭动效（**已交付，第 74 轮**）：动效不在 `ModalHost` 内部写死，而是 `transition.ts` 的 `TransitionRunner`（逐帧、成组、目标抢占）——遮罩只淡 alpha、主体淡 alpha + 轻微缩放，时长/缓动由 `MVVMPluginConfig.transition` 定策略、`ModalOptions.transition` 逐对话框覆盖；**关闭当帧完成所有交互语义（弹栈、焦点归还、指针捕获），只有图层的销毁被推迟到出场动画结束**，`this.mvvm.transitions.pending` 是"还有多少目标在动"。见 [`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)。
   - 路由（可选轻量，**已交付，第 75 轮**）：`Router` 把「路径 → 视图」映射成一张表（`path` 可含 `:参数`，也可在 `navigate()` 时附带显式参数），供需要多页面导航的项目使用；**不引入 URL 路由**（从不读 `location`），导航仍然只是 `pages.push()`——所以 `Esc`、页面生命周期、焦点与输入桥的行为与直接用 `pages` 完全一致。`current`/`history` 按页面 id 簿记，页面被 `Esc` 或 `pages.pop()` 拿走时会自动忘记。路径匹配规则（字面量优先、声明顺序、原型链守卫）在 `route-plan.ts` 里是纯函数并配 Node 单测。见 [`ACCEPTANCE-router.md`](./ACCEPTANCE-router.md)。
 - **手柄导航（Phase 1 交付）**：`NavSource` 抽象把「方向键 / Tab / 手柄 D-Pad+摇杆 / 鼠标悬停」统一为焦点移动语义；手柄按键映射到 `activate / back / next / prev`，由 `FocusManager` 消费，控件无需感知输入设备。
 - **无障碍（Phase 1 交付，范围见 §1.2）**：`A11yBridge` 为每个可交互控件维护隐藏 DOM 镜像节点（`role`/`aria-label`/`aria-valuenow` 等），焦点变化与状态播报走 `aria-live` 区域；镜像层与 DOM 输入桥共用同一个 overlay 容器，并受 `UIScene` 生命周期统一开关。**镜像 DOM 与控件树同构**（第 103 轮）：每个节点挂在最近的、有镜像节点的祖先控件之下，于是容器角色能表达包含关系——模态的 content 根是 `role="dialog"` + `aria-modal`（名字取 content 根的 `label`）、带 `label` 的容器是具名 `group`、`ScrollView` 的 `region` 真的装着它的控件；自带 DOM 元素的控件（文本框的 `<input>`）用 `aria-owns` 挂进它本该属于的那个节点，只改无障碍树里的父子关系，不动 DOM 位置与焦点。被盖住的内容（模态之外 / 栈里 `active === false` 的页）一律 `aria-hidden`，持有 DOM 焦点的控件及其祖先链例外。见 [`ACCEPTANCE-a11y.md`](./ACCEPTANCE-a11y.md) §11。
@@ -174,35 +185,38 @@ LayoutParams {
 ### 4.4 绑定与 MVVM（`core/binding` + `widgets`）
 
 - **`BindingContext`**：`vm` + 作用域链（`$root`、`$item`、`$index`、`$parent`）；路径表达式 `user.address.city`、`items[0].name` 编译为 getter/setter 闭包（**不使用 `eval`/`new Function`**，兼容 CSP）。
-- **绑定类型**：
-  | 绑定 | 方向 | 示例 |
+- **绑定类型**（`packages/phaser/src/binding.ts` 的具名函数，**没有**通用的 `bind()`/`model()`/`cmd()`/`convert()`）：
+  | 绑定 | 方向 | 真实 API |
   |------|------|------|
-  | `text` / `visible` / `enabled` / `src` | 单向 | `bind(vm, 'title')` |
-  | `model` | 双向 | `model(vm, 'form.name')` |
-  | `command` | 事件 → VM | `on: { click: cmd(vm, 'save') }`，含 `canExecute` 自动禁用 |
-  | `repeat` | 集合 → 子视图 | 键控复用、视图池、可选虚拟化 |
-  | `style` / `class` | 主题令牌 | `style: ['h2', { error: bind(vm,'hasError') }]` |
-  | `convert` | 值转换 | `convert(vm, 'price', { format: 'money(2)' })` |
+  | 文本 / 可见 / 可用 / 校验错误 | 单向 | `bindText`、`bindTemplateText`、`bindVisible`、`bindEnabled`、`bindError`（通用入口是 `bindValue`/`bindPath`/`bindTemplate`） |
+  | 双向 | 双向 | `bindModel`（按源类型分派）、`bindValueModel`、`bindNumberModel`、`bindBooleanModel` |
+  | 命令（含 `canExecute` 自动禁用） | 事件 → VM | `bindCommand(widget, fn, { canExecute, onError })` |
+  | 列表 | 集合 → 子视图 | `Repeat`/DSL 的 `List()`：键控复用 + 可选虚拟化（**没有视图池**：离开窗口的行会被销毁，回来的行是新建的） |
+  | 外观 | 主题令牌 | **没有 `style`/`class` 绑定**：外观由选项驱动（`tone`/`variant`/`size` + 主题令牌），状态槽位接受 `ref`/getter |
+  | 值转换 | 值转换 | 转换器是模板里的过滤器（`{{ path \| converter }}`，`registerConverter()`/`BUILT_IN_CONVERTERS`），没有 `convert()` 函数 |
 - **双向绑定回环防护**：写回前比较当前值；输入法 `compositionstart/end` 期间暂停写回（中文输入必需）；`TextField` 内部状态与 VM 状态单向权威（VM 为真相源）。
 - **列表 `Repeat`**：`items` 变更 → 键控 diff（新增/删除/移动/更新）→ 复用控件 + `container.moveTo` 最小化重排；`virtualize: true` 时按等高行（或均匀行高）只挂载可见区间，用于长列表/网格。
-- **命令与异步状态**：`command(async fn, { canExecute })`，内置 `pending/error` 可选暴露，方便按钮禁用 + loading 态。
+- **命令与异步状态**：命令就是 ViewModel 上的普通方法（`bindCommand(widget, fn, { canExecute })`）；`canExecute` 为假时按钮自动禁用，异步命令的 pending 可自己写进 `disabled`/`loading` 槽位。
 - **模板层（Phase 2）**：JSON/HTML-like 模板（`{ type: 'textField', model: 'form.name', ... }`）编译为 builder 调用，供非程序员配置界面；表达式仅支持路径 + 过滤器子集。
 
 ### 4.5 控件规格（Phase 1 交付集）
 
 | 控件 | 关键能力 | 依赖的 Phaser 能力 |
 |------|----------|--------------------|
-| `Panel` | 背景（九宫格 / 圆角矩形 / 纯色 / 渐变）、边框、圆角、内边距、可滚动（可选）、点击拦截层 | `NineSlice`、`Graphics` |
-| `Label` | 文本、富样式令牌、自动换行、单行省略号、行高、对齐、阴影/描边、可测量 | `Text`（`wordWrap`、`maxLines`、`letterSpacing`） |
-| `TextField` | 单行输入：光标闪烁、选区、键盘导航、剪贴板、`maxLength`、占位符、密码掩码、数字/正则过滤、`readOnly`、校验错误态、`onChange/onCommit/onFocus/onBlur`；**DOM 输入桥**支持 IME 与移动端软键盘 | `Text` + `Graphics`（光标/选区）+ `InputPlugin.keyboard` + 隐藏 `<input>` 桥 |
-| `TextArea` | 多行、自动换行、内部滚动、Enter 换行 / Ctrl+Enter 提交 | 同上 + `FilterList#addMask` |
-| `Button` | 状态机、皮肤、图标 + 文本、键盘激活、长按/连击、`toggle` 模式、禁用 | `NineSlice`/`Graphics` + `InputPlugin` |
-| `Image` / `Icon` | 贴图、等比/拉伸模式、九宫格切图、`Fit` 适配 | `Image`、`NineSlice` |
+| `Panel` | 变体（`surface`/`surfaceAlt`/`overlay`/`primary`/`danger`/`plain`）、边框、圆角、内边距、阴影层级、点击拦截层（`interactive`/`blockPointer`）。**没有渐变、没有"可滚动"选项**（要滚动就套 `ScrollView`） | `Graphics`（程序化皮肤；九宫格未实现） |
+| `Label` | 文本、`tone` 语义色、`size` 字号档、自动换行、`maxLines` + `ellipsis`、对齐、`style` 覆盖（字体/描边/阴影）、可测量 | `Text`（`wordWrap`、`letterSpacing`） |
+| `TextField` | 单行输入：光标闪烁、选区、键盘导航、剪贴板、`maxLength`、占位符、密码掩码、`inputType: text\|number\|password\|email\|search`、`readOnly`、校验错误态、`onChange/onSubmit/onFocus/onBlur`；**DOM 输入桥**支持 IME 与移动端软键盘（`dom: false` 走纯 Canvas 路径）；拖动选择 / 双击选词 / 三击选行 | `Text` + `Graphics`（光标/选区）+ `InputPlugin.keyboard` + 隐藏 `<input>` 桥 |
+| `TextArea` | 多行、自动换行、内部滚动、Enter 换行 / Ctrl+Enter 提交（`submitOnEnter` 可互换） | 同上（纯 Canvas 路径靠自己滚动，不建 mask） |
+| `Button` | 状态机、皮肤、图标 + 文本、键盘激活、`toggle` 模式（`value` 槽位）、`loading`、禁用。**没有长按/连击**（重复激活是刻意不做的） | `Graphics` + `InputPlugin` |
+| `Image` | 贴图 + 帧（都是数据槽位）、`fit: 'contain'\|'cover'\|'fill'\|'none'` | `Image`（没有九宫格切图、没有 `Fit` 布局） |
 | `Spacer` / `Divider` | 撑开空间 / 分割线（横竖） | 无（纯布局） |
 | `Rect` | 纯色块（DSL 的 `Rect()`，对应适配层 `RectWidget`） | 无（纯绘制） |
-| `ScrollView` | 拖拽 + 滚轮（含横向）+ 惯性 + 边界回弹（可选）+ 滚动条 + 内容裁剪 + 键盘滚动 + **嵌套链式传递**（内层到头后剩余增量交给外层；滚轮与拖拽同规则，第 70 轮统一） | `FilterList#addMask`（WebGL 裁剪），备选相机视口方案 |
-| `Repeat` | 列表/网格数据渲染、键控复用、虚拟化 | `Container` + 布局引擎 |
-| `Modal` | 遮罩 + 对话框布局 + 焦点陷阱 + ESC 关闭 + 多层级（Phase 1） | `StackArranger` + `FocusManager` + `ModalStack` |
+| `Slider` | 拖动取值、键盘操作、`min`/`max` 数据槽、禁用态（第 42/99 轮补入交付集） | `Graphics` + `InputPlugin` |
+| `ScrollView` | 拖拽 + 滚轮（含横向）+ 惯性 + 边界回弹（`bounce`）+ 滚动条 + 内容裁剪 + 键盘滚动 + 双指缩放（`zoom`）+ **嵌套链式传递**（内层到头后剩余增量交给外层；滚轮与拖拽同规则，第 70 轮统一） | `FilterList#addMask`（WebGL 裁剪；非 WebGL 回退 `GeometryMask`） |
+| `Repeat` | 列表/网格数据渲染、键控复用、虚拟化（等高行 + `overscan`） | `Container` + 布局引擎 |
+| `VirtualKeyboard` | 屏幕键盘（文字/数字两套键集，`kind` 是数据槽）、D-Pad 走查 + `A` 打字、`⇧` 一次性/锁定（第 81 轮补入交付集） | `Button` × N + `FocusManager` |
+| `Branch` | 结构性切换（按 key 建一个分支、切 key 销毁旧分支），页面级入口规则 | `Container` + `Widget.destroy()` |
+| `Modal` | 遮罩 + 对话框布局 + 焦点陷阱 + ESC 关闭 + 多层级（Phase 1，**不是控件**：`this.mvvm.modal.open()` / `ModalHost`） | `stack` 容器 + `FocusManager` + `ModalHost` |
 
 **TextField 输入桥设计（重点）**：Canvas 文本输入无法获得输入法候选与移动端软键盘，因此 `TextField` 采用「隐藏 DOM `<input>` 镜像」：
 - 在画布上方按控件位置放置 `opacity: 0` 的 `<input>`（`domelement` 或自建 overlay div，需 `dom.createContainer: true` 与 `parent` 配置）；
@@ -315,7 +329,7 @@ this.mvvm.mount(page);
 - **反应式参数**：数据槽位（文本、输入框 value）接受常量 / `Ref` / getter；`Ref` 在可写控件上是双向绑定（IME 组合期暂停写回，沿用 M5 语义）。外观槽位 `tone`（Label）、`variant`/`disabled`/`loading`（Button）同样接受 `Ref`/getter（按帧重绘，不重建节点）；所有 composable 还支持 `visible`（常量 / `Ref` / getter），隐藏即退出布局流，等价于 Compose 的 `if`。
 - **结构性切换**：`visible` 保留节点只藏起来；换成**另一棵树**时用 `Branch(select, { key: () => {…} })`（第 69 轮）：按 key 建一个分支，切 key 时销毁旧分支（控件/绑定/订阅/文字纹理）再建新分支，入口规则与页面一致（0 根报错、多根警告后包一层容器），未知 key 清空并警告而不是崩（`branch-plan.ts` 的 `hasOwnProperty` 查询有 Node 单测）。它把 `UIScene.setContent()` 那一套下移到页面内部，见 [`docs/ACCEPTANCE-compose-dsl.md`](./ACCEPTANCE-compose-dsl.md) §3.1。
 - **验收**：`#/compose` 场景用 DSL 搭建全部控件与容器，并含 **parity 演示**（同一卡片用工厂 API 与 DSL 各搭一次，逐节点比对 `appliedRect`），实测 `parity=ok`（见 [`docs/ACCEPTANCE-compose-dsl.md`](./ACCEPTANCE-compose-dsl.md)）。
-- **里程碑**：不新增里程碑编号，属于 M4/M6 之后的使用层演进（M8 起仍未开始）。
+- **里程碑**：不新增里程碑编号，属于 M4/M6 之后的使用层演进（M8/M9 早已交付，见下一节的执行状态）。
 
 ---
 
@@ -327,16 +341,16 @@ this.mvvm.mount(page);
 
 | 里程碑 | 内容 | 交付物 | 验收标准 | 估算 |
 |--------|------|--------|----------|------|
-| **M0 骨架与基线** | pnpm workspace、TS strict、vite 示例、vitest、Prettier、CI 工作流（ESLint/size-limit/覆盖率门禁推迟到 M4）；Phaser 依赖策略落地（`peerDependencies: phaser ^4.2` + devDependency `phaser@4.2.1`，本地源码仅作参考）；ADR 记录关键决策（§10） | 可运行的空框架 + 一个用 `this.add.hbox()` 渲染出两个矩形的示例（`apps/examples` 的 `#/m0` 与 `#/probe`） | `pnpm install`、`pnpm -r typecheck`、`pnpm -r test`、`pnpm run build:examples` 全绿；`pnpm run visual-check` 截图成功且 `#status` 无错误行；`phaser.d.ts` 类型可解析 | 1–2 天 |
-| **M1 响应式内核** ★ | `ref/reactive/computed/watch/effect/scope`、调度器（`sync/pre/frame`）、`ObservableArray/Map/Set`、`makeObservable` | `@phaser-mvvm/core` + 单测 | 依赖收集/清理、条件分支切换、嵌套 effect、批量 flush 语义、无泄漏（GC 断言）等 ≥40 用例通过 | 3–4 天 |
-| **M2 布局引擎** ★ | 约束模型、`LayoutParams`、`BoxArranger`(纵/横/换行)、`GridArranger`、`Stack`、`Absolute`、测量缓存、脏传播 + relayout boundary、像素对齐 | `@phaser-mvvm/layout` + 布局快照测试 + 基准 | 40+ 布局用例（百分比/填充/伸缩/对齐/跨行列/auto 列数/边界）与黄金快照一致；1000 节点全量排布 < 1.5 ms；仅改一个子节点时排布工作量与其子树同阶 | 5–6 天 |
+| **M0 骨架与基线** | pnpm workspace、TS strict、vite 示例、vitest、Prettier、CI 工作流（ESLint/size-limit/覆盖率门禁至今未接入，见 §3.2）；Phaser 依赖策略落地（`peerDependencies: phaser ^4.2` + devDependency `phaser@4.2.1`，本地源码仅作参考）；ADR 记录关键决策（§10） | 可运行的空框架 + 一个用 `this.add.hbox()` 渲染出两个矩形的示例（`apps/examples` 的 `#/m0` 与 `#/probe`） | `pnpm install`、`pnpm -r typecheck`、`pnpm -r test`、`pnpm run build:examples` 全绿；`pnpm run visual-check` 截图成功且 `#status` 无错误行；`phaser.d.ts` 类型可解析 | 1–2 天 |
+| **M1 响应式内核** ★ | `ref/reactive/computed/watch/effect/scope`、调度器（`sync/pre/post/frame`）、集合响应式（`reactive(new Map())`/`reactive(new Set())`，**没有** `ObservableArray/Map/Set` 类）、`makeObservable` | `@phaser-mvvm/core` + 单测 | 依赖收集/清理、条件分支切换、嵌套 effect、批量 flush 语义、无泄漏（GC 断言）等 ≥40 用例通过（当前 281 条） | 3–4 天 |
+| **M2 布局引擎** ★ | 约束模型（`BoxConstraints`）、`LayoutParams`、box（纵/横/换行）、grid、stack、absolute、**scroll 端口**、测量缓存、脏传播 + relayout boundary、像素对齐 | `@phaser-mvvm/layout` + 布局快照测试 + 基准 | 40+ 布局用例（百分比/填充/伸缩/对齐/跨行列/auto 列数/边界）与黄金快照一致（当前 314 条 + 4 个快照）；1000 节点全量排布 < 1.5 ms；仅改一个子节点时排布工作量与其子树同阶 | 5–6 天 |
 | **M3 Phaser 适配层** | `Widget` 基类、`UIRoot`、`PhaserTextMeasurer`(+LRU)、`InputRouter`、`FocusManager`、`MVVMPlugin`、工厂注册、主题基础 | `@phaser-mvvm/phaser` + 示例页 | 窗口缩放/DPR 变化布局正确；`this.mvvm.mount()` 可用；场景 shutdown 后控件/监听/绑定计数归零（泄漏测试） | 4–5 天 |
-| **M4 基础控件** | `Panel`、`Label`、`Button`、`Image`、`Spacer`、`Divider` | `@phaser-mvvm/widgets`（第一批）+ 画廊页 | 每个控件有交互示例页与截图回归；按钮状态机、键盘激活、禁用、长按均通过 | 5–6 天 |
+| **M4 基础控件** | `Panel`、`Label`、`Button`、`Image`、`Spacer`、`Divider`（其后补入 `Slider`） | `@phaser-mvvm/widgets`（第一批）+ 画廊页 | 每个控件有交互示例页与截图回归；按钮状态机、键盘激活、禁用通过（**长按/连击没有实现，也不打算做**） | 5–6 天 |
 | **M5 文本框** | `TextField`、`TextArea`、DOM 输入桥、光标/选区/快捷键/剪贴板/掩码/校验/IME | widgets 第二批 + 表单页 | 中文输入法可用（含候选期不写回 VM）、软键盘可唤起（移动端手测）、剪贴板/快捷键矩阵测试通过 | 5–7 天 |
 | **M6 绑定与列表** | `BindingContext`、路径编译、单向/双向/命令/转换器、`repeat` 键控复用与虚拟化 | `core/binding` 编译产物 + `Repeat` 控件 | 1000 行列表增删改移后仅挂载可见项；绑定无回环、无泄漏；CSP 环境下无 `eval` | 4–6 天 |
 | **M7 滚动与裁剪** | `ScrollView`（拖拽/滚轮/惯性/滚动条/键盘）、WebGL 遮罩裁剪、与虚拟化协同 | `ScrollView` + 长列表页 | 滚动裁剪无溢出；滚动 + 虚拟化在 5000 项下稳定 60 fps（**第 77 轮实测**：脚本驱动 1 行/帧与 4 行/帧、真实滚轮、真实触摸拖动四种驱动方式 median 均 16.7 ms ≈ 59.9 fps，17 行常驻、每帧一趟布局，见 [`ACCEPTANCE-list.md`](./ACCEPTANCE-list.md) §6）；相机视口降级方案可用 | 4–6 天 |
-| **M8 场景与页面体系**（**全部条目已完成**，含页面转场） | `UIScene` 基类、`Page` 生命周期与页面栈、`ModalStack`（焦点陷阱 / ESC / 遮罩策略 / 开闭动效钩子）、轻量 `Router` | `packages/phaser/src/{UIScene,require-plugin,modal,pages,back-plan,ui-build}.ts` + 多页示例 | ✅ 弹窗打开时焦点不逃逸、下层不可点、反复开关 100 次无泄漏（[`ACCEPTANCE-modal.md`](./ACCEPTANCE-modal.md)）；✅ 多页导航（列表→详情→对话框）可返回且状态正确、`churn(50)` 无泄漏（[`ACCEPTANCE-pages.md`](./ACCEPTANCE-pages.md)）；✅ `UIScene`：`content()` 自动挂载、`setContent()` 替换 20 次不泄漏、`onBack()` 先于应用层（[`ACCEPTANCE-uiscene.md`](./ACCEPTANCE-uiscene.md)）；✅ 轻量 `Router`（路由表 + `:参数` + `current`/`history`，[`ACCEPTANCE-router.md`](./ACCEPTANCE-router.md)）；✅ 开闭动效（`TransitionRunner` + `transition` 策略 + 逐对话框覆盖 + 减少动效，[`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)） | 4–6 天 |
-| **M9 导航与无障碍**（**手柄 + 无障碍镜像 + 手柄文本输入已交付**，`NavSource`/真机阅读器/真手柄未开始） | `NavSource` 抽象（方向键 / Tab / 手柄 D-Pad + 摇杆 / 鼠标悬停）、手柄按键映射、`A11yBridge` DOM 镜像 + `aria-live` 播报、`VirtualKeyboard` 屏幕键盘 | `packages/phaser/src/{input,a11y,nav}/*`、`packages/widgets/src/{VirtualKeyboard,keyboard-plan}.ts` + `#/a11y`/`#/gallery`/`#/keyboard` 示例 | ✅ 手柄能导航/激活/返回，且能操作滑杆与滚动容器（[`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md)）；✅ 每个可交互控件有隐藏 DOM 镜像（role/label/state）、焦点与消息经 `aria-live` 播报（[`ACCEPTANCE-a11y.md`](./ACCEPTANCE-a11y.md)）；✅ 纯手柄完成**文本输入**（D-Pad 走查 + `A` 打字/退格/提交，鼠标与触摸同样验收，[`ACCEPTANCE-keyboard.md`](./ACCEPTANCE-keyboard.md)）；⬜ 真实屏幕阅读器听过一遍；⬜ 真实手柄硬件 | 3–5 天 |
+| **M8 场景与页面体系**（**全部条目已完成**，含页面转场） | `UIScene` 基类、`PageHost` 页面栈与生命周期、`ModalHost`（焦点陷阱 / ESC / 遮罩策略 / 开闭动效）、轻量 `Router` | `packages/phaser/src/{UIScene,require-plugin,modal,pages,back-plan,page-motion,ui-build}.ts` + 多页示例 | ✅ 弹窗打开时焦点不逃逸、下层不可点、反复开关 100 次无泄漏（[`ACCEPTANCE-modal.md`](./ACCEPTANCE-modal.md)）；✅ 多页导航（列表→详情→对话框）可返回且状态正确、`churn(50)` 无泄漏（[`ACCEPTANCE-pages.md`](./ACCEPTANCE-pages.md)）；✅ `UIScene`：`content()` 自动挂载、`setContent()` 替换 20 次不泄漏、`onBack()` 先于应用层（[`ACCEPTANCE-uiscene.md`](./ACCEPTANCE-uiscene.md)）；✅ 轻量 `Router`（路由表 + `:参数` + `current`/`history`，[`ACCEPTANCE-router.md`](./ACCEPTANCE-router.md)）；✅ 开闭动效（`TransitionRunner` + `transition` 策略 + 逐对话框/逐页覆盖 + 减少动效，[`ACCEPTANCE-transition.md`](./ACCEPTANCE-transition.md)） | 4–6 天 |
+| **M9 导航与无障碍**（**手柄 + 无障碍镜像 + 手柄文本输入已交付**；`NavSource` 这个具名抽象、真机阅读器、真手柄未做） | 键盘/手柄导航（`nav.ts` 的按键映射 + 连发，由 `FocusManager` 消费）、`A11yBridge` DOM 镜像 + `aria-live` 播报、`VirtualKeyboard` 屏幕键盘 | `packages/phaser/src/{input,a11y,nav}.ts`、`packages/widgets/src/{VirtualKeyboard,keyboard-plan}.ts` + `#/a11y`/`#/gallery`/`#/keyboard` 示例 | ✅ 手柄能导航/激活/返回，且能操作滑杆与滚动容器（[`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md)）；✅ 每个可交互控件有隐藏 DOM 镜像（role/label/state，镜像与控件树同构）、焦点与消息经 `aria-live` 播报（[`ACCEPTANCE-a11y.md`](./ACCEPTANCE-a11y.md)）；✅ 纯手柄完成**文本输入**（D-Pad 走查 + `A` 打字/退格/提交，鼠标与触摸同样验收，[`ACCEPTANCE-keyboard.md`](./ACCEPTANCE-keyboard.md)）；⬜ 真实屏幕阅读器听过一遍；⬜ 真实手柄硬件 | 3–5 天 |
 | **M10 主题、文档、1.0** | 主题切换、皮肤、typedoc API 文档、控件规格文档、迁移/使用指南、1.0 发布与 changesets | 全量文档 + `form-demo` 完整示例 | 新同学按文档 1 小时内搭出带校验表单；包体积达标（见 §8） | 4–6 天 |
 
 **总计约 42–59 个工作日（8–12 周）**；M1/M2 可并行、M9 可与 M7/M8 局部并行，压缩后约 8 周。

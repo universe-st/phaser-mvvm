@@ -84,7 +84,7 @@
 
 ## 4. 未修 / 未验证
 
-1. **`docs/DEFECT-BACKLOG.md`** 剩余项：`ScrollView` 视口混用（W4，待渲染环境实测确认）、`ThumbGeometry.position` 文档与实现不符（W3，纯文档）、以及 §3 的 7 条「待验证」疑似项（相机 transform 命中测试、`Filters` 销毁、`converter` 名字 trim 不一致、模板二次反转义等）。
+1. **`docs/DEFECT-BACKLOG.md`** 剩余项：§3 的 7 条「待验证」疑似项（相机 transform 命中测试、`Filters` 销毁、`converter` 名字 trim 不一致、模板二次反转义等）。**W3（`ThumbGeometry.position` 的文档）与 W4（`ScrollView` 视口混用）都已关闭**：前者在本文 §3.3 就地改正（`scroll-plan.ts` 现在写明是像素），后者确认成立并修掉（`contentExtent`，见 [`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md) §3），两者在 `DEFECT-BACKLOG.md` 里都标为「已修复」。
 2. **W1 的告警路径**尚未在浏览器里构造「真正一直为 0 高度」的虚拟化列表用例（构造需要新增一个故意写错的 demo）；本轮验证的是「正常路径不再误报 + 回退逻辑存在且不崩」。
 3. `contextPool` 的释放以「池长与引用」白盒断言证明，未做 GC/FinalizationRegistry 级别的证明。
 4. 性能预算未复测（本轮改动在热路径上只增加了一次 `base` 字符串拼接与两次集合查询；如需要可在下一轮补 1000 节点基准）。

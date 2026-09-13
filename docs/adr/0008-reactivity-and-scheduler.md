@@ -80,3 +80,11 @@ PLAN §9 把该风险登记为「响应式高频写入导致布局抖动 → 掉
 - PLAN.md §8 性能预算（无变化帧布局为 0、输入不引发整树布局）、§9 风险（高频写入抖动、泄漏）
 - PLAN.md M1 里程碑（响应式内核 + ≥40 用例）
 - ADR-0002（两阶段布局与脏标记合并）、ADR-0003（核心与布局零渲染依赖）
+
+## 现状校正
+
+> 上面的正文写于决策当时，「UI 默认帧对齐 `frame`」这条决策未变；下面是实现落地后的实际形状。
+
+- 刷新时机是**四**档而不是三档：`sync` / `pre` / `post` / `frame`（`packages/core/src/reactivity/scheduler.ts` 的 `FlushMode`，`post` 走独立的 `postQueue`；`watchPostEffect` 是公开导出，绑定层的 `BindingFlush` 同为四档）。UI 默认仍是 `frame`（`packages/phaser/src/binding.ts` 的 `flush ?? 'frame'`，插件在 `preupdate`/帧末调用 `flushFrame()`）。
+- **没有 `ObservableArray` / `ObservableMap` / `ObservableSet` 三个类**：集合响应式由 `reactive()` 直接支持 `Array`/`Map`/`Set` 提供（`packages/core/src/utils/shared.ts` 的 `isMap`/`isSet` 分支，`packages/core/test/collections.test.ts` 覆盖，含 `shallowReactive(Map/Set)` 的栈溢出回归）。`makeObservable(instance)` 与正文一致。
+- 「三类 flush 语义若被滥用」这句里的「三类」按上文读作四档（`sync`/`pre`/`post`/`frame`），其中 `pre`/`post` 与 Phaser 的 `PRE_UPDATE`/`POST_UPDATE` 对齐。
