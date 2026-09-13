@@ -45,3 +45,26 @@
 | `pnpm exec prettier --check .` | 通过                                                              |
 | `pnpm docs:check`              | 通过                                                              |
 | `pnpm run build:examples`      | 通过                                                              |
+
+---
+
+## 6. 第 110 轮追加：第三台设备（`NavSource` 的常驻验收）
+
+`NavSource` 是 PLAN §6/M9 里最后一个没有名字的抽象：插件过去硬编码两台设备（`keydown` 监听 + 每帧轮询 `getPad(0)`），"再加一台"在 API 上不可表达。本轮把它抽成 `NavSource`（`name`/`source`/`attach`/`detach`/`heldDirections`/`poll`）+ `NavSourceRegistry`（每个来源一只 `NavRepeat`），`#/gallery` 是常驻验收页——它本来就写着 "gamepad supported"，也本来就把每个控件命名并逐帧发布 `pt.*`/`st.*`。
+
+页面注册的是一台**框架从未听说过**的设备：`{ name: 'gallery-dpad', source: 'touch', attach(), poll(host), heldDirections() }`，由 `window.gallery` 驱动：
+
+| 步骤                       | 读数                                                                                           | 结论                                                                                |
+| -------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| 初始                       | `nav.sources=keyboard+gamepad`                                                                 | 两台内置来源（顺序＝注册顺序）                                                      |
+| `registerSource()`         | `keyboard+gamepad+gallery-dpad`                                                                | 运行期可加设备                                                                      |
+| `press('down')`，采样 8 次 | 焦点 `primary → secondary → secondary → secondary → danger → small → large → loading → toggle` | **连发节奏归框架**：首帧立即触发，350 ms 后下一次，之后每 90 ms 一次（`NavRepeat`） |
+| 同上（越过 `disabled`）    | 焦点从 `secondary` 直接到 `danger`                                                             | 导航与内置设备同权：不可聚焦的控件被跳过                                            |
+| `fire('activate')`         | `nav.lastActivation=primary:touch`                                                             | 自定义设备的动作带**自己的** `ActivationSource`（`'touch'`）                        |
+| `unregisterSource()`       | `sources` 回到 `keyboard+gamepad`；再 `press('down')` 焦点**不动**；attach/detach 计数 2/2     | 注销真的断开，且不留监听                                                            |
+
+**阳性对照**：`unregisterSource()` 之后按住方向，焦点 500 ms 内不动（上表最后一行）；把 `host.dispatch()` 换成直接调用 `mvvm.focus.move()` 则会**绕过**焦点控件的 `onAction`（滑杆/滚动口就抢不到方向键）——这正是 V28 的修法，也是 `dispatch` 存在的理由。
+
+三台设备在同一页上互不干扰已实测：键盘 `Tab`/`↓`/`Enter`（激活载荷 `source: 'keyboard'`）、`window.fakePad` 的 D-Pad 与 A 键（载荷 `source: 'gamepad'`，且 `loading` 按钮依设计拒绝激活）、自定义 `gallery-dpad`（载荷 `source: 'touch'`）。键集与连发速率的完整矩阵见 [`ACCEPTANCE-gamepad.md`](./ACCEPTANCE-gamepad.md)。
+
+**未覆盖**：`name` 重复时的抛错只有 Node 单测（`packages/phaser/test/nav.test.ts`，6 条覆盖 attach/detach、重名、边沿优先于方向、每源一只节流表、`detachAll`/`attachAll`/`clear`、无返回值的 `detach()`）；浏览器里没有故意制造重名。

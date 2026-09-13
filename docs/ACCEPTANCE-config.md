@@ -85,3 +85,26 @@ patch transition = false      → { enter: 0, exit: 0 }
 - **`configure()` 影响已存在的页面布局**：`align`/`depth`/`container` 这类描述"根怎么建"的选项不会追溯修改已经建好的根（`depth` 会生效，因为它直接写渲染深度；`align` 不会）。这一点写进了 JSDoc。
 - **Game Config 里的 `plugins.scene[].config`**：仍然是 Phaser 不会传递的字段（这是 Phaser 的行为，不是本框架能改的），所以文档不再提"可以传 config"，只教 `MVVMPlugin.configure()` 与实例 `configure()`。
 - **多游戏实例**：静态默认值是**进程级**的；一个页面里跑两个 `Phaser.Game` 会共享它（`resetDefaults()` 只在测试里用）。真实项目不会这么做。
+
+---
+
+## 6. 第 110 轮追加：第三条通道 —— Game Config 条目的 `data`（并修掉 V78）
+
+第 66 轮把"选项只能运行期设置"这件事解决了一半：`MVVMPlugin.configure()` 是**游戏级**的，一个页面里跑两个 `Phaser.Game`（或一个库想自己配置自己而不碰静态）就没有办法。本轮补上第三条通道：选项写在 `plugins.scene[]` 条目的 **`data`** 字段里。
+
+为什么是 `data`：Phaser 只把 `key`/`plugin`/`mapping` 交给场景插件，第四个 `config` 参数恒为空（第 66 轮实测过），但**整个条目被原样保留**在 `game.config.installScenePlugins` 里（`Config.js` 直接引用 `plugins.scene` 数组）；而 `data` 是 `PluginObjectItem` 类型上唯一空闲的槽位——它文档里的用途是"传给插件 `init()`"，而 Phaser 只对*全局*插件这么做。
+
+四个通道的强弱（`#/config` 常驻断言前三个）：
+
+| 通道                                                     | 作用域       | `#/config` 实测                                                                    |
+| -------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------- |
+| ② `MVVMPlugin.configure({ transition: { enter: 120 } })` | 游戏级默认值 | `defaults()` → `{ a11y: { politeness: 'assertive' }, transition: { enter: 120 } }` |
+| ① 条目 `data: { transition: { enter: 320 } }`            | 该插件注册   | `entry()` → `{ transition: { enter: 320 } }`；**压过 ②**                           |
+| ④ 运行期 `patch({ transition: { enter: 50 } })`          | 单场景运行期 | `motion()` 320 → **50**；退出页面重进回到 320（补丁不持久）                        |
+| ③ 构造函数第 4 参数                                      | 单实例       | Phaser 不传；测试与自定义宿主用                                                    |
+
+`#status` 直接打出这条链：`entry.transition.enter=320 defaults.transition.enter=120 entryValueWins=1`。同级键**不被清掉**也已实测：改 `enter` 不动 `exit`（`motion.exit` 仍是 120），说明走的是 `mergePluginConfig` 的一层深合并。
+
+**V78（MEDIUM，本轮修复）**：第一版按 `entry.key === pluginKey` 找条目，`#/config` 当场打脸——`entry()` 读得到 320 而 `mvvm.config` 仍是 120，**且没有任何报错**。根因是 Phaser 有两条实例化路径，第三个参数不是同一个东西：Game Config 走 `addToScene`（`new source.plugin(scene, this, mapKey)` → `mapping`），运行时/Loader 走 `installScenePlugin`（`new plugin(addToScene, this, key)` → `key`）。修法：同时比 `key` 与 `mapping`，并拒绝空 `pluginKey`；单测补两条（只给 `mapping` 的条目要读到、空键返回空配置）。完整说明见 [`PITFALLS.md`](../PITFALLS.md) §8.71、[`DEFECT-BACKLOG.md`](./DEFECT-BACKLOG.md) §3.46。
+
+**未覆盖**：`data` 里放一个**非对象**（Phaser 的 `data` 也可能承载别的东西）时按"没配置"处理，有单测；但"同一个 `key` 注册到多个场景"的合并顺序只做了 Node 单测（后写的赢），没有多场景实测。

@@ -40,7 +40,7 @@ Phaser 已经负责命中测试，路由层补的是「控件语义」：
 this.mvvm.input.dragThreshold = 12;
 ```
 
-> ⚠️ **不要在 Game Config 的 `plugins.scene` 条目里传插件选项**：Phaser 只读 `key`/`plugin`/`mapping`，并以 `new Plugin(scene, pluginManager, mapKey)` 实例化，`MVVMPluginConfig`（`input`/`focus`/`onBack`/`navigation`/`themeBackground`）**传不进去**，写了也不会生效。正确写法：**游戏级**用 `MVVMPlugin.configure({ … })`（创建游戏之前调一次），**单场景**用 `this.mvvm.configure({ … })`，公开字段与可写属性照旧可用（见 06 §6.1）。**唯一例外是 `back`**：`FocusManager.onBack` 是插件安装路由钩子的地方，直接覆盖它会让 `Esc` 不再关对话框、不再返回上一页（开发模式下框架会打印一条警告）；应用级的返回处理请写 `this.mvvm.onBack = …`。
+> ℹ️ **插件选项的三种写法**：Game Config 条目的 `data` 字段（第 110 轮起；Phaser 只读 `key`/`plugin`/`mapping`，所以选项写在 `data` 里由插件读回）、游戏级默认值 `MVVMPlugin.configure({ … })`（创建游戏之前调一次）、单场景运行期 `this.mvvm.configure({ … })`；`input`/`focus`/`onBack`/`navigation`/`themeBackground` 都能这样设，公开字段与可写属性照旧可用（强弱与读回见 06 §6.1）。**唯一例外是 `back`**：`FocusManager.onBack` 是插件安装路由钩子的地方，直接覆盖它会让 `Esc` 不再关对话框、不再返回上一页（开发模式下框架会打印一条警告）；应用级的返回处理请写 `this.mvvm.onBack = …`。
 
 `this.mvvm.input` 的常用成员：
 
@@ -267,7 +267,7 @@ dialogFocus.next();
 | 连发节奏     | 首次按住立即触发，之后 `initialDelay = 350ms`，随后每 `repeatDelay = 90ms` 一次 |
 | 边沿触发     | 激活/返回是**边沿触发**（按住不会重复提交），方向才是连发                       |
 
-插件每帧轮询 0 号手柄，所以**不需要**你自己写 gamepad listener。想换映射或加第二个手柄，`nav.ts` 导出了纯函数（`gamepadStateOf`、`gamepadActionsOf`、`heldDirectionsOf`、`NavRepeat`），可以脱离 Phaser 单测。
+插件每帧轮询 0 号手柄，所以**不需要**你自己写 gamepad listener。想换映射，`nav.ts` 导出了纯函数（`gamepadStateOf`、`gamepadActionsOf`、`heldDirectionsOf`、`NavRepeat`），可以脱离 Phaser 单测。
 
 > ⚠️ **游戏配置里必须开手柄**：`new Phaser.Game({ input: { gamepad: true } })`。Phaser 默认 `false`，此时插件轮询拿到的永远是空列表——示例应用直到第 64 轮才补上这一行（`#/gallery` 当时已经在文案里写着"gamepad supported"）。
 
@@ -280,6 +280,49 @@ dialogFocus.next();
 import { NavRepeat } from '@phaser-mvvm/phaser';
 const repeat = new NavRepeat({ initialDelay: 500, repeatDelay: 120 });
 ```
+
+### 4.1 `NavSource`：自己加一台设备（第 110 轮）
+
+键盘和手柄不是特例，它们只是**两个已注册的导航来源**。框架里所有「能搬焦点、能激活、能返回」的东西都实现同一个具名接口：
+
+```ts
+export interface NavSource {
+  readonly name: string; // 唯一名字：注销时用它，开发日志也用它
+  readonly source: ActivationSource; // 这些动作算哪个设备发的（供控件区分）
+  attach?(host: NavSourceHost): void | (() => void); // 事件型设备：订阅，返回退订
+  detach?(): void; // 注销/场景关闭时收尾
+  heldDirections?(): readonly NavDirection[]; // 每帧问一次：现在按住了哪些方向
+  poll?(host: NavSourceHost): void; // 每帧先跑一次：边沿动作（activate/back）
+}
+```
+
+注册与查询都在插件上，**随时可加可撤**：
+
+```ts
+this.mvvm.navSources; // ['keyboard', 'gamepad'] → 加了之后 ['keyboard', 'gamepad', 'touch-dpad']
+
+this.mvvm.registerNavSource({
+  name: 'touch-dpad',
+  source: 'touch',
+  heldDirections: () => this.dpad.held(), // 只报"现在按住了什么"
+  poll: (host) => {
+    if (this.dpad.tookOk()) host.dispatch('activate', 'touch'); // 边沿动作自己发
+  },
+});
+
+this.mvvm.unregisterNavSource('touch-dpad'); // 立刻退订、忘记
+```
+
+四条规矩，都是实测出来的：
+
+- **方向由宿主节流**：来源只报「按住了什么」，连发节奏（350ms → 90ms）由框架的 `NavRepeat` 做，而且**每个来源一只表** —— 手柄的节奏不会被键盘或摇杆重置。
+- **动作必须走 `host.dispatch()`**：它会先问当前焦点控件（`Widget.onAction`）再搬焦点，所以自定义设备与 `→`、`D-Pad` 完全同权，不会绕过滑杆/滚动口（这正是 V28 的修法）。
+- **`name` 重复会抛错**：`unregisterNavSource(name)` 只有名字这一个入口，重名意味着注销哪个都不对。
+- **注册是幂等的、跨重启有效的**：`navigation: false` 只**断开**所有来源（含你注册的），改回 `true` 会重新接上；场景 `shutdown` 时框架统一 `detachAll()`，所以「在 `create()` 里注册」不会每次重启漏一个监听器（`#/lifecycle` 的 `churnScenes(3)` 守着这条）。
+
+> `source` 只有四个取值（`'pointer' | 'touch' | 'keyboard' | 'gamepad'`），因为那是控件与监听者已经在说的词汇；一台不属于这四类的设备（遥控器、车载旋钮）挑最接近的一个，细粒度身份看 `name`。
+
+`#/gallery` 是这条常驻验收：`window.gallery.registerSource()` / `press('down')` / `fire('activate')` / `unregisterSource()`，读数在 `#demo-state` 的 `nav.sources` 与 `nav.lastActivation`。实测（真浏览器，`ACCEPTANCE-gallery.md` §6）：注册后 `sources` 变三项；按住 `down` 时焦点 `primary → secondary → danger → small → large → loading → toggle`（跳过 disabled，节奏就是 350ms → 90ms）；`fire('activate')` 的激活载荷是 `source: 'touch'`；注销后 `sources` 回到两项、焦点不再移动、attach/detach 计数相等。
 
 ---
 

@@ -31,7 +31,11 @@ import { planBack } from './back-plan';
 import { revealInViewports } from './reveal';
 import { PageHost } from './pages';
 import { Router } from './router';
-import { mergePluginConfig, type MVVMPluginConfig } from './plugin-config';
+import {
+  mergePluginConfig,
+  pluginConfigFromGameConfig,
+  type MVVMPluginConfig,
+} from './plugin-config';
 import {
   TransitionRunner,
   prefersReducedMotion,
@@ -39,33 +43,23 @@ import {
   type ResolvedTransitions,
   type TransitionOverride,
 } from './transition';
-import {
-  NavRepeat,
-  gamepadActionsOf,
-  gamepadStateOf,
-  heldDirectionsOf,
-  keyboardActionOf,
-  type NavAction,
-  type NavInputState,
-} from './nav';
+import { NavSourceRegistry, type NavAction, type NavSource, type NavSourceHost } from './nav';
+import { GamepadNavSource, KeyboardNavSource } from './nav-sources';
 import { getTheme, onThemeChange, setTheme, type Theme, type ThemeName } from './theme';
 import { UIRoot } from './UIRoot';
 import type { UISceneBackHook } from './UIScene';
 import { Widget, type ActivationSource } from './Widget';
 
-type GamepadLike = Parameters<typeof gamepadActionsOf>[0];
-
-/** Empty snapshot used until a pad is seen for the first time. */
-const EMPTY_NAV_STATE: NavInputState = { axes: [], buttons: [] };
-
 export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   /**
    * Game-wide defaults, applied to every plugin created after {@link MVVMPlugin.configure}.
    *
-   * Phaser instantiates scene plugins as `new Plugin(scene, pluginManager, mapKey)` — the fourth
-   * (config) argument of the Game Config entry is never passed — so before this existed, plugin options
-   * could only be set at runtime, one scene at a time. The guide documented the limitation in four
-   * places; `MVVMPlugin.configure({ … })` next to the Game Config is the supported way now.
+   * Phaser instantiates scene plugins as `new Plugin(scene, pluginManager, mapKey)`, so the fourth
+   * (config) argument of a Game Config entry is never passed. Two supported ways to configure the
+   * framework came out of that: **this** static (game-wide, before `new Phaser.Game(...)`) and the
+   * entry's own `data` field, which the plugin reads back from `game.config.installScenePlugins`
+   * (`pluginConfigFromGameConfig`). Precedence is defaults → Game Config entry → per-instance config →
+   * `mvvm.configure()` at runtime; `mvvm.config` reports what a scene ended up with.
    */
   private static shared: MVVMPluginConfig = {};
 
@@ -84,12 +78,32 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     MVVMPlugin.shared = {};
   }
 
-  private config: MVVMPluginConfig;
+  private options: MVVMPluginConfig;
+  /**
+   * Options that arrived through the Game Config entry's `data` field, before defaults and patches.
+   *
+   * Kept apart so `config` can report where a value came from, and so a diagnostic ("this scene runs
+   * with `navigation: false`, and nobody called `configure`") is answerable.
+   */
+  private entryOptions: MVVMPluginConfig = {};
   private uiRoot: UIRoot | null = null;
   private inputRouter: InputRouter | null = null;
   private focusManager: FocusManager | null = null;
-  private navRepeat = new NavRepeat();
-  private padState: NavInputState = EMPTY_NAV_STATE;
+  /**
+   * Every device this scene accepts navigation from (round 110).
+   *
+   * The built-ins (`KeyboardNavSource`, `GamepadNavSource`) are registered in the constructor, so
+   * `mvvm.navSources` answers "what can move focus here" and an app can add its own with
+   * `registerNavSource()`. Each entry carries its own hold-to-repeat clock — that is what keeps a pad's
+   * timing separate from the keyboard's, and the action attributable to the device that produced it.
+   */
+  private readonly navSourcesRegistry = new NavSourceRegistry();
+  /**
+   * Extra sources registered by the app, kept across `navigation` toggles and scene restarts.
+   *
+   * `applyNavigation()` rebuilds what is *attached*; this list is what it rebuilds from.
+   */
+  private readonly appNavSources: NavSource[] = [];
   private lastStructureVersion = -1;
   /** Last widget reported by the development focus trace. */
   private lastFocused: Widget | null = null;
@@ -128,9 +142,106 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     config: MVVMPluginConfig = {},
   ) {
     super(scene, pluginManager, pluginKey);
-    // A per-scene config (never delivered by Phaser, but usable from tests and from `configure()`)
-    // wins over the game-wide defaults.
-    this.config = mergePluginConfig(MVVMPlugin.shared, config);
+    // Three sources, weakest first: the game-wide defaults `MVVMPlugin.configure()` builds, the
+    // options the Game Config entry carries in its `data` field (read back from
+    // `game.config.installScenePlugins`, since Phaser never passes them to a scene plugin's
+    // constructor), and finally a per-instance config — which Phaser never supplies either, but which
+    // tests and a host that builds the plugin by hand can.
+    this.entryOptions = pluginConfigFromGameConfig(
+      (pluginManager?.game?.config as { installScenePlugins?: unknown } | undefined)
+        ?.installScenePlugins,
+      pluginKey,
+    );
+    this.options = mergePluginConfig(
+      mergePluginConfig(MVVMPlugin.shared, this.entryOptions),
+      config,
+    );
+  }
+
+  /**
+   * The host object every registered `NavSource` talks to.
+   *
+   * One stable instance for the plugin's whole life (a scene plugin belongs to exactly one scene), so a
+   * per-frame poll allocates nothing. `scene` is a live getter rather than a captured value: an app
+   * registers sources in `create()`, and Phaser assigns `this.scene` on the plugin before that.
+   */
+  private readonly navHost: NavSourceHost = (() => {
+    const plugin = this;
+    return {
+      get scene(): Phaser.Scene {
+        return plugin.scene as Phaser.Scene;
+      },
+      now: () => plugin.scene?.time?.now ?? 0,
+      handleKeyEvent: (event, action) => plugin.handleKeyEvent(event, action),
+      dispatch: (action, source) => plugin.dispatchAction(action, source),
+    };
+  })();
+
+  /**
+   * The options the plugin is actually running with (read-only view).
+   *
+   * The counterpart of `MVVMPlugin.defaults`: `defaults` answers "what did the app configure
+   * game-wide", this answers "so what does *this* scene use". An acceptance page prints it, which is
+   * how the Game Config entry channel above is observable at all.
+   */
+  get config(): Readonly<MVVMPluginConfig> {
+    return { ...this.options };
+  }
+
+  /**
+   * Names of the navigation sources currently registered, in registration order.
+   *
+   * Includes the built-ins (`keyboard`, `gamepad`) and anything the app added with
+   * {@link registerNavSource}.
+   */
+  get navSources(): readonly string[] {
+    return this.navSourcesRegistry.names;
+  }
+
+  /**
+   * Adds a navigation source to this scene — a second pad, a TV remote, an on-screen D-pad, a test
+   * harness. See {@link NavSource} for what a source is.
+   *
+   * The source is attached immediately unless `navigation: false`, and it survives `configure()` and a
+   * scene restart (only its attachment is torn down and rebuilt). Registering the same name twice
+   * throws, because `unregisterNavSource(name)` would otherwise be ambiguous.
+   *
+   * ```ts
+   * this.mvvm.registerNavSource({
+   *   name: 'touch-dpad',
+   *   source: 'touch',
+   *   heldDirections: () => this.dpad.directions(),
+   * });
+   * ```
+   */
+  registerNavSource(source: NavSource): this {
+    // Registering is idempotent per name so that a scene's `create()` can run again after a restart:
+    // the previous attachment is gone by then, but the registration is not.
+    if (this.navSourcesRegistry.has(source.name)) {
+      const index = this.appNavSources.findIndex((entry) => entry.name === source.name);
+      if (index === -1) {
+        throw new Error(
+          `MVVMPlugin.registerNavSource: "${source.name}" is a built-in source and cannot be replaced`,
+        );
+      }
+      this.appNavSources[index] = source;
+      this.navSourcesRegistry.remove(source.name);
+      this.navSourcesRegistry.add(source, this.navHost);
+      return this;
+    }
+    this.appNavSources.push(source);
+    this.navSourcesRegistry.add(source, this.navHost);
+    return this;
+  }
+
+  /** Detaches and forgets a source registered by the app. Returns whether it was there. */
+  unregisterNavSource(name: string): boolean {
+    const index = this.appNavSources.findIndex((entry) => entry.name === name);
+    if (index === -1) {
+      return false;
+    }
+    this.appNavSources.splice(index, 1);
+    return this.navSourcesRegistry.remove(name);
   }
 
   override boot(): void {
@@ -165,7 +276,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
       if (!scene) {
         throw new Error('MVVMPlugin.root: the plugin is not attached to a Scene yet');
       }
-      this.uiRoot = new UIRoot(scene, this.config);
+      this.uiRoot = new UIRoot(scene, this.options);
       this.attachUi();
     }
     return this.uiRoot;
@@ -186,7 +297,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    * ```
    */
   configure(patch: MVVMPluginConfig): this {
-    this.config = mergePluginConfig(this.config, patch);
+    this.options = mergePluginConfig(this.options, patch);
     if (!this.uiRoot) {
       return this;
     }
@@ -307,7 +418,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    * open.
    */
   transitionFor(override?: TransitionOverride): ResolvedTransitions {
-    const options = this.config.transition;
+    const options = this.options.transition;
     // The durations come from the theme (`Theme.motion`), so switching to a theme with a different
     // motion vocabulary retimes every dialog and page transition at once; an explicit duration in the
     // config, in a per-layer option or in a spec still wins (see `resolveTransitions`).
@@ -331,7 +442,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    */
   get a11y(): A11yBridge {
     if (!this.a11yBridge) {
-      const options = this.config.a11y === false ? { enabled: false } : (this.config.a11y ?? {});
+      const options = this.options.a11y === false ? { enabled: false } : (this.options.a11y ?? {});
       this.a11yBridge = new A11yBridge(this, options);
     }
     return this.a11yBridge;
@@ -367,7 +478,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     // `this.a11y` (not the field) on purpose: the layer is created on the first structural change, so a
     // scene gets a mirror without anyone having to ask for it — `a11y: false` (config) or
     // `enabled = false` (runtime) is how an app opts out.
-    if (this.config.a11y !== false) {
+    if (this.options.a11y !== false) {
       this.a11y.refresh();
     }
   }
@@ -392,7 +503,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     }
     this.lastStructureVersion = root.structureVersion;
 
-    this.inputRouter = new InputRouter({ root, ...this.config.input });
+    this.inputRouter = new InputRouter({ root, ...this.options.input });
     // Pointer presses move focus (the router only reports them; the manager owns the order).
     this.inputRouter.onPointerFocus = (widget) => {
       this.focusManager?.focus(widget);
@@ -401,7 +512,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
     this.focusManager = new FocusManager({
       root,
-      ...this.config.focus,
+      ...this.options.focus,
       // `back` is routed, never handled here: `handleBack()` asks the modal stack, then the page stack,
       // then the app (see `back-plan.ts`).
       onBack: this.backRouter,
@@ -416,7 +527,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   private applyThemeBackground(): void {
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = null;
-    if (this.config.themeBackground === false) {
+    if (this.options.themeBackground === false) {
       // The app owns the camera colour now: stop following the theme, leave what is there.
       return;
     }
@@ -424,21 +535,36 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.unsubscribeTheme = onThemeChange((theme) => this.applyThemeToCamera(theme));
   }
 
-  /** Hooks (or unhooks) the keyboard listener; idempotent, so `configure()` can toggle it. */
+  /**
+   * Registers the built-in sources and attaches everything the scene accepts navigation from.
+   *
+   * Idempotent, so `configure({ navigation })`, `boot()` and a scene restart can all call it: whatever
+   * is attached is detached first, then re-attached from the registrations. `navigation: false` means
+   * **no source at all** — including the ones an app registered, because "navigation is off" is a
+   * statement about the scene, not about one device.
+   */
   private applyNavigation(): void {
-    const keyboard = this.scene?.input.keyboard;
-    if (!keyboard) {
+    if (this.navSourcesRegistry.size === 0) {
+      this.navSourcesRegistry.add(new KeyboardNavSource(), this.navHost);
+      this.navSourcesRegistry.add(new GamepadNavSource(), this.navHost);
+      // App-registered sources are re-added from the app's own list so that a `configure()` toggle
+      // cannot forget them; the registry is the *attached* set, `appNavSources` the declaration.
+      for (const source of this.appNavSources) {
+        if (!this.navSourcesRegistry.has(source.name)) {
+          this.navSourcesRegistry.add(source, this.navHost);
+        }
+      }
+    }
+    this.navSourcesRegistry.detachAll();
+    if (this.options.navigation === false) {
       return;
     }
-    keyboard.off('keydown', this.onKeyDown, this);
-    if (this.config.navigation !== false) {
-      keyboard.on('keydown', this.onKeyDown, this);
-    }
+    this.navSourcesRegistry.attachAll(this.navHost);
   }
 
   /** Creates, enables or reconfigures the accessibility mirror; idempotent. */
   private applyA11yOptions(): void {
-    const options = this.config.a11y;
+    const options = this.options.a11y;
     if (!this.a11yBridge) {
       if (options === false || options === undefined) {
         return;
@@ -490,10 +616,17 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     }
     // `config.onBack` can never arrive (Phaser instantiates scene plugins with three arguments), so
     // `mvvm.onBack` is the usable field; `config.focus.onBack` stays supported as the legacy spelling.
-    (this.onBack ?? this.config.onBack ?? this.config.focus?.onBack)?.();
+    (this.onBack ?? this.options.onBack ?? this.options.focus?.onBack)?.();
   }
 
-  private onKeyDown(event: KeyboardEvent): void {
+  /**
+   * A raw key event handed over by a keyboard source (`KeyboardNavSource`).
+   *
+   * The device-specific part (which event means which action) already happened in the source; what is
+   * left here is everything about the *scene*: de-duplication, the browser-shortcut guard, the focused
+   * widget's first refusal and `preventDefault()`.
+   */
+  private handleKeyEvent(event: KeyboardEvent, action: NavAction | null): boolean {
     // Phaser reaches this listener through `KeyboardPlugin.update()`, which walks the manager's whole
     // input queue on *every* input event of the frame and only skips **consecutive** duplicates
     // (`prevCode`/`prevTime`/`prevType`). Two keydowns in one frame therefore deliver the first one
@@ -502,14 +635,13 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     // typing do the same thing. Re-emission hands us the *same* event object, so identity is an exact
     // test; a fresh press always carries a new one.
     if (this.handledKeyEvents.has(event)) {
-      return;
+      return false;
     }
     this.handledKeyEvents.add(event);
 
-    const action = keyboardActionOf(event);
     // Never swallow browser shortcuts (copy/paste/reload/devtools).
     if (event.ctrlKey || event.metaKey || event.altKey) {
-      return;
+      return false;
     }
     // The focused widget gets first refusal, in two steps: `onKeyDown` for the keys it owns beyond
     // navigation (typing, Home/End, PageUp/PageDown), then `onAction` for the navigation actions
@@ -517,21 +649,24 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     const focused = this.focusManager?.focusedWidget ?? null;
     if (focused && focused.onKeyDown?.(event, action) === true) {
       event.preventDefault();
-      return;
+      return true;
     }
     if (!action) {
-      return;
+      return false;
     }
     if (this.dispatchAction(action, 'keyboard')) {
       event.preventDefault();
+      return true;
     }
+    return false;
   }
 
   /**
    * Gives the focused widget first refusal on a navigation action, then navigates.
    *
-   * Every device goes through here: the keyboard path and the gamepad poll, so "the D-Pad adjusts the
-   * slider" and "the arrow key adjusts the slider" cannot drift apart (V28).
+   * Every device goes through here: the keyboard path, the gamepad poll and any source an app
+   * registered, so "the D-Pad adjusts the slider" and "the arrow key adjusts the slider" cannot drift
+   * apart (V28) — and neither can a third device.
    */
   private dispatchAction(action: NavAction, source: ActivationSource): boolean {
     const focused = this.focusManager?.focusedWidget ?? null;
@@ -541,30 +676,19 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     return this.focusManager?.handleAction(action, source) ?? false;
   }
 
-  private pollGamepad(time: number): void {
-    const pads = (this.scene?.input as { gamepad?: { getPad(index: number): GamepadLike | null } })
-      ?.gamepad;
-    const pad = pads?.getPad(0) ?? null;
-    if (!pad) {
-      this.padState = EMPTY_NAV_STATE;
-      this.navRepeat.reset();
+  /**
+   * One frame of navigation: every source is polled, and the actions it produced are dispatched.
+   *
+   * Sources report the directions they *hold*; the repeat timing (350 ms, then every 90 ms) belongs to
+   * the per-source `NavRepeat` in the registry, so it is one policy for every device rather than one
+   * implementation per device.
+   */
+  private pollNavSources(time: number): void {
+    if (this.navSourcesRegistry.size === 0) {
       return;
     }
-
-    // Directions are throttled by `NavRepeat` from the *held* state, while activate/back are edge
-    // triggered inside `gamepadActionsOf` (holding a D-Pad direction must produce one action).
-    const snapshot = gamepadActionsOf(pad, this.padState);
-    this.padState = snapshot.state;
-
-    const repeated = this.navRepeat.update(heldDirectionsOf(gamepadStateOf(pad)), time);
-
-    for (const action of snapshot.actions) {
-      if (action === 'activate' || action === 'back') {
-        this.dispatchAction(action, 'gamepad');
-      }
-    }
-    for (const action of repeated) {
-      this.dispatchAction(action, 'gamepad');
+    for (const { action, source } of this.navSourcesRegistry.poll(this.navHost, time)) {
+      this.dispatchAction(action, source);
     }
   }
 
@@ -625,7 +749,7 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
 
     this.guardBackRouter();
 
-    this.pollGamepad(time);
+    this.pollNavSources(time);
     this.inputRouter?.update(time);
   }
 
@@ -674,7 +798,11 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
   }
 
   private dispose(): void {
-    this.scene?.input.keyboard?.off('keydown', this.onKeyDown, this);
+    // Every source is detached rather than the keyboard listener alone: a source an app registered
+    // holds whatever it attached (a listener, a timer, a device subscription), and the registry is the
+    // only place that knows how to take it back out — which is what keeps "register a source in
+    // `create()`" from leaking one listener per scene restart.
+    this.navSourcesRegistry.detachAll();
     this.unsubscribeTheme?.();
     this.unsubscribeTheme = null;
     // Transition runs hold widget references and deferred teardowns; the root is about to destroy
@@ -697,8 +825,6 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.focusManager?.dispose();
     this.focusManager = null;
     this.handledKeyEvents.clear();
-    this.navRepeat.reset();
-    this.padState = EMPTY_NAV_STATE;
     if (this.uiRoot) {
       devLog('shutdown: UI tree destroyed (widgets, bindings and listeners released)');
       this.uiRoot.destroy(true);

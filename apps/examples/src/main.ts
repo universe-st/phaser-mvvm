@@ -89,12 +89,26 @@ document.title = `phaser-mvvm examples · ${initial}`;
 window.addEventListener('hashchange', () => window.location.reload());
 
 // Game-wide plugin options. Phaser instantiates scene plugins as
-// `new Plugin(scene, pluginManager, mapKey)` — a config object in the Game Config entry is never
-// passed — so this static call is *the* way to configure the framework before the first scene boots.
-// (Until round 66 the options could only be set at runtime, one scene at a time; the guide said so in
-// four places.) `#/a11y` reads the result back: its live region reports `aria-live="assertive"`.
+// `new Plugin(scene, pluginManager, mapKey)`, so a config object in the Game Config entry is never
+// handed to the constructor — but the entry itself is kept verbatim in
+// `game.config.installScenePlugins`, and the framework reads options back out of the entry's `data`
+// field (round 110, `pluginConfigFromGameConfig`). This app therefore uses **both** channels, which is
+// what makes `#/config` able to assert the precedence between them:
+//
+//   * the Game Config entry below carries a scene-plugin option (`transition.enter`) — declarative,
+//     and it travels with the plugin registration rather than with a module-level call;
+//   * `MVVMPlugin.configure({ … })` sets the game-wide defaults; here `a11y.politeness`, which
+//     `#/a11y` and `#/config` read back from the live region (`aria-live="assertive"`).
+//
+// The order is: game-wide defaults < Game Config entry < a per-instance config < `mvvm.configure()` at
+// runtime. So the `transition.enter` below is overridden by the entry's own value, and `#/config`
+// asserts exactly that pair (`defaults()` says 120, `mvvm.config` says 320) — which is how the new
+// channel is observable at all.
 MVVMPlugin.configure({
   a11y: { politeness: 'assertive' },
+  // Deliberately *lower* than the entry's 320 ms: it shows that the two channels merge (rather than one
+  // silently replacing the other) and which of them wins.
+  transition: { enter: 120 },
 });
 
 /**
@@ -161,6 +175,9 @@ const game = new Phaser.Game({
         plugin: MVVMPlugin,
         mapping: 'mvvm',
         start: true,
+        // The options travel in the entry's `data` field (Phaser never passes them to the plugin's
+        // constructor, but it keeps this entry verbatim in `game.config.installScenePlugins`).
+        data: { transition: { enter: 320 } },
       },
     ],
   },

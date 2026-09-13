@@ -93,3 +93,60 @@ export function mergePluginConfig(
   }
   return merged;
 }
+
+/**
+ * Pulls the plugin's options out of the Game Config's scene-plugin entries.
+ *
+ * Phaser instantiates a scene plugin as `new Plugin(scene, pluginManager, mapKey)`: of a Game Config
+ * entry it only ever reads `key`, `plugin` and `mapping`, and the fourth (config) argument a plugin
+ * would like is never passed. Guide 08 §5.3 documented that as a permanent limitation for years and
+ * pushed everyone to `MVVMPlugin.configure()` — which is *global*, and therefore useless for an app
+ * that boots two games or for a library that wants to configure itself without touching a static.
+ *
+ * The options ride in the entry's **`data`** field and the plugin reads them back from
+ * `game.config.installScenePlugins` — the array Phaser keeps **verbatim** (`Config.js` copies
+ * `plugins.scene` straight into it). `data` is the one typed slot in `PluginObjectItem` that is free
+ * here: it is documented as "arbitrary data passed to the plugin's `init()` method", and Phaser only
+ * does that for *global* plugins, so a scene plugin owns it.
+ *
+ * ```ts
+ * plugins: {
+ *   scene: [{
+ *     key: 'MVVMPlugin',
+ *     plugin: MVVMPlugin,
+ *     mapping: 'mvvm',
+ *     data: { a11y: { politeness: 'assertive' }, transition: { enter: 0 } },
+ *   }],
+ * }
+ * ```
+ *
+ * `pluginKey` is whatever Phaser handed the constructor in the third argument — and on the Game Config
+ * path that is the **`mapping`**, not the `key` (`PluginManager#addToScene` passes
+ * `PluginCache.getCore(key).mapping`, so a plugin registered as `mapping: 'mvvm'` sees `"mvvm"`).
+ * Both fields are therefore matched: an entry identifies a plugin by either name, and only one of them
+ * is available depending on how the plugin was installed.
+ *
+ * Several entries registered under the same key are merged in order. Anything that is not a plain
+ * object in `data` is ignored, so a payload meant for something else cannot break the constructor.
+ */
+export function pluginConfigFromGameConfig(entries: unknown, pluginKey: string): MVVMPluginConfig {
+  if (!Array.isArray(entries) || !pluginKey) {
+    return {};
+  }
+  let merged: MVVMPluginConfig = {};
+  for (const entry of entries) {
+    if (entry === null || typeof entry !== 'object') {
+      continue;
+    }
+    const record = entry as { key?: unknown; mapping?: unknown; data?: unknown };
+    if (record.key !== pluginKey && record.mapping !== pluginKey) {
+      continue;
+    }
+    const data = record.data;
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+      continue;
+    }
+    merged = mergePluginConfig(merged, data as MVVMPluginConfig);
+  }
+  return merged;
+}

@@ -8,7 +8,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { mergePluginConfig, type MVVMPluginConfig } from '../src/plugin-config';
+import {
+  mergePluginConfig,
+  pluginConfigFromGameConfig,
+  type MVVMPluginConfig,
+} from '../src/plugin-config';
 
 describe('mergePluginConfig', () => {
   it('replaces flat options and keeps the untouched ones', () => {
@@ -85,5 +89,73 @@ describe('mergePluginConfig', () => {
     expect(mergePluginConfig(mergePluginConfig(a, b), c)).toEqual(
       mergePluginConfig(a, mergePluginConfig(b, c)),
     );
+  });
+});
+
+/**
+ * `pluginConfigFromGameConfig` — the Game Config entry channel.
+ *
+ * Phaser reads only `key`/`plugin`/`mapping` from a scene-plugin entry and never passes the config
+ * argument, so the options ride in `data` and are read back from `game.config.installScenePlugins`
+ * (which Phaser keeps verbatim). The parsing lives here, Phaser-free, so the failure modes that matter
+ * — another plugin's entry, a non-object payload, several entries under one key — are pinned in Node.
+ */
+describe('pluginConfigFromGameConfig', () => {
+  const entries = [
+    { key: 'MVVMPlugin', plugin: () => undefined, mapping: 'mvvm', data: { navigation: false } },
+    { key: 'OtherPlugin', plugin: () => undefined, mapping: 'other', data: { navigation: true } },
+  ];
+
+  it('reads the data of the entry registered under our key, and only ours', () => {
+    expect(pluginConfigFromGameConfig(entries, 'MVVMPlugin')).toEqual({ navigation: false });
+    expect(pluginConfigFromGameConfig(entries, 'other')).toEqual({ navigation: true });
+    expect(pluginConfigFromGameConfig(entries, 'nothing')).toEqual({});
+  });
+
+  it('matches on the mapping too, because that is what Phaser passes to the constructor', () => {
+    // Measured on `#/config` (round 110): Phaser's Game Config path reaches `addToScene`, which calls
+    // `new plugin(scene, pluginManager, source.mapping)` — so the plugin's third argument is `'mvvm'`,
+    // the mapping, and a key-only lookup silently found nothing (the entry value was dropped and the
+    // game-wide default won). Both names identify the entry; either one has to work.
+    const withMappingOnly = [{ mapping: 'mvvm', data: { navigation: false } }];
+    expect(pluginConfigFromGameConfig(withMappingOnly, 'mvvm')).toEqual({ navigation: false });
+    expect(pluginConfigFromGameConfig(withMappingOnly, 'MVVMPlugin')).toEqual({});
+    expect(pluginConfigFromGameConfig(entries, 'mvvm')).toEqual({ navigation: false });
+  });
+
+  it('merges several entries under the same key, later ones winning', () => {
+    const many = [
+      { key: 'MVVMPlugin', data: { transition: { enter: 300 }, navigation: false } },
+      { key: 'MVVMPlugin', data: { transition: { exit: 40 } } },
+    ];
+    expect(pluginConfigFromGameConfig(many, 'MVVMPlugin')).toEqual({
+      navigation: false,
+      transition: { enter: 300, exit: 40 },
+    });
+  });
+
+  it('ignores anything that is not a plain object payload', () => {
+    for (const data of [undefined, null, 'assertive', 42, ['a'], () => undefined]) {
+      expect(pluginConfigFromGameConfig([{ key: 'MVVMPlugin', data }], 'MVVMPlugin')).toEqual({});
+    }
+    for (const list of [undefined, null, 'nope', 7, {}]) {
+      expect(pluginConfigFromGameConfig(list, 'MVVMPlugin')).toEqual({});
+    }
+    // An empty plugin key would match every entry whose `key`/`mapping` is missing.
+    expect(pluginConfigFromGameConfig([{ data: { navigation: false } }], '')).toEqual({});
+  });
+
+  it('ignores malformed entries instead of throwing', () => {
+    // A null/primitive entry, and an entry that has `data` but no `key`, must both be skipped: nobody
+    // validates the object an app passes to `new Phaser.Game(...)` before we read it.
+    expect(
+      pluginConfigFromGameConfig([null, 3, 'x', { data: { navigation: false } }], 'MVVMPlugin'),
+    ).toEqual({});
+  });
+
+  it('never mutates the entry it read', () => {
+    const data = { transition: { enter: 300 } };
+    pluginConfigFromGameConfig([{ key: 'MVVMPlugin', data }], 'MVVMPlugin');
+    expect(data.transition).toEqual({ enter: 300 });
   });
 });

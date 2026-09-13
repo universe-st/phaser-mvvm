@@ -1,21 +1,26 @@
 /**
  * Navigation sources: the device-independent vocabulary a focus manager consumes.
  *
- * Three layers live here, deliberately separated so that the interesting logic is testable in plain
+ * Four layers live here, deliberately separated so that the interesting logic is testable in plain
  * Node (no Phaser runtime, no real timers, no DOM):
  *
  * 1. `NavAction` — the vocabulary (`next`/`prev`, the four directions, `activate`, `back`),
  * 2. mappers — `keyboardActionOf(event)` and `gamepadActionsOf(pad, previous)`, which turn raw
  *    device state into that vocabulary (keyboard events only *read* the native event; gamepad
  *    "previous" state is supplied and returned by the caller, so the module keeps no memory),
- * 3. `NavRepeat` — a hold-to-repeat state machine whose clock is the `now` argument.
+ * 3. `NavRepeat` — a hold-to-repeat state machine whose clock is the `now` argument,
+ * 4. `NavSource` + `NavSourceRegistry` — the named abstraction a *device* implements, and the
+ *    per-source repeat state the host polls once per frame (round 110; before that the plugin knew
+ *    exactly two devices, a `keydown` listener and `getPad(0)`, and no API existed for a third).
  *
- * Wiring a source to a scene is the host's job (`MVVMPlugin` owns the listeners and polls the pad
- * once per frame): this module never touches a `Scene` and never creates a Phaser object at import
- * time, so importing it in a Node test costs nothing.
+ * Wiring a source to a scene is the host's job (`MVVMPlugin` owns the listeners, the per-frame poll
+ * and the dispatch policy): this module never touches a `Scene` and never creates a Phaser object at
+ * import time, so importing it in a Node test costs nothing. The built-in sources live next door in
+ * `nav-sources.ts`, next to the Phaser objects they drive.
  */
 
 import type Phaser from 'phaser';
+import type { ActivationSource } from './Widget';
 
 /** Everything a focus manager can be asked to do by a navigation source. */
 export type NavAction = 'next' | 'prev' | 'up' | 'down' | 'left' | 'right' | 'activate' | 'back';
@@ -278,4 +283,192 @@ export function gamepadActionsOf(
   }
 
   return { actions, state };
+}
+
+// ---------------------------------------------------------------------------- the source abstraction
+
+/**
+ * What a navigation source may ask of the framework.
+ *
+ * The host is the scene plugin, and these four members are the whole contract: read the scene for the
+ * device, translate it, and hand the result to `dispatch` — which gives the focused widget first
+ * refusal and only then moves focus, so a custom device cannot bypass the widget that the keyboard and
+ * the gamepad both go through (V28).
+ */
+export interface NavSourceHost {
+  /** The scene the plugin is installed in. A source reaches its device through `scene.input`. */
+  readonly scene: Phaser.Scene;
+  /** The clock repeat timings run on, in milliseconds (Phaser's `time.now`). */
+  now(): number;
+  /**
+   * Offers a raw key event to the focused widget, then navigates. Returns whether it was handled.
+   *
+   * Keyboard sources use this instead of `dispatch` because a text field has to see the event itself
+   * (typing, Home/End, `Ctrl+A`) and may `preventDefault()` it. Also the host's job: the de-duplication
+   * Phaser's input queue needs, the browser-shortcut guard and the `preventDefault()` call.
+   */
+  handleKeyEvent(event: KeyboardEvent, action: NavAction | null): boolean;
+  /** Offers a navigation action to the focused widget, then navigates. Returns whether it was handled. */
+  dispatch(action: NavAction, source: ActivationSource): boolean;
+}
+
+/**
+ * One device that can move focus, activate controls and go back — the framework's **named** navigation
+ * abstraction (PLAN §6, M9's last open item).
+ *
+ * Before this existed the plugin hard-coded exactly two devices: a `keydown` listener and `getPad(0)`
+ * polled once per frame. Everything *about* navigation was already device-independent (`NavAction`,
+ * `keyboardActionOf`, `gamepadActionsOf`, `NavRepeat`), but there was no way to *add* a device: a TV
+ * remote, an on-screen D-Pad, a test harness or a second pad had to reimplement the plugin's wiring, and
+ * nothing in the public API said what such a thing must do.
+ *
+ * A source is deliberately small, and each hook is optional because the two built-ins need opposite
+ * halves of it:
+ *
+ * - `attach(host)` — for event-driven devices. The returned function (or `detach()`) is called when the
+ *   source is unregistered or the scene shuts down.
+ * - `poll(host)` — called once per frame, for edge-triggered actions a device only exposes by being
+ *   read (`activate` on a gamepad button).
+ * - `heldDirections()` — the directions held *right now*; the host throttles them through `NavRepeat`,
+ *   so a source reports the held state and never repeats by itself.
+ *
+ * ```ts
+ * // A second pad, or any device that only exists in the app:
+ * this.mvvm.registerNavSource({
+ *   name: 'pad-2',
+ *   source: 'gamepad',
+ *   heldDirections: () => heldDirectionsOf(gamepadStateOf(this.input.gamepad!.getPad(1)!)),
+ * });
+ * ```
+ */
+export interface NavSource {
+  /** Unique name: the key for `mvvm.unregisterNavSource(name)`, and what dev logs report. */
+  readonly name: string;
+  /**
+   * Which `ActivationSource` this device's actions are attributed to.
+   *
+   * The vocabulary is closed (`pointer`/`touch`/`keyboard`/`gamepad`) because that is what widgets and
+   * their listeners already speak; a device that is none of those picks the closest one. `name` is the
+   * finer-grained identity.
+   */
+  readonly source: ActivationSource;
+  /** Subscribes to the device. */
+  attach?(host: NavSourceHost): void | (() => void);
+  /** Releases whatever `attach()` took, when the source is removed or the scene shuts down. */
+  detach?(): void;
+  /** Directions held right now, polled once per frame by the host. */
+  heldDirections?(): readonly NavDirection[];
+  /** Called once per frame, before `heldDirections()`, for edge-triggered actions. */
+  poll?(host: NavSourceHost): void;
+}
+
+/** One registered source plus the repeat state that belongs to it. */
+interface NavSourceEntry {
+  readonly source: NavSource;
+  readonly repeat: NavRepeat;
+  detach: (() => void) | null;
+}
+
+/**
+ * The sources a scene accepts navigation from, and the hold-to-repeat clock of each.
+ *
+ * A registry rather than a plain array because the per-source state it carries is exactly what makes
+ * repeat timing correct: two devices holding the same direction keep their own `NavRepeat`, so a pad's
+ * 350 ms initial delay is not restarted by the keyboard (or vice versa), and the action can still be
+ * attributed to the device that produced it. It has no Phaser dependency, so all of it is unit-tested
+ * in Node with a fake host.
+ */
+export class NavSourceRegistry {
+  private readonly entries: NavSourceEntry[] = [];
+
+  /** Registered names, in registration order. */
+  get names(): readonly string[] {
+    return this.entries.map((entry) => entry.source.name);
+  }
+
+  /** The registered sources, in registration order. */
+  get sources(): readonly NavSource[] {
+    return this.entries.map((entry) => entry.source);
+  }
+
+  get size(): number {
+    return this.entries.length;
+  }
+
+  has(name: string): boolean {
+    return this.entries.some((entry) => entry.source.name === name);
+  }
+
+  /**
+   * Registers a source and attaches it. Throws on a duplicate name: two sources under one name make
+   * `unregisterNavSource()` ambiguous, which is a programming error rather than a runtime condition.
+   */
+  add(source: NavSource, host: NavSourceHost): void {
+    if (this.has(source.name)) {
+      throw new Error(`NavSourceRegistry: a source named "${source.name}" is already registered`);
+    }
+    const detach = source.attach?.(host);
+    this.entries.push({
+      source,
+      repeat: new NavRepeat(),
+      detach: typeof detach === 'function' ? detach : (source.detach?.bind(source) ?? null),
+    });
+  }
+
+  /** Detaches and forgets one source. Returns whether it was registered. */
+  remove(name: string): boolean {
+    const index = this.entries.findIndex((entry) => entry.source.name === name);
+    if (index === -1) {
+      return false;
+    }
+    const [entry] = this.entries.splice(index, 1);
+    entry?.detach?.();
+    return true;
+  }
+
+  /** Detaches every source (`navigation: false`, scene shutdown) but keeps the registrations. */
+  detachAll(): void {
+    for (const entry of this.entries) {
+      entry.detach?.();
+      entry.detach = null;
+      entry.repeat.reset();
+    }
+  }
+
+  /** Attaches every source that is not attached yet. Idempotent. */
+  attachAll(host: NavSourceHost): void {
+    for (const entry of this.entries) {
+      if (entry.detach) {
+        continue;
+      }
+      const detach = entry.source.attach?.(host);
+      entry.detach =
+        typeof detach === 'function' ? detach : (entry.source.detach?.bind(entry.source) ?? null);
+    }
+  }
+
+  /** Forgets every source, detaching first. */
+  clear(): void {
+    this.detachAll();
+    this.entries.length = 0;
+  }
+
+  /**
+   * One frame: polls each source for edge-triggered actions, then turns each source's *held* directions
+   * into the actions that should fire now.
+   *
+   * The answer is a list of `(action, source)` pairs rather than a list of actions, because the two
+   * devices that hold the same direction must stay distinguishable to the widget that receives it.
+   */
+  poll(host: NavSourceHost, now: number): Array<{ action: NavAction; source: ActivationSource }> {
+    const fired: Array<{ action: NavAction; source: ActivationSource }> = [];
+    for (const entry of this.entries) {
+      entry.source.poll?.(host);
+      const held = entry.source.heldDirections?.() ?? [];
+      for (const action of entry.repeat.update(held, now)) {
+        fired.push({ action, source: entry.source.source });
+      }
+    }
+    return fired;
+  }
 }

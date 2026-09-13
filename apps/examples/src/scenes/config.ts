@@ -3,17 +3,22 @@
  *
  * Until round 66 plugin options could only be set at runtime, one scene at a time, because Phaser
  * instantiates scene plugins as `new Plugin(scene, pluginManager, mapKey)` — an options object in the
- * Game Config entry is never passed. The guide documented that limitation in four places. Now there are
- * two supported ways, and this page asserts both:
+ * Game Config entry is never passed to the constructor. The guide documented that limitation in four
+ * places, and round 110 removed it: the entry is kept verbatim in `game.config.installScenePlugins`, so
+ * options carried in its `data` field do reach the plugin. That makes **three** channels, and this page
+ * asserts every one of them plus the precedence between them:
  *
+ * - **Game Config entry** (`data: { … }` next to the plugin registration in `main.ts`) — the app puts
+ *   `transition: { enter: 320 }` there; `this.mvvm.config` reports it;
  * - **game-wide defaults** (`MVVMPlugin.configure({ … })`, called once in `main.ts` before the game is
- *   created) — the app sets `a11y: { politeness: 'assertive' }` there, and the live region on this page
- *   reports it back;
+ *   created) — the app sets `a11y: { politeness: 'assertive' }` *and* `transition: { enter: 120 }` there,
+ *   so the page can show that the defaults are set (120) and yet the entry wins (320);
  * - **runtime patch** (`this.mvvm.configure({ … })`) — applied immediately for the options that own a
- *   subscription or a live object, stored for the ones that describe how the UI is built.
+ *   subscription or a live object, stored for the ones that describe how the UI is built, and it wins
+ *   over both of the above.
  *
- * `window.config`: `patch(options)` / `defaults()` / `cameraColor()` / `liveAttrs()` / `theme(name)` /
- * `focus(name)` / `focusName()` / `router()` / `state()`.
+ * `window.config`: `patch(options)` / `defaults()` / `effective()` / `entry()` / `cameraColor()` /
+ * `liveAttrs()` / `theme(name)` / `focus(name)` / `focusName()` / `router()` / `state()`.
  */
 
 import Phaser from 'phaser';
@@ -41,6 +46,18 @@ export class ConfigScene extends Phaser.Scene {
     reportWidget('config.page', this.mvvm.root);
     appendStatus(
       `defaults.a11y=${JSON.stringify(MVVMPlugin.defaults.a11y ?? null).replace(/\s/g, '')}`,
+    );
+    // The Game Config entry channel: what the entry asked for, and what the scene ended up with. The
+    // two differ on purpose (`enter: 320` vs the `configure()` default of 120), which is the whole
+    // observable difference between the channels.
+    const effective = this.mvvm.config;
+    const enter = typeof effective.transition === 'object' ? effective.transition.enter : 'off';
+    const defaultEnter =
+      typeof MVVMPlugin.defaults.transition === 'object'
+        ? MVVMPlugin.defaults.transition.enter
+        : 'off';
+    appendStatus(
+      `entry.transition.enter=${enter} defaults.transition.enter=${defaultEnter} entryValueWins=${enter === 320 ? 1 : 0}`,
     );
   }
 
@@ -219,6 +236,17 @@ export class ConfigScene extends Phaser.Scene {
       focus: this.mvvm.focus.focusedWidget?.name || 'none',
       focusables: this.mvvm.focus.focusables.length,
       patched: this.patched,
+      // The entry channel is part of "what is this scene running with", so it belongs in the one-call
+      // snapshot as well.
+      config: { ...this.mvvm.config },
+      configEntry: ((): Record<string, unknown> => {
+        const entries = (this.game.config as unknown as { installScenePlugins?: unknown })
+          .installScenePlugins;
+        const found = Array.isArray(entries)
+          ? entries.find((item) => (item as { key?: string })?.key === 'MVVMPlugin')
+          : undefined;
+        return { ...((found as { data?: Record<string, unknown> })?.data ?? {}) };
+      })(),
     };
   }
 
@@ -231,6 +259,26 @@ export class ConfigScene extends Phaser.Scene {
       },
       /** The game-wide defaults the app set before creating the game. */
       defaults: (): Record<string, unknown> => ({ ...MVVMPlugin.defaults }),
+      /**
+       * What this scene is actually running with — defaults, Game Config entry and runtime patches
+       * already merged (`mvvm.config`).
+       */
+      effective: (): Record<string, unknown> => ({ ...this.mvvm.config }),
+      /**
+       * The options the Game Config entry carried, read back the way the plugin reads them.
+       *
+       * It re-reads `game.config.installScenePlugins` rather than returning a cached copy, so the probe
+       * fails if Phaser ever stops keeping the entry verbatim — which is the assumption the whole
+       * channel rests on.
+       */
+      entry: (): Record<string, unknown> => {
+        const entries = (this.game.config as unknown as { installScenePlugins?: unknown })
+          .installScenePlugins;
+        const found = Array.isArray(entries)
+          ? entries.find((item) => (item as { key?: string })?.key === 'MVVMPlugin')
+          : undefined;
+        return { ...((found as { data?: Record<string, unknown> })?.data ?? {}) };
+      },
       /** The motion policy in force, as `modal.open()` would resolve it (durations in ms). */
       motion: (): { enter: number; exit: number; reduced: boolean } => {
         const policy = this.mvvm.transitionFor();

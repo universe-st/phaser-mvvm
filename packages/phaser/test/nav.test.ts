@@ -8,11 +8,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type Phaser from 'phaser';
-import type { NavAction, NavInputState } from '../src/nav';
+import type { NavAction, NavDirection, NavInputState, NavSourceHost } from '../src/nav';
 import {
   GAMEPAD_BUTTON_ACTIVATE,
   GAMEPAD_BUTTON_BACK,
   NavRepeat,
+  NavSourceRegistry,
   gamepadActionsOf,
   gamepadStateOf,
   heldDirectionsOf,
@@ -273,5 +274,166 @@ describe('NavAction usage', () => {
     const action: NavAction = 'next';
 
     expect(action).toBe('next');
+  });
+});
+
+/**
+ * `NavSourceRegistry` — the named navigation-source abstraction (PLAN §6, M9's last open item).
+ *
+ * Before round 110 the plugin hard-coded two devices and no API existed for a third. The registry is
+ * where "which devices, attached how, repeating at whose timing" now lives, and it is Phaser-free, so
+ * every rule below is pinned in Node against a fake host:
+ *
+ * - a source is attached on `add` and detached on `remove`/`detachAll`/`clear`,
+ * - `poll` reports edge actions before the held directions, and each source keeps its **own** repeat
+ *   clock (a pad's 350 ms delay must not be restarted by the keyboard),
+ * - the action carries the attribution of the source that produced it.
+ */
+describe('NavSourceRegistry', () => {
+  function fakeHost(): {
+    host: NavSourceHost;
+    dispatched: Array<{ action: NavAction; source: string }>;
+  } {
+    const dispatched: Array<{ action: NavAction; source: string }> = [];
+    const host: NavSourceHost = {
+      scene: undefined as unknown as Phaser.Scene,
+      now: () => 0,
+      handleKeyEvent: () => false,
+      dispatch: (action, source) => {
+        dispatched.push({ action, source });
+        return true;
+      },
+    };
+    return { host, dispatched };
+  }
+
+  /** A source whose held directions and edge actions the test drives directly. */
+  function scriptedSource(name: string, source: 'keyboard' | 'gamepad' | 'touch') {
+    const calls: string[] = [];
+    return {
+      calls,
+      name,
+      source,
+      held: [] as NavDirection[],
+      edges: [] as NavAction[],
+      attach: () => {
+        calls.push('attach');
+        return () => calls.push('detach');
+      },
+      poll(host: NavSourceHost) {
+        for (const action of this.edges.splice(0)) {
+          host.dispatch(action, this.source);
+        }
+      },
+      heldDirections() {
+        return this.held;
+      },
+    };
+  }
+
+  it('attaches on add and detaches on remove', () => {
+    const { host } = fakeHost();
+    const registry = new NavSourceRegistry();
+    const source = scriptedSource('pad-2', 'gamepad');
+
+    registry.add(source, host);
+    expect(source.calls).toEqual(['attach']);
+    expect(registry.names).toEqual(['pad-2']);
+    expect(registry.has('pad-2')).toBe(true);
+
+    expect(registry.remove('pad-2')).toBe(true);
+    expect(source.calls).toEqual(['attach', 'detach']);
+    expect(registry.remove('pad-2')).toBe(false);
+    expect(registry.size).toBe(0);
+  });
+
+  it('refuses two sources under one name', () => {
+    const { host } = fakeHost();
+    const registry = new NavSourceRegistry();
+    registry.add(scriptedSource('dup', 'keyboard'), host);
+    expect(() => registry.add(scriptedSource('dup', 'gamepad'), host)).toThrow(
+      /already registered/,
+    );
+  });
+
+  it('reports edge actions first, then the held directions, both attributed to their source', () => {
+    const { host, dispatched } = fakeHost();
+    const registry = new NavSourceRegistry();
+    const pad = scriptedSource('pad', 'gamepad') as ReturnType<typeof scriptedSource> & {
+      held: NavDirection[];
+      edges: NavAction[];
+    };
+    pad.edges.push('activate');
+    pad.held.push('down');
+    registry.add(pad, host);
+
+    expect(registry.poll(host, 0)).toEqual([{ action: 'down', source: 'gamepad' }]);
+    expect(dispatched).toEqual([{ action: 'activate', source: 'gamepad' }]);
+  });
+
+  it('gives every source its own repeat clock', () => {
+    const { host } = fakeHost();
+    const registry = new NavSourceRegistry();
+    const pad = scriptedSource('pad', 'gamepad');
+    const stick = scriptedSource('stick', 'touch');
+    pad.held.push('down');
+    stick.held.push('down');
+    registry.add(pad, host);
+    registry.add(stick, host);
+
+    // First frame: both fire immediately.
+    expect(registry.poll(host, 0).map((entry) => entry.source)).toEqual(['gamepad', 'touch']);
+    // Second frame at 400 ms: both repeat (initialDelay 350), each on its own clock.
+    expect(registry.poll(host, 400).map((entry) => entry.source)).toEqual(['gamepad', 'touch']);
+    // Third frame at 420 ms: neither does.
+    expect(registry.poll(host, 420)).toEqual([]);
+
+    // Releasing only the pad resets only the pad: its next press fires immediately again, while the
+    // stick is still waiting for its own next repeat (scheduled at 490, so 481 must not fire it).
+    pad.held.length = 0;
+    registry.poll(host, 480);
+    pad.held.push('down');
+    expect(registry.poll(host, 481).map((entry) => entry.source)).toEqual(['gamepad']);
+    expect(registry.poll(host, 490).map((entry) => entry.source)).toEqual(['touch']);
+  });
+
+  it('detachAll stops delivery without forgetting the registrations, and attachAll restores it', () => {
+    const { host } = fakeHost();
+    const registry = new NavSourceRegistry();
+    const source = scriptedSource('pad', 'gamepad');
+    source.held.push('down');
+    registry.add(source, host);
+
+    registry.detachAll();
+    expect(registry.names).toEqual(['pad']);
+    expect(source.calls).toEqual(['attach', 'detach']);
+    // A detached source is still polled (its device may be gone), but its repeat clock was reset —
+    // this is what makes `configure({ navigation: false })` → `true` start from a clean state.
+    registry.attachAll(host);
+    expect(source.calls).toEqual(['attach', 'detach', 'attach']);
+    expect(registry.poll(host, 0).map((entry) => entry.action)).toEqual(['down']);
+
+    registry.clear();
+    expect(registry.names).toEqual([]);
+    expect(source.calls).toEqual(['attach', 'detach', 'attach', 'detach']);
+  });
+
+  it('uses detach() when attach() returns nothing', () => {
+    const { host } = fakeHost();
+    const registry = new NavSourceRegistry();
+    const calls: string[] = [];
+    registry.add(
+      {
+        name: 'timer-driven',
+        source: 'touch',
+        attach: () => {
+          calls.push('attach');
+        },
+        detach: () => calls.push('detach'),
+      },
+      host,
+    );
+    registry.detachAll();
+    expect(calls).toEqual(['attach', 'detach']);
   });
 });

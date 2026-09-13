@@ -48,7 +48,7 @@ new Phaser.Game({
   // 中文 IME / 移动端软键盘需要 DOM 容器（见 04 章）
   dom: { createContainer: true },
   plugins: {
-    // 只读 key / plugin / mapping 三个字段（插件选项目前传不进去，见第 3 点）
+    // key/plugin/mapping 由 Phaser 使用；插件选项写在 data 里（见第 4 点）
     scene: [{ key: 'MVVMPlugin', plugin: MVVMPlugin, mapping: 'mvvm' }],
   },
 });
@@ -59,7 +59,7 @@ new Phaser.Game({
 1. **`mapping: 'mvvm'`** 决定场景里的字段名：之后写 `this.mvvm`。插件在每个场景启动时创建，场景 `SHUTDOWN`/`DESTROY` 时自动把 UI、监听器、绑定全部拆掉。
 2. **两个 install 函数都要调**，而且要在创建 UI 之前调。它们只是「把方法注册到 `Phaser.GameObjects.GameObjectFactory` 上」，是幂等的，模块顶层调一次即可。少调一个，对应的 `this.add.xxx` 就是 `undefined`。
 3. **`dom.createContainer: true`** 是中文输入法与移动端软键盘（DOM 输入桥）的前提；纯 Canvas 场景可以不开（[04 章 §2](./04-text-inputs.md)）。
-4. **插件条目里只写 `key`/`plugin`/`mapping`**：Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化场景插件，`MVVMPluginConfig`（`themeBackground`/`input`/`focus`/`navigation`/`onBack`/`safeArea`）目前**传不进去**，写了也不会生效；这些选项的正确写法是：**游戏级**在 `new Phaser.Game(...)` 之前调一次 `MVVMPlugin.configure({ … })`，**单个场景**用 `this.mvvm.configure({ … })`（`back` 用 `this.mvvm.onBack`，不是 `focus.onBack`）（[06 §6.1](./06-data-and-theme.md)、[07 §2](./07-input-focus-nav.md)）。
+4. **插件选项写在条目的 `data` 字段里**：Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化场景插件，`config` 参数永远为空，但条目本身被原样保留，所以 `MVVMPluginConfig`（`themeBackground`/`input`/`focus`/`navigation`/`onBack`/`safeArea`）写在 `data` 里就能生效（第 110 轮；`data: { navigation: false }`）。另外两种写法是**游戏级**在 `new Phaser.Game(...)` 之前调一次 `MVVMPlugin.configure({ … })`、**单个场景运行期**用 `this.mvvm.configure({ … })`；三者强弱与读回见 [06 §6.1](./06-data-and-theme.md)。`back` 用 `this.mvvm.onBack`，不是 `focus.onBack`（[07 §2](./07-input-focus-nav.md)）。
 5. **手机上自动避开刘海**：`UIRoot` 默认开启安全区（`safeArea: true`），它把 `env(safe-area-inset-*)` 读出来当作根的内边距——桌面上量到的是 0，行为与从前完全一致；有挖孔或手势条时按钮不会被压在下面。**前提是页面声明了 `viewport-fit=cover`**，否则浏览器对所有 inset 都报 0：
 
 ```html

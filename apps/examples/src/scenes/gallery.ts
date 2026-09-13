@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import type { Widget } from '@phaser-mvvm/phaser';
+import {
+  WIDGET_EVENTS,
+  type NavAction,
+  type NavDirection,
+  type NavSource,
+  type Widget,
+} from '@phaser-mvvm/phaser';
 import { setDemoState } from '../demo';
 import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
 
@@ -9,6 +15,12 @@ import { appendStatus, pagePoint, reportCanvas, reportWidget } from '../status';
  * The point of the scene is coverage, not beauty: variants, sizes, disabled/loading/toggle buttons,
  * label truncation, dividers, spacers and a `fit: 'contain'` image, all inside nested grid/box
  * containers.
+ *
+ * Round 110 added the **third input device**: the page registers its own `NavSource` (a synthetic
+ * d-pad the acceptance run drives from `window.gallery`) next to the built-in keyboard and pad 0, which
+ * is what makes the named abstraction observable — `nav.sources`, the focus it moves, the
+ * `ActivationSource` its activations carry, and the attach/detach counters that prove registration is
+ * reversible.
  */
 export class GalleryScene extends Phaser.Scene {
   constructor() {
@@ -18,6 +30,48 @@ export class GalleryScene extends Phaser.Scene {
   /** Widgets whose `pt.*`/`st.*` are published every frame. */
   private readonly tracked = new Map<string, Widget>();
   private readonly published = new Map<string, string>();
+
+  /**
+   * The synthetic source: a device the framework has never heard of.
+   *
+   * It is a plain object implementing `NavSource` and nothing else — no Phaser, no listener, no
+   * timer — which is the point: a source is *data* plus three optional hooks. `held` is what the
+   * acceptance run presses, `edges` what it fires once, and `attachments` counts how many times the
+   * framework attached the device (so a register/unregister round trip is provably neutral).
+   */
+  private readonly synthetic: {
+    attachments: number;
+    detachments: number;
+    held: NavDirection[];
+    edges: NavAction[];
+    source: NavSource;
+  } = {
+    attachments: 0,
+    detachments: 0,
+    held: [],
+    edges: [],
+    source: {
+      name: 'gallery-dpad',
+      source: 'touch',
+      attach: () => {
+        this.synthetic.attachments += 1;
+        return () => {
+          this.synthetic.detachments += 1;
+          this.synthetic.held.length = 0;
+          this.synthetic.edges.length = 0;
+        };
+      },
+      poll: (host) => {
+        for (const action of this.synthetic.edges.splice(0)) {
+          host.dispatch(action, 'touch');
+        }
+      },
+      heldDirections: () => this.synthetic.held,
+    },
+  };
+
+  /** Activations seen through the per-widget event, with the device they came from. */
+  private readonly activations: Array<{ name: string; source: string }> = [];
 
   private track(key: string, widget: Widget): void {
     this.tracked.set(key, widget);
@@ -44,6 +98,9 @@ export class GalleryScene extends Phaser.Scene {
       'focusables',
       this.mvvm.focus.focusables.map((w) => w.name || 'unnamed').join('+'),
     );
+    this.publish('nav.sources', this.mvvm.navSources.join('+'));
+    const last = this.activations[this.activations.length - 1];
+    this.publish('nav.lastActivation', last ? `${last.name}:${last.source}` : 'none');
   }
 
   private publish(key: string, value: string | number | boolean): void {
@@ -174,6 +231,8 @@ export class GalleryScene extends Phaser.Scene {
       this.mvvm.focus.focus(primaryButton as never);
     }
 
+    this.exposeGalleryApi();
+
     appendStatus('--- gallery layout ---');
     reportWidget('page', page);
     reportWidget('grid', columns);
@@ -181,6 +240,60 @@ export class GalleryScene extends Phaser.Scene {
     reportWidget('labels', labelColumn);
     reportWidget('images', imageColumn);
     reportCanvas(this.game);
+    appendStatus(`nav.sources=${this.mvvm.navSources.join('+')}`);
     setDemoState('scene', 'gallery');
+  }
+
+  /**
+   * The acceptance surface for the navigation-source abstraction.
+   *
+   * `press('right')` is a *held* direction (the framework's `NavRepeat` turns it into one action and
+   * then auto-repeat), `fire('activate')` is a one-shot — the two halves of `NavSource`. Nothing here
+   * touches focus directly: every action goes through `host.dispatch()`, exactly like the keyboard and
+   * the pad, so the readouts below describe the framework's own routing.
+   */
+  private exposeGalleryApi(): void {
+    for (const widget of this.tracked.values()) {
+      widget.on(WIDGET_EVENTS.ACTIVATE, (source: string) => {
+        this.activations.push({ name: widget.name || 'unnamed', source });
+        if (this.activations.length > 20) {
+          this.activations.shift();
+        }
+      });
+    }
+
+    (window as unknown as { gallery?: unknown }).gallery = {
+      /** Which sources this scene accepts navigation from, in registration order. */
+      sources: (): readonly string[] => this.mvvm.navSources,
+      /** Registers the synthetic device; throws if it is already registered. */
+      registerSource: (): readonly string[] => {
+        this.mvvm.registerNavSource(this.synthetic.source);
+        return this.mvvm.navSources;
+      },
+      /** Detaches and forgets it. Returns whether it was registered. */
+      unregisterSource: (): boolean => this.mvvm.unregisterNavSource('gallery-dpad'),
+      /** Holds a direction on the synthetic device (`[]` releases everything). */
+      press: (...directions: NavDirection[]): void => {
+        this.synthetic.held.length = 0;
+        this.synthetic.held.push(...directions);
+      },
+      /** Fires a one-shot action from the synthetic device. */
+      fire: (action: NavAction): void => {
+        this.synthetic.edges.push(action);
+      },
+      /** Everything a check reads in one call. */
+      state: (): Record<string, unknown> => ({
+        sources: [...this.mvvm.navSources],
+        attached: this.synthetic.attachments,
+        detached: this.synthetic.detachments,
+        held: [...this.synthetic.held],
+        focus: this.mvvm.focus.focusedWidget?.name || 'none',
+        activations: this.activations.map((entry) => ({ ...entry })),
+      }),
+      /** Drops the recorded activations, so a measurement starts from a known place. */
+      clearActivations: (): void => {
+        this.activations.length = 0;
+      },
+    };
   }
 }

@@ -113,7 +113,7 @@
 
 ## 8.28 插件选项的正确写法
 
-**插件选项的正确写法**（Guide 01/06/07/08 说"传不进去"的那件事已在第 66 轮解决）：Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化场景插件，**Game Config 里的 config 字段永远为空**；游戏级默认值用 `MVVMPlugin.configure({ … })`（创建游戏之前调一次），单场景运行期用 `this.mvvm.configure({ … })`。`mergePluginConfig()` 对 `input`/`focus`/`a11y`/`layout`/`transition` 做**一层深合并**——加新子选项包时请同步加进这个函数，否则一次补丁会清掉同级选项。订阅类选项（`navigation`/`themeBackground`/`a11y`）立即生效，建树类（`align`/`container`…）下次建根生效。
+**插件选项的正确写法**（Guide 01/06/07/08 说"传不进去"的那件事已在第 66 轮解决一半、第 110 轮彻底解决）：Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化场景插件，**Game Config 条目里的 config 字段永远为空**；但条目本身被原样保留在 `game.config.installScenePlugins` 里，所以选项可以写在条目的 **`data`** 字段里，由 `pluginConfigFromGameConfig()` 读回（第 110 轮，强弱：默认值 < 条目 `data` < 单实例 config < 运行期 `configure()`；⚠️ 匹配条目时**既要看 `key` 也要看 `mapping`**，见 §8.71）。其余两种写法：游戏级默认值用 `MVVMPlugin.configure({ … })`（创建游戏之前调一次），单场景运行期用 `this.mvvm.configure({ … })`。`mergePluginConfig()` 对 `input`/`focus`/`a11y`/`layout`/`transition` 做**一层深合并**——加新子选项包时请同步加进这个函数，否则一次补丁会清掉同级选项。订阅类选项（`navigation`/`themeBackground`/`a11y`）立即生效，建树类（`align`/`container`…）下次建根生效。
 
 ## 8.29 示例有两种缩放模式
 
@@ -562,3 +562,20 @@ Panel({ direction: 'vertical', height: 'fill', padding: 12 }, () => {
 **③ 顺带一条 A/B 方法论**：滚动条拇指只在 `commitOffset()`/`onRectChanged()` 里重画，不是逐帧重画；左右两次截图若"上一次滚过、这次没滚"，第 2 次会带着**迟到重画的拇指**，于是看起来像"裁剪把滚动条弄丢了"。A/B 前先把每个口滚到底再滚回 0 做一次 prime，两边共享同一段重画历史，读数才有意义。
 
 **判据一句话**：裁剪改的是"这一帧画不画"，不是"这个控件存不存在"；而"画不画"必须按**子树真实外接矩形**算——布局矩形只描述节点自己，`fill`、绝对定位、虚拟化列表都能让子节点跑到它外面去。
+
+## 8.71 Phaser 交给场景插件的第三个参数是条目的 **`mapping`**，不是 `key`（第 110 轮）
+
+做"插件选项从 Game Config 传进去"时踩到的第一条坑，而且是**静默**的：条目 `{ key: 'MVVMPlugin', plugin: MVVMPlugin, mapping: 'mvvm', data: { transition: { enter: 320 } } }` 写得好好的，`#/config` 里读回来却是默认值 120。
+
+根因在 Phaser 4.2.1 的两条不同代码路径（`src/plugins/PluginManager.js`）：
+
+| 路径                                      | 实例化语句                                                       | 第三个参数                  |
+| ----------------------------------------- | ---------------------------------------------------------------- | --------------------------- |
+| `plugins.scene`（Game Config）            | `addToScene` 第 273 行：`new source.plugin(scene, this, mapKey)` | `source.mapping` → `'mvvm'` |
+| `installScenePlugin()`（运行时 / Loader） | 第 388 行：`new plugin(addToScene, this, key)`                   | `key` → `'MVVMPlugin'`      |
+
+`ScenePlugin` 只是把这个值存成 `pluginKey`，所以**同一个插件在两条路径下的 `pluginKey` 不一样**。只按 `entry.key === pluginKey` 找条目，在 Game Config 路径上永远匹配不到；而"找不到"与"没配置"在读回值上完全一样，唯一的痕迹是选项没生效。
+
+修法：`pluginConfigFromGameConfig(entries, pluginKey)` 同时比 `key` 与 `mapping`（两者都标识这个插件），并且拒绝空 `pluginKey`——否则它会匹配上每一条既没有 `key` 也没有 `mapping` 的条目。
+
+**判据一句话**：读 Phaser 的内部状态前，先确认这个值是从**哪条调用路径**来的；同一个字段在不同路径下可能装着不同的东西，而"读不到"与"没设置"长得一模一样。

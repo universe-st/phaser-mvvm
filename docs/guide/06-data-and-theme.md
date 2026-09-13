@@ -247,7 +247,34 @@ console.log(this.mvvm.theme.name); // 当前主题
 
 `setTheme` 之后**不需要你做任何事**：每个 `Widget` 都订阅了主题变化，会重绘并按新字体重新测量；场景插件还会把主相机的背景色同步成 `theme.colors.background`（这就是换肤时整页背景一起变的原因）。
 
-> ℹ️ **插件选项有两种正规写法**（第 66 轮起）：**游戏级默认值**在创建游戏前调一次 `MVVMPlugin.configure({ … })`，之后每个场景插件都继承它；**运行期补丁**用 `this.mvvm.configure({ … })`，订阅类选项（`navigation`/`themeBackground`/`a11y`）立即生效，建树类选项（`align`/`container`…）留给下次建 UI 根。**Game Config 里 `plugins.scene[].config` 传不进去**——Phaser 用 `new Plugin(scene, pluginManager, mapKey)` 实例化，第 4 个参数永远为空，所以别再写它了。返回键仍然用 `this.mvvm.onBack = …`（`focus.onBack` 是插件的路由钩子，见 07 章）。
+> ℹ️ **插件选项有四种正规写法，强弱从弱到强**（第 66 轮起有前两种，第 110 轮补上 Game Config 条目）：
+>
+> | #   | 写法                                                 | 作用域         | 何时生效                                    |
+> | --- | ---------------------------------------------------- | -------------- | ------------------------------------------- |
+> | ①   | `plugins.scene[].data`（Game Config 条目）           | 该插件注册     | 建插件时                                    |
+> | ②   | `MVVMPlugin.configure({ … })`                        | 游戏级默认值   | 之后创建的每个插件                          |
+> | ③   | `new MVVMPlugin(scene, pm, key, config)` 的第 4 参数 | 单个实例       | 建插件时（Phaser 不传，测试与自定义宿主用） |
+> | ④   | `this.mvvm.configure({ … })`                         | 单场景、运行期 | 立即（订阅类）/ 下次建 UI 根（建树类）      |
+>
+> 读回用 `this.mvvm.config`（这一场实际用了什么）与 `MVVMPlugin.defaults`（游戏级默认值是什么）。**Phaser 不会把第 4 个参数交给场景插件**，但条目本身被原样保留在 `game.config.installScenePlugins` 里，所以 ① 写在 `data` 字段里、由插件读回来：
+>
+> ```ts
+> new Phaser.Game({
+>   plugins: {
+>     scene: [
+>       {
+>         key: 'MVVMPlugin',
+>         plugin: MVVMPlugin,
+>         mapping: 'mvvm',
+>         start: true,
+>         data: { transition: { enter: 320 }, navigation: true },
+>       },
+>     ],
+>   },
+> });
+> ```
+>
+> 返回键仍然用 `this.mvvm.onBack = …`（`focus.onBack` 是插件的路由钩子，见 07 章）。`#/config` 常驻断言 ①②④ 三者的强弱（`defaults()` 120 → 条目 320 → `patch()` 50），见 [`ACCEPTANCE-config.md`](../ACCEPTANCE-config.md) §6。
 
 ```ts
 // 想让 UI 叠在游戏画面上、且不要主题背景色：拿到插件后自己处理
@@ -281,7 +308,7 @@ const snappy: Theme = { ...DARK_THEME, name: 'snappy', motion: { enter: 90, exit
 setTheme(snappy); // 之后打开的对话框 90ms 淡入、页面转场 90/60
 ```
 
-优先级是「**写得越具体越赢**」：逐对话框/逐页的 `transition: { enter: 300 }` ＞ `MVVMPlugin.configure({ transition: { enter: 300 } })`（游戏级默认）＞ 主题令牌 `theme.motion` ＞ 内置默认值（`DEFAULT_ENTER`/`DEFAULT_EXIT` 只提供缓动与端点）。实现就是一句 `overrides.enter ?? base.enter`（`transition.ts` 的 `transitionFor()`）。所以主题换掉之后，那些**只写了缓动**的 spec 仍然吃主题的时长，而显式写了时长的那些不受影响。
+优先级是「**写得越具体越赢**」：逐对话框/逐页的 `transition: { enter: 300 }` ＞ `MVVMPlugin.configure({ transition: { enter: 300 } })`（游戏级默认，或 Game Config 条目的 `data`，后者压过前者）＞ 主题令牌 `theme.motion` ＞ 内置默认值（`DEFAULT_ENTER`/`DEFAULT_EXIT` 只提供缓动与端点）。实现就是一句 `overrides.enter ?? base.enter`（`transition.ts` 的 `transitionFor()`）。所以主题换掉之后，那些**只写了缓动**的 spec 仍然吃主题的时长，而显式写了时长的那些不受影响。
 
 订阅变化（例如把选中的主题名写进存档）：
 

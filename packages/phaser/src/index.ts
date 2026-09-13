@@ -233,6 +233,7 @@ export {
   NAV_DIRECTIONS,
   NAV_REPEAT_DEFAULTS,
   NavRepeat,
+  NavSourceRegistry,
   gamepadActionsOf,
   gamepadStateOf,
   heldDirectionsOf,
@@ -244,7 +245,10 @@ export {
   type NavDirection,
   type NavInputState,
   type NavRepeatOptions,
+  type NavSource,
+  type NavSourceHost,
 } from './nav';
+export { GamepadNavSource, KeyboardNavSource } from './nav-sources';
 export {
   MODEL_CHANGE_EVENT,
   bindCommand,

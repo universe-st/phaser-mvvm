@@ -172,3 +172,55 @@
 
 - 提交信息：`fix(phaser,widgets): keep the scene plugin subscribed across restarts, and size virtual content by its own length`（正文含门禁数据与 W4 复现表）。
 - 提交前门禁：`pnpm -r run typecheck`、`pnpm -r run test`、`pnpm exec prettier --check .`、`pnpm run build:examples` 全绿。
+
+---
+
+## 6. 第 110 轮追加：三条"从未跑过的生命周期路径"
+
+DEFECT-BACKLOG §4 一直挂着三条覆盖缺口，本轮的判定标准都是**同一件事**：让门禁先失败一次（阳性对照），再确认它绿。
+
+### 6.1 Node 侧假渲染器夹具（`packages/phaser/test/support/fake-renderer.ts`）
+
+`Widget` 继承 `Phaser.GameObjects.Container`，而 Node 里 `import Phaser` 直接抛 `window is not defined` —— 所以 `Widget` 这一侧的行为（事件表、拆卸、焦点管线）此前**一条单测都没有**，只能在浏览器里看。夹具只做两件事：`installDomStub()` 定义 Phaser 模块初始化会碰的全局量（画布的 2D context 用宽容 `Proxy`，因为特性探测会 `getImageData()` 再往结果写 `fillStyle`），`createFakeScene()` 给出 `GameObject` 需要的场景面（显示列表、事件、带 `addEvent`/`delayedCall` 的时钟、相机）。
+
+**顺序是硬约束**：必须在 `import` Phaser **之前**装桩，而 ESM 的静态 import 会提升——所以消费者（`test/widget-events.test.ts`）先 `installDomStub()`，再 `await import('../src/Widget')`。夹具模块自己不 import Phaser。
+
+| 用例                  | 断言                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 成对、各一次          | `first.focus()` → 只有 `first:focus`；`second.focus()` → 再加 `first:blur`, `second:focus`（旧持有者先被告知） |
+| 重复不发              | 连调两次 `focus()` 只发 1 个事件；`blur()` 两次同理                                                            |
+| 销毁不发 blur         | `widget.focus()` 后 `destroy()` → `blur` 计数 **0**（`destroy()` 直接清标志位）                                |
+| 离开可聚焦集合要 blur | `setVisible(false)` + `manager.refresh()` → 发一次 `blur` 且 `focusedWidget === null`                          |
+
+`pnpm --filter @phaser-mvvm/phaser run test`：**374** 通过（24 个文件；此前 370）。
+
+### 6.2 聚焦着文本框重启：不留光标闪烁定时器
+
+光标闪烁是 `clock.addEvent({ delay, loop: true })` —— 一个挂在**场景**时钟上的 `TimerEvent`，以及一个 `window` 级 keydown 守卫；两者都在字段自己的子树之外。`#/lifecycle` 新增 `focusField()`（把焦点放进 `name` 字段）与 `churnFocused(n)`（带着这个状态重启、每轮采样 10 项）。
+
+| 阶段                                 | 读数                                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 聚焦之后（`fieldProbe()`）           | `{ focused: 'name', timers: 1, frameListeners: 11 }` → 闪烁定时器**真的存在**，探针不是空转                                          |
+| `churnFocused(3)` 三次重启后的每一轮 | `themeListeners 59 / displayList 1 / focusables 8 / pointerTargets 14 / timers **0** / widgets 57 / frameListeners 11 / textures 29` |
+| 结束后                               | `fieldProbe()` → `{ focused: 'none', timers: 0, frameListeners: 11 }`                                                                |
+
+三项与基线逐项相同，`timers` 回到 0：**没有**留下定时器（阳性对照是"注释掉 `stopBlink()`"——那会让每轮多 1 个，与第 97 轮 `frameListeners` 的对照同型）。
+
+### 6.3 多场景：`add → launch → stop → SceneManager.remove()`
+
+`churnScenes(n)` 走完四个阶段并在**三个阶段之间**采样（`during`/`after`/`removed`），因为 `stop()` 与 `remove()` 是 Phaser 两条不同的拆卸路径：前者触发 `SHUTDOWN`（场景对象还活着、还能再 `start()`），后者接着触发 `DESTROY` 并把它从管理器里摘掉。
+
+| 读数                                                                | rounds 1–3                                           |
+| ------------------------------------------------------------------- | ---------------------------------------------------- |
+| `activeScenes`（伴生场景在运行时）                                  | 2（**并存**已验）                                    |
+| `during.themeListeners`                                             | **66**（伴生页 4 个控件带来的 7 个订阅在）           |
+| `after.themeListeners`                                              | **59** ＝ 基线（`scene.stop()` 已把它拆干净）        |
+| `removed.themeListeners`                                            | 59（`remove()` 不再改变任何计数）                    |
+| 本页其余 9 项（`widgets`/`focusables`/`pointerTargets`/`timers`/…） | 全程 57 / 8 / 14 / 0 / …，三轮不变                   |
+| `companionDestroyed`                                                | `true`（`stop()` 之后伴生页 `isDestroyed === true`） |
+| `companionPages()`                                                  | 3 个伴生页全部 `destroyed: true`                     |
+| `#status`                                                           | 无 `ERROR:`/`REJECTION:` 行                          |
+
+`#demo-state` 另发 `scenes.round` / `scenes.builds` / `scenes.active`（实测 `3 / 3 / 1`），`window.lifecycle.sceneRounds()` 给出三阶段的完整样本。
+
+**未覆盖**：`scene.pause()/resume()`（本框架的 UI 不因暂停而拆卸，所以它不属于"泄漏"面）、以及两个**同时**带 UI 的场景各自 `churn()`（本轮只让伴生场景整体进出，没有让它也重启）。
