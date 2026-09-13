@@ -7,9 +7,9 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import { Widget } from './Widget';
+import { type PointerChainOptionHooks, Widget } from './Widget';
 
-export interface RectWidgetOptions extends LayoutParams {
+export interface RectWidgetOptions extends LayoutParams, PointerChainOptionHooks {
   color?: number;
   alpha?: number;
   name?: string;
@@ -50,7 +50,7 @@ export class RectWidget extends Widget {
   }
 }
 
-export interface LabelWidgetOptions extends LayoutParams {
+export interface LabelWidgetOptions extends LayoutParams, PointerChainOptionHooks {
   text?: string;
   style?: Phaser.Types.GameObjects.Text.TextStyle;
   name?: string;

@@ -23,6 +23,15 @@
 
 import type Phaser from 'phaser';
 import type { ActivationSource, Widget } from './Widget';
+import { pointerDragOwner } from './pointer-claim';
+import {
+  PointerChainHub,
+  type ChainPoint,
+  type PointerChainNode,
+  type PointerChainTrace,
+  type PointerKind,
+  type PointerPhase,
+} from './pointer-chain';
 
 /**
  * Phaser input event names.
@@ -55,6 +64,16 @@ export interface InputRouterOptions {
   onPointerFocus?: (widget: Widget) => void;
   /** Maximum pointer travel between down and up that still counts as a click. Defaults to 8. */
   dragThreshold?: number;
+  /**
+   * Called with the record of every pointer chain dispatch (`pointer-chain.ts`).
+   *
+   * The chain is the Android-style half of routing: the hit test picks the widget, and the chain
+   * decides who along the path gets the event first, who may take it away from a descendant, and who
+   * consumed it. This hook is how a probe, a dev overlay or a test sees those decisions — the demo
+   * scene `#/events` renders it as a live log, and `PointerChainHub`'s unit tests assert the same
+   * records without a browser.
+   */
+  onPointerChain?: (trace: PointerChainTrace) => void;
 }
 
 /**
@@ -354,6 +373,18 @@ interface HeldPress {
   readonly pointer: Phaser.Input.Pointer;
 }
 
+/** A gesture in flight, flattened to names for probes. */
+export interface PointerChainSnapshot {
+  readonly pointerId: number;
+  readonly kind: PointerKind;
+  /** The widget that owns the gesture right now. */
+  readonly owner: string;
+  /** The widget the press landed on. */
+  readonly hitTarget: string;
+  /** Root → hit target, by widget name. */
+  readonly path: readonly string[];
+}
+
 /**
  * `Widget.enablePointerInput()` is `protected` (only subclasses may call it), but enabling hit
  * testing *is* the router's job. The narrow cast below is the smallest way to reach it without
@@ -395,6 +426,8 @@ export class InputRouter {
   onPointerFocus: ((widget: Widget) => void) | null;
   /** Maximum travel that still counts as a click; see `isClickGesture`. */
   dragThreshold: number;
+  /** Chain trace hook; see `InputRouterOptions.onPointerChain`. */
+  onPointerChain: ((trace: PointerChainTrace) => void) | null;
 
   private rootWidget: Widget | null = null;
   private scene: Phaser.Scene | null = null;
@@ -402,6 +435,43 @@ export class InputRouter {
   private widgetCache: Widget[] | null = null;
   private readonly enabledState = new Map<Widget, boolean>();
   private readonly pressedAt = new Map<Widget, HeldPress>();
+
+  /**
+   * The Android-style event chain: dispatch, interception (with the disallow veto) and consumption.
+   *
+   * It runs *in front of* the press/activation logic below, which is what makes it additive: a tree
+   * whose widgets never consume a pointer event behaves exactly as it did before, and a widget that
+   * does consume one takes the gesture over from the click machinery.
+   */
+  private readonly hub = new PointerChainHub();
+  /**
+   * Pointer ids whose current gesture was consumed by the chain.
+   *
+   * A consumed gesture does not also fire a click: the widget (or an ancestor that intercepted) said
+   * it is handling this gesture itself. Focus and the pressed look still happen — the control *is*
+   * being pressed — but `activate()` is not what the press means any more.
+   */
+  private readonly chainOwns = new Map<number, Widget>();
+  /** The most recent trace, kept for probes and for `lastChain()`. */
+  private lastTrace: PointerChainTrace | null = null;
+  /** Pointer id of the dispatch in flight; the chain's disallow question is about that gesture. */
+  private dispatchingPointerId = -1;
+  /** Offset of each node of the path currently being dispatched, from the routed root's origin. */
+  private readonly chainOffsets = new Map<Widget, ChainPoint>();
+  /** The pointer in the routed root's own space; the base of every per-node conversion. */
+  private readonly chainBase: ChainPoint = { x: 0, y: 0 };
+  /** Reused output of the chain's `pointFor`; the chain copies `x`/`y` immediately. */
+  private readonly chainPoint: ChainPoint = { x: 0, y: 0 };
+  /** Last pointer position delivered to each chain, so an idle frame delivers nothing. */
+  private readonly chainLastAt = new Map<number, ChainPoint>();
+  private readonly pointForChainNode = (node: PointerChainNode): ChainPoint => {
+    const offset = this.chainOffsets.get(node as Widget);
+    this.chainPoint.x = this.chainBase.x - (offset?.x ?? 0);
+    this.chainPoint.y = this.chainBase.y - (offset?.y ?? 0);
+    return this.chainPoint;
+  };
+  private readonly interceptDisallowed = (node: PointerChainNode): boolean =>
+    this.isInterceptDisallowed(node as Widget);
 
   /** Reused output of `pointerInUiSpace`; nothing holds on to the result past the call. */
   private readonly space = { x: 0, y: 0 };
@@ -417,6 +487,7 @@ export class InputRouter {
     this.onActivate = options.onActivate ?? null;
     this.onPointerFocus = options.onPointerFocus ?? null;
     this.dragThreshold = options.dragThreshold ?? DEFAULT_DRAG_THRESHOLD;
+    this.onPointerChain = options.onPointerChain ?? null;
     if (options.root) {
       this.rootWidget = options.root;
     }
@@ -440,6 +511,55 @@ export class InputRouter {
   /** The capture widget, if any. */
   get capture(): Widget | null {
     return this.captureWidget;
+  }
+
+  /** The pointer chain hub, for hosts that want to drive or inspect gestures. */
+  get chainHub(): PointerChainHub {
+    return this.hub;
+  }
+
+  /** The record of the most recent chain dispatch, or `null` before the first press. */
+  get lastChain(): PointerChainTrace | null {
+    return this.lastTrace;
+  }
+
+  /** Every gesture in flight, as names — the shape a probe or a test can assert on. */
+  chains(): PointerChainSnapshot[] {
+    return this.hub.activeChains().map((chain) => ({
+      pointerId: chain.pointerId,
+      kind: chain.kind,
+      owner: chain.owner.chainLabel ?? 'anonymous',
+      hitTarget: chain.hitTarget.chainLabel ?? 'anonymous',
+      path: chain.path.map((node) => node.chainLabel ?? 'anonymous'),
+    }));
+  }
+
+  /**
+   * Ends a gesture from outside the tree: the owner is told (`cancel`) and the chain is dropped.
+   *
+   * The router calls this itself when a widget on the path is unmounted, hidden from routing or
+   * destroyed; it is public because a host can have its own reason to take a gesture away (a scene
+   * switch, an incoming call, a re-layout that changes what the gesture means).
+   */
+  cancelPointer(pointerId: number, reason = 'cancelled'): void {
+    if (!this.hub.active(pointerId)) {
+      return;
+    }
+    const chain = this.hub.active(pointerId);
+    const path = (chain?.path ?? []) as readonly Widget[];
+    this.prepareChainSpace(null, path, chain ? { x: chain.startX, y: chain.startY } : null);
+    this.publishTrace(
+      this.hub.cancel(
+        pointerId,
+        {
+          kind: chain?.kind ?? 'mouse',
+          stageX: this.chainBase.x,
+          stageY: this.chainBase.y,
+          pointFor: this.pointForChainNode,
+        },
+        reason,
+      ),
+    );
   }
 
   /**
@@ -511,6 +631,12 @@ export class InputRouter {
       // set unless it also carries an activation callback or is focusable.
       enablePointerInput(widget);
     }
+    if (this.captureWidget !== widget && this.hub.count > 0) {
+      // The layer a gesture was being delivered to is no longer the top one (a modal opened, a page
+      // was pushed): every gesture in flight is told, the way Android cancels the touches of the
+      // window that just lost focus, instead of letting a hidden widget keep receiving moves.
+      this.cancelAllChains('capture changed');
+    }
     this.captureWidget = widget;
   }
 
@@ -536,6 +662,7 @@ export class InputRouter {
     }
 
     this.syncPointerState();
+    this.updatePointerChains();
   }
 
   /**
@@ -620,10 +747,13 @@ export class InputRouter {
     for (const binding of [...this.bindings]) {
       this.unregister(binding.widget);
     }
+    this.cancelAllChains('router detached');
     this.bindings = [];
     this.widgetCache = null;
     this.enabledState.clear();
     this.pressedAt.clear();
+    this.chainOffsets.clear();
+    this.chainLastAt.clear();
     this.hoveredWidget = null;
     this.captureWidget = null;
     this.rootWidget = null;
@@ -688,9 +818,253 @@ export class InputRouter {
 
     this.resetInteraction(widget);
     this.enabledState.delete(widget);
+    // The widget left the routed tree mid-gesture: the path the press established no longer exists, so
+    // whoever owns it is told now rather than on the next frame (a stale owner would keep receiving
+    // moves for a widget that is gone).
+    this.cancelChainsThrough(widget, 'widget left the tree');
   }
 
   /** Drops hover/press state; used on disable, on destroy and on pointer-out. */
+
+  // ------------------------------------------------------------------ the pointer event chain
+
+  /**
+   * The widget path a press at `widget` is delivered along: routed root → `widget`.
+   *
+   * This is Android's "hit path". It is rebuilt from `parentContainer` rather than recorded during the
+   * hit test because the hit test may not even visit the ancestors that matter (it stops at the
+   * deepest target), while the chain has to *ask* every one of them whether it wants to intercept.
+   *
+   * An empty result means "not part of the routed tree" — the press belongs to the game, not the UI.
+   */
+  private chainPathFor(widget: Widget): Widget[] {
+    const root = this.rootWidget;
+    if (!root) {
+      return [];
+    }
+    const path: Widget[] = [];
+    let current: Widget | null = widget;
+    while (current) {
+      // A node that is painted but not routed takes its whole subtree out of the chain, exactly like
+      // the hit test does: a page fading out under the page above it is not a gesture target either.
+      if (current.routingEnabled === false) {
+        return [];
+      }
+      path.push(current);
+      if (current === root) {
+        break;
+      }
+      current = (current.parentContainer as unknown as Widget | null) ?? null;
+    }
+    if (path[path.length - 1] !== root) {
+      return [];
+    }
+    path.reverse();
+    return path;
+  }
+
+  /**
+   * Fills the per-node offsets of a path, plus the pointer in the **routed root's** own space.
+   *
+   * The offset of a node is the sum of the positions of it and its ancestors, which is exactly what
+   * `resolveTargetInTree` accumulates on its way down. Subtracting it from the root-space point gives
+   * the point in that node's own space — so `event.x`/`event.y` a handler sees agree with the hit test
+   * that decided this handler should run, in every nesting depth and under any camera pinning.
+   */
+  private prepareChainSpace(
+    pointer: Phaser.Input.Pointer | null,
+    path: readonly Widget[],
+    fallback: ChainPoint | null,
+  ): void {
+    this.chainOffsets.clear();
+    let offsetX = 0;
+    let offsetY = 0;
+    for (const node of path) {
+      offsetX += node.x;
+      offsetY += node.y;
+      this.chainOffsets.set(node, { x: offsetX, y: offsetY });
+    }
+
+    const root = this.rootWidget;
+    if (pointer && root) {
+      const point = pointerInWidgetSpace(pointer, root, this.scene?.cameras.main ?? null);
+      this.chainBase.x = point.x;
+      this.chainBase.y = point.y;
+      return;
+    }
+    this.chainBase.x = fallback?.x ?? 0;
+    this.chainBase.y = fallback?.y ?? 0;
+  }
+
+  /** `touch` when the pointer came from a finger, `mouse` otherwise. */
+  private pointerKind(
+    pointer: Phaser.Input.Pointer | null,
+    fallback: PointerKind = 'mouse',
+  ): PointerKind {
+    if (!pointer) {
+      return fallback;
+    }
+    return pointer.wasTouch === true ? 'touch' : 'mouse';
+  }
+
+  /**
+   * Dispatches one phase of a gesture through the chain.
+   *
+   * `target` is the freshly hit-tested widget and is only used for `down`: every later phase of a
+   * gesture goes to the path the press established, which is what makes a drag survive the pointer
+   * leaving the widget (or the nested port, or the canvas).
+   */
+  private dispatchChain(
+    pointer: Phaser.Input.Pointer | null,
+    phase: PointerPhase,
+    target: Widget | null,
+  ): PointerChainTrace | null {
+    const root = this.rootWidget;
+    if (!root) {
+      return null;
+    }
+
+    const retained = pointer ? this.hub.active(pointer.id) : null;
+    let path: readonly Widget[];
+    if (phase === 'down') {
+      path = target ? this.chainPathFor(target) : [];
+      if (path.length === 0) {
+        return null;
+      }
+    } else {
+      if (!retained) {
+        return null;
+      }
+      path = retained.path as readonly Widget[];
+    }
+
+    const origin = retained ? { x: retained.startX, y: retained.startY } : null;
+    this.prepareChainSpace(pointer, path, origin);
+
+    this.dispatchingPointerId = pointer?.id ?? retained?.pointerId ?? -1;
+    const trace = this.hub.dispatch({
+      phase,
+      pointerId: pointer?.id ?? retained?.pointerId ?? -1,
+      kind: this.pointerKind(pointer, retained?.kind),
+      path,
+      stageX: this.chainBase.x,
+      stageY: this.chainBase.y,
+      pointFor: this.pointForChainNode,
+      disallowed: this.interceptDisallowed,
+    });
+
+    if (pointer) {
+      let at = this.chainLastAt.get(pointer.id);
+      if (at === undefined) {
+        at = { x: pointer.x, y: pointer.y };
+        this.chainLastAt.set(pointer.id, at);
+      }
+      at.x = pointer.x;
+      at.y = pointer.y;
+    }
+    this.publishTrace(trace);
+    return trace;
+  }
+
+  /** Records a trace, and keeps the "this gesture was consumed" bookkeeping in step with it. */
+  private publishTrace(trace: PointerChainTrace): void {
+    this.lastTrace = trace;
+    if (trace.handledBy) {
+      this.chainOwns.set(trace.pointerId, trace.handledBy as Widget);
+    }
+    if (trace.phase === 'up' || trace.phase === 'cancel') {
+      this.chainOwns.delete(trace.pointerId);
+      this.chainLastAt.delete(trace.pointerId);
+    }
+    this.onPointerChain?.(trace);
+  }
+
+  /**
+   * Whether an ancestor may not intercept: a descendant of it owns this pointer.
+   *
+   * The registry is the drag-claim map (`pointer-claim.ts`), so `requestDisallowInterceptPointer` and
+   * a `TextField` starting a selection are literally the same record — one answer to "who owns this
+   * pointer", not two that can disagree.
+   */
+  private isInterceptDisallowed(widget: Widget): boolean {
+    const owner = pointerDragOwner(this.scene, this.dispatchingPointerId);
+    if (!owner || owner === widget) {
+      return false;
+    }
+    return isWithinTree(owner as ContainerLike, widget as ContainerLike);
+  }
+
+  /**
+   * Per-frame maintenance of the gestures in flight.
+   *
+   * This is where the "state, not stream" discipline pays off for the chain too: Phaser only emits
+   * `pointermove`/`pointerup` *on a Game Object* while the pointer is over it, so a drag that leaves
+   * the widget would simply stop receiving events. Polling the pointer each frame delivers moves to
+   * the retained owner wherever it went, and turns a release nobody told us about (released over the
+   * background, over a game object, outside the canvas) into the `up` the owner is waiting for.
+   */
+  private updatePointerChains(): void {
+    if (this.hub.count === 0) {
+      return;
+    }
+    for (const chain of this.hub.activeChains()) {
+      const pointer = this.pointerById(chain.pointerId);
+      if (!pointer) {
+        this.cancelPointer(chain.pointerId, 'pointer gone');
+        continue;
+      }
+      if (this.chainBroken(chain.path as readonly Widget[])) {
+        this.cancelPointer(chain.pointerId, 'owner left the tree');
+        continue;
+      }
+      if (pointer.isDown !== true) {
+        // The release reached nobody: deliver it along the retained path and clear the gesture.
+        this.dispatchChain(pointer, 'up', null);
+        continue;
+      }
+      const last = this.chainLastAt.get(chain.pointerId);
+      if (last && last.x === pointer.x && last.y === pointer.y) {
+        continue;
+      }
+      this.dispatchChain(pointer, 'move', null);
+    }
+  }
+
+  /** Whether any widget of a retained path is gone, hidden from routing, or detached from a scene. */
+  private chainBroken(path: readonly Widget[]): boolean {
+    for (const node of path) {
+      if (node.isDestroyed || node.routingEnabled === false || liveSceneOf(node) === null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Phaser's pointer for an id, or `null` when the manager no longer tracks it. */
+  private pointerById(pointerId: number): Phaser.Input.Pointer | null {
+    const pointers = this.scene?.input?.manager?.pointers as
+      (Phaser.Input.Pointer | undefined)[] | undefined;
+    return pointers?.[pointerId] ?? null;
+  }
+
+  /** Ends every gesture that involves `widget` (it was unmounted, so the path no longer exists). */
+  private cancelChainsThrough(widget: Widget, reason: string): void {
+    for (const chain of this.hub.activeChains()) {
+      if (chain.path.includes(widget)) {
+        this.cancelPointer(chain.pointerId, reason);
+      }
+    }
+  }
+
+  /** Ends every gesture in flight, telling each owner why, and forgets the bookkeeping. */
+  private cancelAllChains(reason: string): void {
+    for (const pointerId of this.hub.pointerIds) {
+      this.cancelPointer(pointerId, reason);
+    }
+    this.hub.clear();
+    this.chainOwns.clear();
+    this.chainLastAt.clear();
+  }
 
   /**
    * Resolves which interactive widget owns a pointer position, **from the inside out**.
@@ -774,6 +1148,21 @@ export class InputRouter {
     if (!widget.enabled) {
       return widget;
     }
+
+    // The chain runs *before* the press is recorded, so a widget that consumes the event has already
+    // made the gesture its own by the time the click machinery looks at it. Nothing in the widget
+    // library consumes pointer events by default, which is why this is additive: a tree with no chain
+    // handlers behaves exactly as it did before the chain existed.
+    const trace = this.dispatchChain(pointer, 'down', widget);
+    if (trace !== null && trace.stop === 'intercepted') {
+      // An ancestor took the gesture before the target heard about it (Android's
+      // `onInterceptTouchEvent` returning `true`). The target never received a DOWN, so it must not be
+      // left holding a press that would become a click on release, and focus stays where it was: the
+      // user grabbed the container, not the control inside it. Measured on `#/events` — without this, an
+      // `l2` that intercepted the press still let the leaf below it fire `onClick`.
+      return widget;
+    }
+
     const origin = this.pointerInUiSpace(pointer, widget);
     this.pressedAt.set(widget, { x: origin.x, y: origin.y, pointer });
     // The *press* is recorded for every target (that is what decides activation), but only a control
@@ -794,6 +1183,13 @@ export class InputRouter {
 
   /** A release inside the UI subtree: activate the widget this pointer pressed, if it is still the target. */
   private handlePointerUp(pointer: Phaser.Input.Pointer): void {
+    // The chain hears about the release first, and *before* the gesture bookkeeping is cleared: this is
+    // the moment a widget that consumed the press gets its `up`, whether or not the pointer is over it
+    // (Phaser only delivers `pointerup` to a Game Object the pointer is still on, and a drag usually
+    // ends somewhere else entirely).
+    const wasOwned = this.chainOwns.has(pointer.id);
+    const upTrace = this.dispatchChain(pointer, 'up', null);
+
     const target = this.resolveTarget(pointer);
     for (const [widget, down] of [...this.pressedAt]) {
       if (down.pointer !== pointer) {
@@ -812,6 +1208,12 @@ export class InputRouter {
       // Phaser only emits `pointerup` on an object when the pointer is still over it, so "released
       // inside the widget" is already guaranteed here; only the travel has to be checked.
       if (!isClickGesture(down, this.pointerInUiSpace(pointer, widget), this.dragThreshold)) {
+        continue;
+      }
+      // A gesture the chain consumed is not a click as well: the widget (or the ancestor that
+      // intercepted it) said it is handling this press itself. The press state, the focus and the
+      // hover above are unaffected — the control really was pressed — only the activation is.
+      if (wasOwned || upTrace?.handledBy) {
         continue;
       }
 

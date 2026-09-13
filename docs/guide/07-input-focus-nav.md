@@ -54,6 +54,83 @@ this.mvvm.input.dragThreshold = 12;
 
 > **谁算「交互控件」**：具有命中区的控件。`Button`/`TextField`/`TextArea` 在构造时就调用 `enablePointerInput()`；`ScrollView` 只是 `focusable`，它的命中区由 `InputRouter.refresh()` 统一补上（它自己注册的是画布 `wheel` 与场景指针监听）；`Panel` 默认 `blockPointer: true`（用于拦截），只有 `interactive: true` 时才可聚焦。
 
+### 2.1 指针事件链：传递 / 拦截 / 消费
+
+命中测试回答「指针下面是哪个控件」，这对叶子上的单击够用，对**嵌套**不够：谁先拿到事件、谁能从子控件手里把手势拿走、被拿走的人怎么知道——命中测试一条都答不上来。这三件事由**指针事件链**回答，语义与 Android 的 `dispatchTouchEvent` / `onInterceptTouchEvent` / `onTouchEvent` 一一对应（决策记录见 [ADR-0010](../adr/0010-pointer-event-chain.md)）。
+
+一次手势的流程：
+
+1. **按下**：命中测试给出**路径**（根 → 最深控件）。事件从根向下走，每一个**还有更深节点**的祖先都会被问一次 `onPointerIntercept`；第一个回答 `true` 的把事件拿走，下面的控件**完全收不到**这次按下。
+2. 没人拦截时，走到最深控件调用 `onPointerEvent`。返回 `true` = **消费**，返回 `false`/`undefined` = **向上冒泡**给父控件。
+3. **消费了按下的控件拥有整次手势**：之后的 `move` 与 `up` 只沿这条路径投递，**永不重新命中测试**——指针离开控件、离开嵌套口、离开画布，事件照样送达（`event.inside` 告诉你指针还在不在它里面）。这是嵌套下稳定的关键。
+4. 手势进行中，路径上的祖先仍可拦截（例如「位移超过 20px 才算拖动」）。此时当前拥有者收到 **`cancel`**（`event.cancelReason` 写明是谁抢的），拦截者成为新的拥有者。
+5. 子控件可以**拒绝被拦截**：`requestDisallowInterceptPointer(pointerId)` 之后，这个指针的所有祖先都不再被询问。文本域拖选就是这样免疫外层滚动口的。
+
+两个钩子写在控件上，也可以直接当选项传：
+
+```ts
+// 一个"越过阈值才算拖动"的容器：按下时不动声色，走够 20px 才把手势从子控件手里接过来。
+const rail = this.add.uiPanel({ name: 'rail', padding: 12 }, [inner]);
+
+rail.onPointerIntercept = (event) => Math.hypot(event.dx, event.dy) >= 20;
+
+rail.onPointerEvent = (event) => {
+  if (event.phase === 'move') {
+    this.slideBy(-event.dy);
+    return true;
+  }
+  return false;
+};
+
+// 子控件反过来"这次别抢我的"：
+inner.onPointerEvent = (event) => {
+  if (event.phase === 'down') {
+    inner.requestDisallowInterceptPointer(event.pointerId);
+  }
+  if (event.phase === 'up' || event.phase === 'cancel') {
+    inner.releaseDisallowInterceptPointer(event.pointerId);
+  }
+  return true;
+};
+```
+
+事件对象（`PointerChainEvent`）里有什么：
+
+| 字段                  | 说明                                                                      |
+| --------------------- | ------------------------------------------------------------------------- |
+| `phase`               | `'down' \| 'move' \| 'up' \| 'cancel'`；`cancel` 就是「上面把手势拿走了」 |
+| `node` / `depth`      | 正在调用哪个节点、它在路径上的深度（根是 `0`）                            |
+| `x` / `y` / `inside`  | 指针在**这个控件自己**坐标系里的位置，以及是否还在它框内                  |
+| `stageX` / `stageY`   | 根空间的坐标（跨节点比较、判断拖出多远时用）                              |
+| `dx` / `dy`           | 本次手势从按下算起的位移（判断阈值用）                                    |
+| `hitTarget` / `owner` | 按下时命中的控件 / 分发前拥有手势的控件                                   |
+| `cancelReason`        | 仅 `cancel` 有：谁抢走的                                                  |
+| `pointerId` / `kind`  | 哪个指针（多指各自一条手势）/ 鼠标还是触摸                                |
+
+> ⚠️ 一次分发里，所有钩子拿到的是**同一个事件对象**（逐节点改写，和 Android 的 `MotionEvent` 一样）。要留数据就当场复制出来，别把这个对象存起来。
+
+两条与「点击」有关的规则值得单独记：
+
+- **消费了就不算点击**。返回 `true` 的控件已经说了「这次手势我自己处理」，所以按下时的焦点与 `pressed` 外观照旧，但抬手不会触发 `onActivate`/`onClick`。
+- **被拦截的按下连「按下」都不算**。目标控件从未收到 `down`，于是不留按下状态、不抢焦点、抬手也不会变成点击。
+
+运行时读数（`#/events` 是常驻验收场，`window.chain` 是它的探针）：
+
+| 成员                                | 说明                                                             |
+| ----------------------------------- | ---------------------------------------------------------------- |
+| `this.mvvm.input.lastChain`         | 最近一次分发的完整记录（投递顺序、每步答案、停在哪、谁拥有）     |
+| `this.mvvm.input.chains()`          | 当前在飞的手势（`pointerId`/`owner`/`hitTarget`/`path`，按名字） |
+| `this.mvvm.input.onPointerChain`    | 每次分发的回调（画调试日志、写断言）                             |
+| `this.mvvm.input.cancelPointer(id)` | 从外部结束一次手势，拥有者会收到 `cancel`                        |
+
+```ts
+this.mvvm.input.onPointerChain = (trace) => {
+  console.log(trace.phase, trace.stop, trace.entries.length);
+};
+```
+
+**什么时候用哪一招**：只是「这块提示显示/隐藏」用 `visible`；「这块挡住了就点不穿」用 `Panel({ blockPointer: true })`；**两个分支是彼此不同的树**用 `Branch()`（见 09 §3.1）；「子控件按下去时我要能接管」才是事件链。
+
 ---
 
 ## 3. `FocusManager`：焦点与遍历

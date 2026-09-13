@@ -12,14 +12,14 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import { Widget } from '@phaser-mvvm/phaser';
+import { Widget, type PointerChainOptionHooks } from '@phaser-mvvm/phaser';
 import { computeFit, type ImageFit } from './fit';
 import { contentBox } from './geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export type { ImageFit } from './fit';
 
-export interface ImageOptions extends LayoutParams {
+export interface ImageOptions extends LayoutParams, PointerChainOptionHooks {
   /** Texture key, as registered with `scene.textures`. */
   texture: string;
   /** Optional frame name inside the texture. */

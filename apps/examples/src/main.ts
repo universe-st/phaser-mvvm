@@ -7,6 +7,7 @@ import { BindingsScene } from './scenes/bindings';
 import { ComposeScene } from './scenes/compose';
 import { ConfigScene } from './scenes/config';
 import { DashboardScene } from './scenes/dashboard';
+import { EventsScene } from './scenes/events';
 import { FormScene } from './scenes/form';
 import { GalleryScene } from './scenes/gallery';
 import { HudScene } from './scenes/hud';
@@ -71,6 +72,7 @@ const SCENES = {
   hud: HudScene,
   router: RouterScene,
   keyboard: KeyboardScene,
+  events: EventsScene,
 } as const;
 
 const requested = window.location.hash.replace(/^#\/?/, '');

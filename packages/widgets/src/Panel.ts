@@ -13,7 +13,7 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import type { Theme } from '@phaser-mvvm/phaser';
+import type { PointerChainOptionHooks, Theme } from '@phaser-mvvm/phaser';
 import { ProceduralSkin, Widget } from '@phaser-mvvm/phaser';
 import type { A11yDescriptor } from '@phaser-mvvm/phaser';
 import { paintElevation, paintFocusRing, panelSkinStyles } from './appearance';
@@ -28,7 +28,7 @@ import {
 /** Background flavours of a panel; each maps onto theme tokens. */
 export type PanelVariant = 'surface' | 'surfaceAlt' | 'overlay' | 'primary' | 'danger' | 'plain';
 
-export interface PanelOptions extends LayoutParams {
+export interface PanelOptions extends LayoutParams, PointerChainOptionHooks {
   /** Flow direction of the box container. Defaults to `'vertical'`. */
   direction?: 'horizontal' | 'vertical';
   gap?: number;

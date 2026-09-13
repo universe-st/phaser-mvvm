@@ -18,7 +18,13 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import { ARROW_KEY_OF_DIRECTION, Widget, colorOf, pointerInWidgetSpace } from '@phaser-mvvm/phaser';
+import {
+  ARROW_KEY_OF_DIRECTION,
+  Widget,
+  colorOf,
+  pointerInWidgetSpace,
+  type PointerChainOptionHooks,
+} from '@phaser-mvvm/phaser';
 import type { A11yDescriptor, NavAction } from '@phaser-mvvm/phaser';
 import { paintFocusRing } from './appearance';
 import {
@@ -29,7 +35,7 @@ import {
 } from './slider-geometry';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
-export interface SliderOptions extends LayoutParams {
+export interface SliderOptions extends LayoutParams, PointerChainOptionHooks {
   /** Initial value; clamped into `[min, max]` and snapped to `step`. Defaults to `min`. */
   value?: number;
   /** Lower bound. Defaults to `0`. */

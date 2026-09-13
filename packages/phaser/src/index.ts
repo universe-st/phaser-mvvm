@@ -13,6 +13,7 @@ export {
   WIDGET_EVENTS,
   type ActivationSource,
   type FocusTarget,
+  type PointerChainOptionHooks,
   type WidgetOptions,
 } from './Widget';
 export {
@@ -212,6 +213,21 @@ export {
   type PointLike,
   type TargetNode,
 } from './input';
+export {
+  PointerChainHub,
+  chainLabelOf,
+  type ChainPoint,
+  type PointerChainAction,
+  type PointerChainEntry,
+  type PointerChainEvent,
+  type PointerChainInput,
+  type PointerChainNode,
+  type PointerChainStop,
+  type PointerChainTrace,
+  type PointerKind,
+  type PointerPhase,
+  type RetainedPointerChain,
+} from './pointer-chain';
 export {
   ARROW_KEY_OF_DIRECTION,
   NAV_DIRECTIONS,

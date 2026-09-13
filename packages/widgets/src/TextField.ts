@@ -18,9 +18,10 @@
 
 import type Phaser from 'phaser';
 import type { LayoutParams } from '@phaser-mvvm/layout';
+import type { PointerChainOptionHooks } from '@phaser-mvvm/phaser';
 import { TextInputBase } from './TextInputBase';
 
-export interface TextFieldOptions extends LayoutParams {
+export interface TextFieldOptions extends LayoutParams, PointerChainOptionHooks {
   /** Field label; shown as the bridge's accessible name (no label widget is laid out yet). */
   label?: string;
   /** Initial value. */

@@ -301,6 +301,19 @@ UPDATE_GOLDEN=1 pnpm --filter @phaser-mvvm/layout run test   # 有意变更后�
 
 ## 7. 附录 A：控件选项速查
 
+### 所有控件都接受的基类选项
+
+写在任何控件的选项对象里都有效（`baseWidgetOptions()` 负责把它们交给 `Widget`，见 07 §2.1）：
+
+| 选项                 | 类型                 | 默认   | 说明                                                                      |
+| -------------------- | -------------------- | ------ | ------------------------------------------------------------------------- |
+| `name`               | `string`             | `''`   | 调试名；探针与 `scene.children.getByName` 用它                            |
+| `visible`            | `boolean`            | `true` | `false` 时退出布局流、不绘制、不可点（`hideMode: 'keep'` 可只隐藏不塌陷） |
+| `focusOrder`         | `number`             | `0`    | Tab 顺序提示（小的在前，同值按控件树顺序）                                |
+| `label`              | `string`             | —      | 无障碍名（DOM 镜像的 `aria-label`）；容器有它就成为具名 `group`           |
+| `onPointerIntercept` | `(event) => boolean` | —      | 指针事件链的拦截钩子（Android `onInterceptTouchEvent`）                   |
+| `onPointerEvent`     | `(event) => boolean` | —      | 指针事件链的处理钩子；返回 `true` 即消费（Android `onTouchEvent`）        |
+
 ### `Label`
 
 | 选项                 | 默认         |

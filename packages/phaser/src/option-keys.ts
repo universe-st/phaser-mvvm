@@ -23,14 +23,17 @@ import { isDevMode, warn } from '@phaser-mvvm/core';
 /**
  * Options every widget accepts on the base class, so they may ride along in any bag.
  *
- * `visible`, `focusOrder` and `label` are read by `baseWidgetOptions()`; `name` by `splitOptions`
- * itself. They are not layout params and usually not in a widget's own key list.
+ * `visible`, `focusOrder`, `label` and the two pointer-chain hooks are read by `baseWidgetOptions()`;
+ * `name` by `splitOptions` itself. They are not layout params and usually not in a widget's own key
+ * list.
  */
 export const BASE_WIDGET_OPTION_KEYS: readonly string[] = [
   'name',
   'visible',
   'focusOrder',
   'label',
+  'onPointerIntercept',
+  'onPointerEvent',
 ];
 
 /** The layout keys, as a `Set` for the hot path. */

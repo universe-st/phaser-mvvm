@@ -18,7 +18,7 @@ import type {
 } from '@phaser-mvvm/layout';
 import { BOX_KEYS, GRID_KEYS, STACK_KEYS } from './container-options';
 import { reportUnknownOptions } from './option-keys';
-import { Widget } from './Widget';
+import { Widget, type PointerChainOptionHooks } from './Widget';
 
 /**
  * The two base-widget options a layout container takes.
@@ -29,7 +29,7 @@ import { Widget } from './Widget';
  * `Absolute`) did not: the audit accepted the key (`BASE_WIDGET_OPTION_KEYS`), the constructor dropped it
  * into the layout bag where `normalizeParams` ignores it, and `tsc` rejected it outright (V74).
  */
-export interface ContainerWidgetOptions {
+export interface ContainerWidgetOptions extends PointerChainOptionHooks {
   /** Debug name. */
   name?: string;
   /** Accessible name for the DOM mirror (`Widget.a11yLabel`). */

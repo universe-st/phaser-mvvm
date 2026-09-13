@@ -23,6 +23,20 @@ describe('unknownOptionKeys', () => {
     ).toEqual([]);
   });
 
+  it('accepts the two pointer-chain hooks on any widget (ADR-0010)', () => {
+    // They live on `Widget` and `baseWidgetOptions()` hands them through for every widget, so a bag that
+    // mentions them must never be reported as unknown — the audit, the type (`PointerChainOptionHooks`)
+    // and the runtime have to agree, or this is V74 again.
+    expect(BASE_WIDGET_OPTION_KEYS).toContain('onPointerIntercept');
+    expect(BASE_WIDGET_OPTION_KEYS).toContain('onPointerEvent');
+    expect(
+      unknownOptionKeys(
+        { onPointerEvent: () => true, onPointerIntercept: () => false },
+        BUTTON_KEYS,
+      ),
+    ).toEqual([]);
+  });
+
   it('reports a mistyped key', () => {
     expect(unknownOptionKeys({ tekst: 'typo' }, BUTTON_KEYS)).toEqual(['tekst']);
   });

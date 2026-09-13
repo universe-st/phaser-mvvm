@@ -54,7 +54,13 @@ import {
   stageRectOf,
   Widget,
 } from '@phaser-mvvm/phaser';
-import type { A11yDescriptor, NavDirection, NavAction, Theme } from '@phaser-mvvm/phaser';
+import type {
+  PointerChainOptionHooks,
+  A11yDescriptor,
+  NavDirection,
+  NavAction,
+  Theme,
+} from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 import {
   clampZoomOffset,
@@ -84,7 +90,7 @@ export type ScrollDirection = 'vertical' | 'horizontal' | 'both';
 /** Scrollbar visibility: `true` always, `false` never, `'auto'` only when the content overflows. */
 export type ScrollbarMode = boolean | 'auto';
 
-export interface ScrollViewOptions extends LayoutParams {
+export interface ScrollViewOptions extends LayoutParams, PointerChainOptionHooks {
   /** Axis (or axes) the view scrolls along. Defaults to `'vertical'`. */
   direction?: ScrollDirection;
   /** Initial content. Same as calling `setContent()` after construction. */

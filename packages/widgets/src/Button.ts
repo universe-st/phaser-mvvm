@@ -10,7 +10,12 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import type { A11yDescriptor, Theme, WidgetState } from '@phaser-mvvm/phaser';
+import type {
+  PointerChainOptionHooks,
+  A11yDescriptor,
+  Theme,
+  WidgetState,
+} from '@phaser-mvvm/phaser';
 import { ProceduralSkin, Widget } from '@phaser-mvvm/phaser';
 import { buttonSkinStyles, buttonTextColor, paintFocusRing } from './appearance';
 import { buttonLabel, resolveButtonActivation, resolveButtonState } from './button-state';
@@ -22,7 +27,7 @@ import { glyphPadding } from './text-padding';
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
-export interface ButtonOptions extends LayoutParams {
+export interface ButtonOptions extends LayoutParams, PointerChainOptionHooks {
   /** Label text. */
   text?: string;
   /** Texture key of an icon, or a ready-made Game Object (which must expose `width`/`height`). */

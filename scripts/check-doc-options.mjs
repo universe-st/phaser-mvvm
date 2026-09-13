@@ -24,8 +24,21 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 
-/** Options every widget accepts on the base class (`option-keys.ts`), plus the two `splitOptions` owns. */
-const BASE_WIDGET_KEYS = ['name', 'visible', 'focusOrder', 'label'];
+/**
+ * Options every widget accepts on the base class (`option-keys.ts`), plus the two `splitOptions` owns.
+ *
+ * Kept in step with `BASE_WIDGET_OPTION_KEYS` by hand: the two pointer-chain hooks joined the list in
+ * round 107 (ADR-0010), and a table that documents them is documented *for every widget*, because
+ * `Panel({ onPointerEvent })` and `Button({ onPointerEvent })` both go through `baseWidgetOptions()`.
+ */
+const BASE_WIDGET_KEYS = [
+  'name',
+  'visible',
+  'focusOrder',
+  'label',
+  'onPointerIntercept',
+  'onPointerEvent',
+];
 
 /**
  * Every option bag a guide table may document.

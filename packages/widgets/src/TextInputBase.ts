@@ -31,7 +31,7 @@ import {
   stageRectOf,
   Widget,
 } from '@phaser-mvvm/phaser';
-import type { A11yDescriptor } from '@phaser-mvvm/phaser';
+import type { A11yDescriptor, PointerChainOptionHooks } from '@phaser-mvvm/phaser';
 import { paintFocusRing, textInputSkinStyles } from './appearance';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
@@ -81,7 +81,7 @@ import {
 } from './text-edit';
 
 /** Options every text input understands, whatever its line policy. */
-export interface TextInputOptions extends LayoutParams {
+export interface TextInputOptions extends LayoutParams, PointerChainOptionHooks {
   /** Field label; used as the accessible name of the DOM bridge. */
   label?: string;
   /** Initial value. */

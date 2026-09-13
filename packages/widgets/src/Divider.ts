@@ -8,13 +8,13 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import type { ThemeColorName } from '@phaser-mvvm/phaser';
+import type { PointerChainOptionHooks, ThemeColorName } from '@phaser-mvvm/phaser';
 import { Widget, colorOf } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
 export type DividerOrientation = 'horizontal' | 'vertical';
 
-export interface DividerOptions extends LayoutParams {
+export interface DividerOptions extends LayoutParams, PointerChainOptionHooks {
   /** `'horizontal'` draws a rule along x, `'vertical'` along y. Defaults to `'horizontal'`. */
   orientation?: DividerOrientation;
   /** Theme token or literal colour. Defaults to `theme.colors.border`. */

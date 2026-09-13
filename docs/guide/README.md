@@ -23,17 +23,17 @@
 
 ## 2. 章节一览
 
-| 章节                                                        | 你会做出什么                                      | 涉及的核心概念                                                                       |
-| ----------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [01 快速开始](./01-quick-start.md)                          | 一个能跑的页面：标题 + 两张卡片 + 一个按钮        | 游戏配置、`MVVMPlugin`、`render()`、帧对齐刷新（工厂注册仅在用 `this.add.*` 时需要） |
-| [02 布局](./02-layout.md)                                   | 卡片页 → 仪表盘 → 网格画廊 → 角标/对话框          | 两阶段 `measure/arrange`、四种容器、`LayoutParams`、脏标记与测量缓存                 |
-| [03 控件](./03-widgets.md)                                  | 控件画廊：每个控件的所有形态                      | `Label`/`Panel`/`Button`/`Image`/`Spacer`/`Divider`、状态机、主题令牌                |
-| [04 文本框与表单](./04-text-inputs.md)                      | 一个带校验的登录表单（含中文 IME）                | `TextField`/`TextArea`、DOM 输入桥、校验与错误态、编辑快捷键                         |
-| [05 列表与滚动](./05-lists-and-scroll.md)                   | 220 行虚拟化列表 + 横向滚动条 + 嵌套滚动          | `Repeat` 键控复用/虚拟化、`ScrollView` 手势与裁剪、滚轮链                            |
-| [06 数据绑定与主题](./06-data-and-theme.md)                 | 把画廊/仪表盘接到 `ref`/`computed` 上，并支持换肤 | `ref`/`computed`、`bind*` 系列、`BindingContext`、主题令牌                           |
-| [07 交互：指针、焦点与导航](./07-input-focus-nav.md)        | 纯键盘 / 手柄可完成的页面                         | `InputRouter`、`FocusManager`、键盘与手柄映射、`NavRepeat`                           |
-| [08 生命周期、性能与常见坑](./08-lifecycle-and-pitfalls.md) | —（排查与速查）                                   | 挂载/销毁、`EffectScope`、性能预算、坑清单、全部选项/事件/常量速查表                 |
-| [09 Compose 风格 DSL](./09-compose-dsl.md)                  | 把同一批界面写成嵌套调用（`#/compose`）           | `ui()`、`Column`/`Row`/`Panel`/`Scroll`/`List`、反应式参数、双向绑定、`uiscope`      |
+| 章节                                                        | 你会做出什么                                      | 涉及的核心概念                                                                                   |
+| ----------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [01 快速开始](./01-quick-start.md)                          | 一个能跑的页面：标题 + 两张卡片 + 一个按钮        | 游戏配置、`MVVMPlugin`、`render()`、帧对齐刷新（工厂注册仅在用 `this.add.*` 时需要）             |
+| [02 布局](./02-layout.md)                                   | 卡片页 → 仪表盘 → 网格画廊 → 角标/对话框          | 两阶段 `measure/arrange`、四种容器、`LayoutParams`、脏标记与测量缓存                             |
+| [03 控件](./03-widgets.md)                                  | 控件画廊：每个控件的所有形态                      | `Label`/`Panel`/`Button`/`Image`/`Spacer`/`Divider`、状态机、主题令牌                            |
+| [04 文本框与表单](./04-text-inputs.md)                      | 一个带校验的登录表单（含中文 IME）                | `TextField`/`TextArea`、DOM 输入桥、校验与错误态、编辑快捷键                                     |
+| [05 列表与滚动](./05-lists-and-scroll.md)                   | 220 行虚拟化列表 + 横向滚动条 + 嵌套滚动          | `Repeat` 键控复用/虚拟化、`ScrollView` 手势与裁剪、滚轮链                                        |
+| [06 数据绑定与主题](./06-data-and-theme.md)                 | 把画廊/仪表盘接到 `ref`/`computed` 上，并支持换肤 | `ref`/`computed`、`bind*` 系列、`BindingContext`、主题令牌                                       |
+| [07 交互：指针、焦点与导航](./07-input-focus-nav.md)        | 纯键盘 / 手柄可完成的页面                         | `InputRouter`、**指针事件链（传递 / 拦截 / 消费）**、`FocusManager`、键盘与手柄映射、`NavRepeat` |
+| [08 生命周期、性能与常见坑](./08-lifecycle-and-pitfalls.md) | —（排查与速查）                                   | 挂载/销毁、`EffectScope`、性能预算、坑清单、全部选项/事件/常量速查表                             |
+| [09 Compose 风格 DSL](./09-compose-dsl.md)                  | 把同一批界面写成嵌套调用（`#/compose`）           | `ui()`、`Column`/`Row`/`Panel`/`Scroll`/`List`、反应式参数、双向绑定、`uiscope`                  |
 
 ---
 

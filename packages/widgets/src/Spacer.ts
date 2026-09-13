@@ -7,10 +7,10 @@
  */
 
 import type { BoxConstraints, LayoutParams, Size } from '@phaser-mvvm/layout';
-import { Widget } from '@phaser-mvvm/phaser';
+import { Widget, type PointerChainOptionHooks } from '@phaser-mvvm/phaser';
 import { optionBag, splitWidgetOptions, baseWidgetOptions } from './options';
 
-export interface SpacerOptions extends LayoutParams {
+export interface SpacerOptions extends LayoutParams, PointerChainOptionHooks {
   /**
    * Shorthand for `grow: 1`. An explicit `grow` wins, so `{ flex: true, grow: 2 }` uses the weight 2.
    */

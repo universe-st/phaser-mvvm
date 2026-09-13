@@ -11,7 +11,7 @@
 
 import Phaser from 'phaser';
 import type { BoxConstraints, LayoutParams, Rect, Size } from '@phaser-mvvm/layout';
-import type { ThemeColorName, ThemeSizeName } from '@phaser-mvvm/phaser';
+import type { PointerChainOptionHooks, ThemeColorName, ThemeSizeName } from '@phaser-mvvm/phaser';
 import { Widget } from '@phaser-mvvm/phaser';
 import { toCssColor } from './color';
 import { contentBox } from './geometry';
@@ -25,7 +25,7 @@ export type LabelAlign = 'left' | 'center' | 'right';
 /** Semantic text colours; every tone maps to a theme token, never to a literal. */
 export type LabelTone = 'default' | 'muted' | 'danger' | 'success' | 'warning' | 'primary';
 
-export interface LabelOptions extends LayoutParams {
+export interface LabelOptions extends LayoutParams, PointerChainOptionHooks {
   /** Initial text. `\n` starts a new line even when wrapping is off. */
   text?: string;
   /**

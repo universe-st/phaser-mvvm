@@ -8,7 +8,7 @@
  */
 
 import type { BoxLayoutOptions, LayoutParams } from '@phaser-mvvm/layout';
-import { splitOptions } from '@phaser-mvvm/phaser';
+import { splitOptions, type PointerChainEvent } from '@phaser-mvvm/phaser';
 
 /** Box-container option keys, matching `BoxLayoutOptions` in `@phaser-mvvm/layout`. */
 export const BOX_CONTAINER_KEYS = [
@@ -29,15 +29,28 @@ export const BOX_CONTAINER_KEYS = [
  * Every widget class hands `{ layout, name }` to `Widget`, and the keys that live on the base class
  * have to ride along or they are silently dropped (`focusOrder` was exactly that case: documented as
  * an option, set by nobody). Spreading this keeps the plumbing in one place.
+ *
+ * The two pointer-chain hooks are here for the same reason: they belong to *every* widget (the chain
+ * asks any widget on the path), so a container built as `Panel({ onPointerIntercept })` must reach
+ * `Widget` through the same door as `label`.
  */
 export function baseWidgetOptions(options: object): {
   name?: string;
   visible?: boolean;
   focusOrder?: number;
   label?: string;
+  onPointerIntercept?: (event: PointerChainEvent) => boolean;
+  onPointerEvent?: (event: PointerChainEvent) => boolean;
 } {
   const bag = optionBag(options);
-  const picked: { name?: string; visible?: boolean; focusOrder?: number; label?: string } = {};
+  const picked: {
+    name?: string;
+    visible?: boolean;
+    focusOrder?: number;
+    label?: string;
+    onPointerIntercept?: (event: PointerChainEvent) => boolean;
+    onPointerEvent?: (event: PointerChainEvent) => boolean;
+  } = {};
   if (typeof bag.name === 'string') {
     picked.name = bag.name;
   }
@@ -49,6 +62,12 @@ export function baseWidgetOptions(options: object): {
   }
   if (typeof bag.label === 'string') {
     picked.label = bag.label;
+  }
+  if (typeof bag.onPointerIntercept === 'function') {
+    picked.onPointerIntercept = bag.onPointerIntercept as (event: PointerChainEvent) => boolean;
+  }
+  if (typeof bag.onPointerEvent === 'function') {
+    picked.onPointerEvent = bag.onPointerEvent as (event: PointerChainEvent) => boolean;
   }
   return picked;
 }

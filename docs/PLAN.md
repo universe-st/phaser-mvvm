@@ -156,6 +156,7 @@ LayoutParams {
 - **测量器 `PhaserTextMeasurer`**：包装 `Text` 度量 + LRU 缓存（键：文本 + 字体 + 字号 + 字距 + 换行宽度 + 行距），命中率高时可显著降低 `measureText` 调用。
 - **输入与焦点**：
   - `InputRouter`：统一把 pointer/keyboard 事件分发给控件；面板级「拦截层」（透明矩形，命中即吞掉事件）阻止点击穿透到游戏世界；支持 `topOnly` + 捕获阶段拦截。
+  - **指针事件链（第 107 轮，见 [ADR-0010](./adr/0010-pointer-event-chain.md)）**：命中测试之上补一条 Android 风格的有序链（`pointer-chain.ts`，纯逻辑、Node 单测）。`down` 自根向下逐个询问 `onPointerIntercept`（第一个 `true` 拿走事件、更深节点完全收不到），最深节点用 `onPointerEvent` 决定**消费**（`true`）还是**向上冒泡**；消费即拥有整次手势，之后的 `move`/`up` 只沿**保留的路径**投递、**从不重新命中测试**（指针离开控件/嵌套口/画布照样送达，`event.inside` 说明还在不在里面）；手势进行中祖先仍可拦截，被夺走的一方收到带原因的 `cancel`；子控件用 `requestDisallowInterceptPointer()`（复用 `pointer-claim.ts` 的认领表）禁止祖先拦截。两个钩子同时是基类选项。**与既有点击机器是相加关系**：无人消费时按下/悬停/激活/阈值判定原样执行；消费则抑制 `activate()`；被拦截的按下连「按下」都不算（不留状态、不抢焦点、抬手不点击）。每次分发产出 `PointerChainTrace`（`InputRouter#lastChain`/`#chains()`/`onPointerChain`），常驻验收场 `#/events`。
   - `FocusManager`：Tab/Shift+Tab 焦点链、方向键导航、焦点环（filter glow 或九宫格描边）、Enter/Space 激活、焦点丢失清理。
   - 长按、双击、拖拽阈值等手势语义统一在 `InputRouter` 内实现，控件只订阅语义事件。
 - **场幕集成**：

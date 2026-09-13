@@ -32,9 +32,26 @@ import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { inFlowOf } from '@phaser-mvvm/layout';
 import { CONTAINER_OPTION_KEYS } from './container-options';
 import { announceableState, resolveWidgetState, type WidgetState } from './widget-state';
+import { claimPointerDrag, releasePointerDrag } from './pointer-claim';
+import type { PointerChainEvent } from './pointer-chain';
 import type { A11yDescriptor } from './a11y';
 
-export interface WidgetOptions {
+/**
+ * The pointer-chain hooks, as an option bag any widget accepts.
+ *
+ * Every widget may sit on a press's path (it is a container, a card, a scroller), so the two hooks that
+ * decide what happens to the event belong to the *base* class — and an option key that the audit accepts
+ * but the type rejects is the V74 shape of defect, so the key is declared here and mixed into every
+ * widget's own option interface.
+ */
+export interface PointerChainOptionHooks {
+  /** See {@link Widget.onPointerIntercept}: `true` takes the gesture away from everything below. */
+  onPointerIntercept?: (event: PointerChainEvent) => boolean;
+  /** See {@link Widget.onPointerEvent}: `true` consumes the event and owns the gesture. */
+  onPointerEvent?: (event: PointerChainEvent) => boolean;
+}
+
+export interface WidgetOptions extends PointerChainOptionHooks {
   /** Declarative sizing/placement parameters, see `LayoutParams`. */
   layout?: LayoutParams;
   /** Debug name; also used by `scene.children.getByName`. */
@@ -104,6 +121,12 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
     }
     if (options.label !== undefined) {
       this.a11yLabel = options.label;
+    }
+    if (options.onPointerIntercept !== undefined) {
+      this.onPointerIntercept = options.onPointerIntercept;
+    }
+    if (options.onPointerEvent !== undefined) {
+      this.onPointerEvent = options.onPointerEvent;
     }
 
     this.setSize(0, 0);
@@ -190,6 +213,63 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
    * available for leaving a horizontal slider with a D-Pad.
    */
   onAction: ((action: NavAction, source: ActivationSource) => boolean) | null = null;
+
+  /**
+   * First refusal on a pointer event, **before anything below this widget hears about it** — Android's
+   * `onInterceptTouchEvent`.
+   *
+   * This is the hook a container uses to take a gesture away from its own children: the walk down the
+   * path asks every ancestor in turn, and the first `true` stops the descent there, hands the event to
+   * this widget's own {@link Widget.onPointerEvent}, and tells a child that had already claimed the
+   * gesture (through a `cancel`) that it lost it. A scroll port that only decides "this is a drag, not
+   * a click" once the pointer has travelled uses exactly this shape.
+   *
+   * It is never asked of the widget the pointer actually landed on (that one *is* the destination),
+   * and a descendant that called {@link Widget.requestDisallowInterceptPointer} suppresses it.
+   */
+  onPointerIntercept: ((event: PointerChainEvent) => boolean) | null = null;
+
+  /**
+   * This widget's own pointer handler — Android's `onTouchEvent`.
+   *
+   * Called for the widget the pointer landed on, and then for its ancestors as it declines
+   * (`false`/`undefined` bubbles up). Returning `true` **consumes** the event: on a press, this widget
+   * owns the whole gesture — every later `move`, and the `up` even if the pointer has left its box or
+   * the canvas — and the ordinary click activation is suppressed, because consuming means "I am
+   * handling this myself".
+   *
+   * `event.x`/`event.y` are in **this widget's** coordinate space, so a deeply nested handler does not
+   * have to know where it sits; `event.inside` says whether the pointer is still on the widget, which is
+   * what a drag needs and what a click ignores.
+   */
+  onPointerEvent: ((event: PointerChainEvent) => boolean) | null = null;
+
+  /**
+   * The name this widget is reported under in a pointer chain trace (its `name`, else its class).
+   */
+  get chainLabel(): string {
+    return this.name || this.constructor.name;
+  }
+
+  /**
+   * Asks every ancestor not to intercept this pointer — Android's `requestDisallowInterceptTouchEvent`.
+   *
+   * A text field starting a selection is the canonical caller: without it, the scroll port around it
+   * would take the drag as soon as the pointer travelled far enough, and the selection would turn into
+   * a scroll halfway through. The claim is the *same* record the drag-ownership protocol uses
+   * (`pointer-claim.ts`), so there is one answer to "who owns this pointer" rather than two that can
+   * disagree.
+   *
+   * The veto lasts until {@link Widget.releaseDisallowInterceptPointer} or the end of the gesture.
+   */
+  requestDisallowInterceptPointer(pointerId: number): void {
+    claimPointerDrag(this.scene, pointerId, this);
+  }
+
+  /** Drops the veto made by {@link Widget.requestDisallowInterceptPointer}. */
+  releaseDisallowInterceptPointer(pointerId: number): void {
+    releasePointerDrag(this.scene, pointerId, this);
+  }
 
   private _enabled = true;
   private _hovered = false;
