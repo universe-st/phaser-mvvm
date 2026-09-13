@@ -26,10 +26,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 不写 version：让 action 读 package.json 的 packageManager（pnpm@10.34.5），
+      # 保持单一事实来源。两者同时给出且不一致时，action 在**安装依赖之前**就报
+      # "Multiple versions of pnpm specified" 并让整个 job 失败——首次 push 时 CI 正是这样红的。
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
