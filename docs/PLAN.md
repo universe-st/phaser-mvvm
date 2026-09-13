@@ -237,86 +237,91 @@ LayoutParams {
 
 ---
 
-## 5. API 草案（目标形态）
+## 5. API 形态（1.0 已冻结）
 
-> ⚠️ 本节是**设计期的草案**，不是契约。真正对外承诺的公开面已冻结为 [`docs/API-SURFACE.json`](./API-SURFACE.json)（第 110 轮，[ADR-0011](./adr/0011-public-api-freeze.md)）：5 个入口点的 817 个导出名，由 `pnpm api:check` 守住。草案名与实际名字的差异清单见 [`guide/08-lifecycle-and-pitfalls.md`](./guide/08-lifecycle-and-pitfalls.md) §5；新代码以指南与入口文件的导出为准。
+> 这一节在 M0 之前写的是**目标形态的草案**（`vbox({...}, [children])` builder、`model()`/`bind()`/`command()`、`this.mvvm.mount(vm, View, options)`）。那些名字**从未实现**，第 110 轮已把它们从本节删掉，换成**真实存在的 API**。草案名与已实现名的完整差异清单见 [`guide/08-lifecycle-and-pitfalls.md`](./guide/08-lifecycle-and-pitfalls.md) §5。
+>
+> 对外承诺的公开面已冻结为 [`docs/API-SURFACE.json`](./API-SURFACE.json)（第 110 轮，[ADR-0011](./adr/0011-public-api-freeze.md)）：5 个入口点的 817 个导出名，由 `pnpm api:check` 守住。**本节与它不一致时以它和入口文件为准。**
 
 ```ts
-// 1) ViewModel：纯 TS 类 + 可选装饰性 API
+// 1) ViewModel：纯 TS 类 + 响应式原语（没有装饰器，也没有基类）
+import { computed, reactive, ref } from '@phaser-mvvm/core';
+
 export class UserFormVM {
   name = ref('');
   age = ref(0);
   users = reactive<User[]>([]);
   errors = computed(() => ({
-    name: this.name.value.trim().length >= 2 ? undefined : '姓名至少 2 个字符',
+    name: this.name.value.trim().length >= 2 ? null : '姓名至少 2 个字符',
   }));
-  save = command(async () => { await api.save({ name: this.name.value }); }, {
-    canExecute: () => !this.errors.value.name,
-  });
-}
-
-// 2) 视图：类型安全的 builder（推荐默认）
-export function UserForm(vm: UserFormVM) {
-  return vbox({ gap: 12, padding: 16, fill: 'both' }, [
-    label({ text: '用户信息', style: 'h2' }),
-
-    textField({
-      label: '姓名',
-      model: model(vm, 'name'),          // 双向绑定
-      placeholder: '请输入姓名',
-      error: bind(() => vm.errors.value.name),
-    }),
-
-    textField({ label: '年龄', model: model(vm, 'age'), inputType: 'number', width: 120 }),
-
-    grid({ columns: 3, gap: 12, fill: 'x' }, [
-      ...vm.users.map((u) => card(u)),   // 或下面这种响应式写法
-    ]),
-
-    repeat({
-      items: bind(() => vm.users),
-      key: (u) => u.id,
-      virtualize: true,
-      template: (u) => card(u),
-    }),
-
-    hbox({ gap: 8, justifyContent: 'end' }, [
-      button({ text: '重置', onClick: () => vm.reset() }),
-      button({ text: '保存', command: vm.save, variant: 'primary' }),
-    ]),
-  ]);
-}
-
-// 3) 挂载：场景插件
-export class DemoScene extends Phaser.Scene {
-  create() {
-    const vm = new UserFormVM();
-    this.mvvm.mount(vm, UserForm, { root: 'center', width: 480 });
+  async save(): Promise<void> {
+    await api.save({ name: this.name.value, age: this.age.value });
   }
 }
 
-// 4) 或配置式创建（工厂注册）
-this.add.textField({ x: 0, y: 0, model: 'form.name', maxLength: 20 });
+// 2) 视图：Compose 风格 DSL（推荐默认写法，详见 §5.1）
+import {
+  ui, Column, Row, Scroll, List, Text, TextField, Button,
+} from '@phaser-mvvm/widgets/compose';
+
+const page = ui(this, () => {
+  Column({ gap: 12, padding: 16, width: 480, alignItems: 'stretch' }, () => {
+    Text('用户信息', { size: 'lg' });
+
+    // 数据槽位：传 ref 就是双向绑定，传 getter 是单向
+    TextField({ label: '姓名', value: vm.name, placeholder: '请输入姓名' });
+    TextField({ label: '年龄', value: vm.age, inputType: 'number', width: 120 });
+
+    Scroll({ height: 240, direction: 'vertical' }, () => {
+      List(
+        { items: () => vm.users, key: (u) => u.id, virtualize: true, itemExtent: 34 },
+        (user) => Text(() => user.name),   // 逐行模板；getter 随数据变化重绘
+      );
+    });
+
+    Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
+      Button('重置', { variant: 'ghost', onClick: () => (vm.name.value = '') });
+      Button('保存', { variant: 'primary', onClick: () => void vm.save() });
+    });
+  });
+});
+this.mvvm.mount(page);          // `ui()` 只建树，挂载是显式的一步
+
+// 3) `render()` 把「建树 + 挂载」合成一步（UIScene 里用 `content()`，见指南 07）
+import { render } from '@phaser-mvvm/widgets/compose';
+render(this.mvvm, () => {
+  Column({ padding: 16 }, () => Text('你好'));
+});
+
+// 4) 工厂 API 继续可用、也不被弃用（直连 Phaser 的 GameObjectFactory）
+this.add.uiTextField({ value: '李四', label: '姓名', width: 200 });
+this.add.vbox({ gap: 8 }, [this.add.uiLabel({ text: 'a' }), this.add.uiButton({ text: 'b' })]);
 ```
+
+三条与草案的关键差异，写代码时容易踩：
+
+- **没有 `command()`**。命令式行为用 `bindCommand(widget, execute, options)`（`@phaser-mvvm/phaser`，`options.canExecute` 控制可用性），或者直接给 `Button` 的 `onClick` 传闭包 —— 后者是示例页的常规写法。
+- **没有 `bind()` 包一层**。反应式参数收的是**常量 / `Ref` / getter** 本身：`Text(() => `你好，${vm.name.value}`)`、`TextField({ value: vm.name })`。需要独立于控件树的生命周期时用 `bind*` 系列（`bindText`/`bindVisible`/`bindEnabled`/`bindError`/`bindModel`）。
+- **没有 `mount(vm, View, options)` 三件套**。挂载只收控件：`this.mvvm.mount(page)`；`root` 的对齐/内边距属于 `UIRoot`/页面自身的布局参数（`ui()` 的根容器选项）。
 
 ### 5.1 Compose 风格 DSL（已实现，推荐默认写法）
 
-上面第 2 条的目标形态（`vbox({...}, [children])` builder）已由 **Compose 风格 DSL** 取代为默认写法：视图写成嵌套调用，容器的最后一个参数是内容 lambda，父子关系由作用域隐式建立，不再有 children 数组、不再需要 `this.add` 前缀。
+**Compose 风格 DSL 就是上面第 2 条、也是全框架推荐的默认写法**：视图写成嵌套调用，容器的最后一个参数是内容 lambda，父子关系由作用域隐式建立 —— 没有 children 数组，也不需要 `this.add` 前缀。它取代的是 M0 草案里 `vbox({...}, [children])` 那种 builder 形态（那个形态与工厂 API 仍然可用，只是不再是推荐默认）。
 
 ```ts
 import { ui, Column, Row, Text, Button, TextField, List, Scroll } from '@phaser-mvvm/widgets/compose';
 
 const page = ui(this, () => {
   Column({ gap: 12, padding: 16, width: 520 }, () => {
-    Text(() => `你好，${vm.name.value}`);          // ref / getter 自动绑定
+    Text(() => `你好，${vm.name.value}`);          // getter → 单向、随数据重绘
     TextField({ value: vm.name, label: '姓名' });  // ref → 双向
     Scroll({ height: 240, direction: 'vertical' }, () => {
-      List({ items: () => vm.users.value, key: (u) => u.id, virtualize: true, itemExtent: 34 },
+      List({ items: () => vm.users, key: (u) => u.id, virtualize: true, itemExtent: 34 },
         (user) => Text(() => user.name));
     });
     Row({ gap: 8, justifyContent: 'end', width: 'fill' }, () => {
-      Button('重置', { variant: 'ghost', onClick: () => vm.reset() });
-      Button('保存', { variant: 'primary', onClick: vm.save });
+      Button('重置', { variant: 'ghost', onClick: () => (vm.name.value = '') });
+      Button('保存', { variant: 'primary', onClick: () => void vm.save() });
     });
   });
 });
@@ -334,6 +339,21 @@ this.mvvm.mount(page);
 - **里程碑**：不新增里程碑编号，属于 M4/M6 之后的使用层演进（M8/M9 早已交付，见下一节的执行状态）。
 
 ---
+
+### 5.2 草案名 → 实际名（写代码别照抄本节的历史草案）
+
+| 草案（M0 之前）                        | 实际交付                                                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `vbox({…}, [children])` 作为默认写法   | **Compose DSL**：`Column({…}, () => { … })`；`this.add.vbox({…}, [...])` 仍可用但不再是推荐默认（§5.1） |
+| `model(vm, 'name')`                    | 直接传 `Ref`：`TextField({ value: vm.name })`（双向）或 `bindModel(field, vm, 'name')`                 |
+| `bind(() => vm.errors.value.name)`     | 直接传 getter：`error: () => vm.errors.value.name`（数据槽位），或 `bindError(field, () => …)`          |
+| `command(fn, { canExecute })`          | `bindCommand(widget, fn, { canExecute })`（无独立 `command()`）                                        |
+| `this.mvvm.mount(vm, UserForm, opts)`  | `this.mvvm.mount(page)`；`render(this.mvvm, () => …)` 一步建树并挂载                                    |
+| `Surface`                              | **没有别名**，用 `Panel`（第 95 轮删掉了没人用过的 `Surface`）                                          |
+| `PageStack` / `ModalStack`             | `PageHost`（`mvvm.pages`）/ `ModalHost`（`mvvm.modal`）                                                |
+| `Page` 类 + `onEnter`/`onLeave`        | `PageOptions` + `onResume`/`onPause`/`onDispose`/`onBack`；`UIScene` 的 `content()` 建页                |
+| `NavSource`                            | **已实现**（第 110 轮）：`NavSource`/`NavSourceRegistry` + `mvvm.registerNavSource()`                   |
+| `@phaser-mvvm/template`（JSON/模板层） | **Phase 2，未创建**                                                                                    |
 
 ## 6. 里程碑计划
 
