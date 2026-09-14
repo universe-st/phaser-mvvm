@@ -43,24 +43,25 @@ Button('保存', {
 
 ### 1.3 公共 API（`Widget` 基类提供）
 
-| 成员                                                                                | 说明                                                                                  |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `layoutParams`                                                                      | 归一化后的节点参数（只读对象，改它请用 `setLayoutParams`）                            |
-| `setLayoutParams(patch)`                                                            | 部分更新节点参数并标脏                                                                |
-| `appliedRect`                                                                       | 引擎分配的最终矩形（父容器局部坐标，已做像素取整）                                    |
-| `visualState` / `hovered` / `pressed` / `focused` / `error` / `enabled`             | 状态读取                                                                              |
-| `setEnabled(v)` / `setError(v)`                                                     | 改状态（会重绘并 emit `widget:state`）                                                |
-| `setVisible(v)`                                                                     | 隐藏＝退出布局流（`inFlow = false`，见 [02 §3](./02-layout.md)）                      |
-| `focus()` / `blur()`                                                                | 键盘/手柄焦点（需要焦点管理器，见 07 章）                                             |
-| `activate(source?)`                                                                 | 触发激活（`'pointer'`/`'touch'`/`'keyboard'`/`'gamepad'`），`disabled` 时返回 `false` |
-| `onActivate`                                                                        | 激活回调；`bindCommand` 会**链式**接在它后面                                          |
-| `addWidget(child)` / `removeWidget(child, destroy?)` / `removeAllWidgets(destroy?)` | 维护 widget 树（不是 `container.add()`）                                              |
-| `getWidgetChildren()`                                                               | 参与布局的子控件副本                                                                  |
-| `markDirty()`                                                                       | 内容变化后让布局重算                                                                  |
-| `scope`                                                                             | 该控件的 `EffectScope`（绑定都挂在里面，销毁时统一停止）                              |
-| `theme`                                                                             | 当前主题（只读；切换主题时控件自己重绘）                                              |
-| `name`                                                                              | 调试名，也是 `scene.children.getByName` 的名字                                        |
-| `focusOrder`                                                                        | Tab 顺序提示（小的先被 Tab 到；相同值保持控件树顺序，见 07 章）                       |
+| 成员                                                                                | 说明                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `layoutParams`                                                                      | 归一化后的节点参数（只读对象，改它请用 `setLayoutParams`）                                                                                                              |
+| `setLayoutParams(patch)`                                                            | 部分更新节点参数并标脏                                                                                                                                                  |
+| `appliedRect`                                                                       | 引擎分配的最终矩形（父容器局部坐标，已做像素取整）                                                                                                                      |
+| `visualState` / `hovered` / `pressed` / `focused` / `error` / `enabled`             | 状态读取                                                                                                                                                                |
+| `focusVisible`                                                                      | 现在**要不要画焦点环**（`focused` 管焦点在谁身上，它管要不要指出来：鼠标点来的焦点是 `focused` 但不画环，见 07 章 §5 与 [ADR-0012](../adr/0012-focus-visible-ring.md)） |
+| `setEnabled(v)` / `setError(v)`                                                     | 改状态（会重绘并 emit `widget:state`）                                                                                                                                  |
+| `setVisible(v)`                                                                     | 隐藏＝退出布局流（`inFlow = false`，见 [02 §3](./02-layout.md)）                                                                                                        |
+| `focus()` / `blur()`                                                                | 键盘/手柄焦点（需要焦点管理器，见 07 章）                                                                                                                               |
+| `activate(source?)`                                                                 | 触发激活（`'pointer'`/`'touch'`/`'keyboard'`/`'gamepad'`），`disabled` 时返回 `false`                                                                                   |
+| `onActivate`                                                                        | 激活回调；`bindCommand` 会**链式**接在它后面                                                                                                                            |
+| `addWidget(child)` / `removeWidget(child, destroy?)` / `removeAllWidgets(destroy?)` | 维护 widget 树（不是 `container.add()`）                                                                                                                                |
+| `getWidgetChildren()`                                                               | 参与布局的子控件副本                                                                                                                                                    |
+| `markDirty()`                                                                       | 内容变化后让布局重算                                                                                                                                                    |
+| `scope`                                                                             | 该控件的 `EffectScope`（绑定都挂在里面，销毁时统一停止）                                                                                                                |
+| `theme`                                                                             | 当前主题（只读；切换主题时控件自己重绘）                                                                                                                                |
+| `name`                                                                              | 调试名，也是 `scene.children.getByName` 的名字                                                                                                                          |
+| `focusOrder`                                                                        | Tab 顺序提示（小的先被 Tab 到；相同值保持控件树顺序，见 07 章）                                                                                                         |
 
 事件（`Phaser.Events.EventEmitter` 语义）：
 

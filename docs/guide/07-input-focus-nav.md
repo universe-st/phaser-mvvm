@@ -29,7 +29,7 @@ Phaser 已经负责命中测试，路由层补的是「控件语义」：
 | 悬停              | **每帧重新推导**「指针下最深的控件」，而不是镜像 `pointerover/out` 事件流。所以控件被移动、隐藏、重建，或指针移出画布，悬停状态都不会残留                                                                                                                                                                            |
 | 点击 vs 拖拽      | 按下到抬起的位移 **小于 `dragThreshold`（默认 8px）** 才算点击。这条让「拖列表」不会顺带点中行内按钮                                                                                                                                                                                                                 |
 | `disabled`        | 被禁用的控件永不悬停、永不被按下、永不激活；「悬停中变禁用」由每帧轮询纠正                                                                                                                                                                                                                                           |
-| 按下即聚焦        | 按下的控件若 `focusable` 且未禁用，输入路由会把它交给 `FocusManager`（`InputRouter.onPointerFocus`，插件已接好）。这样焦点环出现在鼠标点的位置，随后的 `Tab`/方向键从那里继续，而不是跳回第一个可聚焦控件                                                                                                            |
+| 按下即聚焦        | 按下的控件若 `focusable` 且未禁用，输入路由会把它交给 `FocusManager`（`InputRouter.onPointerFocus`，插件已接好）。这样随后的 `Tab`/方向键从鼠标点的位置继续，而不是跳回第一个可聚焦控件。**焦点环不跟着来**：指针按下属于"焦点可见性"的另一种来源，见下面 §5                                                         |
 | 拦截层（capture） | 设置 capture 控件（通常是模态遮罩）后，落在它命中区内、但在它子树之外的指针事件会被吞掉，防止点穿到下层                                                                                                                                                                                                              |
 | 不穿透到游戏世界  | 指针落在**任何** UI 目标上时，这次按下由 UI 消费：Phaser 的 `topOnly` 保持开启，UI 之下的游戏对象收不到它（面板的拦截层因此是真的——`Panel.blockPointer` 默认 `true`）。落在没有 UI 目标的位置时照常传给游戏对象。这条由输入路由从**坐标**解析目标，而不是靠「哪个对象收到了事件」，所以容器/子节点的绘制顺序不影响它 |
 | 裁剪也裁剪命中    | 被 `ScrollView` 遮罩裁掉的内容，在它的逻辑位置上**既不悬停也不可点**（`clipsPointer`）：点滚动区外面的空白不会触发看不见的行（V23）                                                                                                                                                                                  |
@@ -145,7 +145,7 @@ this.mvvm.input.onPointerChain = (trace) => {
 | `Panel`（`interactive: true`）           | ✅         | 可点击卡片       |
 | `Label` / `Image` / `Spacer` / `Divider` | ❌         | 不参与焦点       |
 
-焦点状态的**优先级**（`resolveWidgetState`）：`disabled` > `error` > `pressed` > `hover` > `focused`。也就是说鼠标停在已聚焦的按钮上时，它显示 `hover` 而不是 `focused`——移开指针才会看到焦点环；`error` 高于 `focused`，所以聚焦一个校验失败的输入框仍然是错误样式。
+焦点状态的**优先级**（`resolveWidgetState`）：`disabled` > `error` > `pressed` > `hover` > `focused`。也就是说鼠标停在已聚焦的按钮上时，它显示 `hover` 而不是 `focused`——移开指针才会露出 `focused` 状态（注意：**状态是 `focused` 不等于画了环**，见 §5；鼠标点过的按钮移开指针后是 `focused` 但没有环）；`error` 高于 `focused`，所以聚焦一个校验失败的输入框仍然是错误样式。
 
 ### 键盘映射
 
@@ -328,7 +328,26 @@ this.mvvm.unregisterNavSource('touch-dpad'); // 立刻退订、忘记
 
 ## 5. 焦点环怎么来的
 
-`Button` 与 `Panel` 在绘制皮肤时会检查 `focused`，并用 `paintFocusRing` 画一圈 `theme.colors.focusRing` 的描边（宽度 `theme.focusRingWidth = 2`）。所以**焦点可见性默认就有**，不需要额外代码。
+`Button`、`Panel`、`Slider` 与文本框在重绘时都会检查 **`focusVisible`**，并用 `paintFocusRing` 画一圈 `theme.colors.focusRing` 的描边（宽度 `theme.focusRingWidth = 2`）。所以**焦点可见性默认就有**，不需要额外代码——但它和 `focused` 不是一回事：
+
+| 读数                  | 含义                                                                                                                                                                                      | 谁在用                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `widget.focused`      | 持有焦点（`Tab` 从这继续、`Enter` 激活它、无障碍镜像报它、`visualState` 会说 `focused`）                                                                                                  | 行为。鼠标点过的按钮**仍然是 `focused`**       |
+| `widget.focusVisible` | 现在**要不要画环**：`Tab`/方向键/手柄/`widget.focus()` 是 `true`；鼠标按下是 `false`（除非该控件打开了 `focusRingOnPointer`，文本框就是）；全局 `focus: { ring: false }` 一律压成 `false` | 像素。**控件画环必须判这个，不要判 `focused`** |
+
+这就是 CSS `:focus-visible` 的规则，做它是为了回答一个很常见的抱怨：「点过的按钮一直带着一个框」。鼠标点击已经说明发生了什么，环留给真正需要靠它定位的键盘/手柄玩家；文本框是例外，跟浏览器对 `<input>` 的处理一致——那里的环就是光标的位置。
+
+```ts
+// 想整块画布都不要焦点框（kiosk / 纯 Canvas 宿主）：焦点照旧工作，只是不画环
+this.mvvm.configure({ focus: { ring: false } });
+// 运行期随时切回来；切换会立即作用于当前持有焦点的那个控件
+this.mvvm.configure({ focus: { ring: true } });
+
+// 自己写的控件若要"被鼠标点了也要亮"（文本框那种语义）
+class MyField extends TextField {
+  // 在构造函数里：this.focusRingOnPointer = true;
+}
+```
 
 想自定义焦点样式，两种做法：
 
@@ -346,14 +365,14 @@ this.mvvm.setTheme({
 class MyCard extends Panel {
   protected override refreshAppearance(): void {
     super.refreshAppearance();
-    if (this.focused) {
+    if (this.focusVisible) {
       // 换一种高亮方式，例如描一条更粗的边
     }
   }
 }
 ```
 
-`FocusManager` 的 `ring` 选项只是个**建议性开关**（默认 `true`），管理器自己不渲染任何东西。
+两条容易踩的边：① `paintFocusRing` 里的宽度是 `Math.max(1, theme.focusRingWidth)`，`focusRingWidth: 0` **不会**让它消失，只会得到 1px——要"隐形"要么把 `focusRing` 改成与底色相同（多状态底色下并不成立），要么用上面的 `ring: false`；② 换色/换宽只影响画出来的**环**，而文本框的皮肤**自己**也用 `focusRing` 当 `focused` 状态的边框色（`textInputSkinStyles`），所以调令牌时两者会一起变。
 
 ---
 

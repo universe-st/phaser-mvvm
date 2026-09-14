@@ -656,3 +656,37 @@ camera.centerOn(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2); // 缺这一行 = 只看�
 | 棋子圆盘贴图             | 46 × 46                               | 92 × 92（`BAKE_SCALE`）           |
 
 **判据一句话**：设备分辨率渲染是**三件事**同时成立 —— 游戏尺寸放大、相机**缩放并对准**设计框、每一份"烘焙过的像素"（贴图、字形）都按同一倍率重做；少任何一件，都会以"更糊"或"点到别处"的形式还回来。
+
+---
+
+## 8.74 画焦点环要判 `focusVisible`，不是 `focused`（第 113 轮 V81）
+
+**现象**：鼠标点过的按钮一直带着一个蓝框，直到焦点被别的东西拿走；而任何想"让它别带框"的尝试都失败——`focus: { ring: false }` 完全没有效果。
+
+**根因（两层）**：
+
+1. **一个读数被当成两件事用**。第 68 轮修 P2（指针按下不聚焦）之后，`focused` 同时承担"行为"（`Tab` 从哪继续、`Enter` 激活谁、无障碍镜像报什么、`visualState` 说什么）与"像素"（`paintFocusRing` 画不画）。四个画环点（`Button`/`Panel`/`Slider`/`TextInputBase`）判的都是 `this.focused`，所以**"焦点存在"必然等于"焦点被画出来"**，中间没有任何表达空间。
+2. **一个只写不读的开关**。`FocusManagerOptions.ring` 被构造参数收下、被 `mvvm.configure()` 写进字段，然后没有任何渲染代码读它。文档说它是"建议性开关"，读起来像"关掉就没了"，实际是"关掉什么也不会发生"。这类死选项比"没有这个选项"更坏：它让人以为问题已经解决了。
+
+**修法**（[ADR-0012](./adr/0012-focus-visible-ring.md)）：把"可见性"单独建模，采用 CSS `:focus-visible` 的规则。
+
+| 来源                                        | `focused` | `focusVisible` | 谁决定                                                                            |
+| ------------------------------------------- | --------- | -------------- | --------------------------------------------------------------------------------- |
+| 指针按下                                    | `true`    | `false`        | `FocusManager#focus(widget, { pointer: true })`，插件在 `onPointerFocus` 里标来源 |
+| 指针按下，但控件打开了 `focusRingOnPointer` | `true`    | `true`         | 控件自己（`TextInputBase` 打开它，跟浏览器对点击 `<input>` 的例外一致）           |
+| `Tab` / 方向键 / 手柄 / `widget.focus()`    | `true`    | `true`         | 默认                                                                              |
+| 任意来源 + `focus: { ring: false }`         | `true`    | `false`        | 全局 `FocusManager#ring`                                                          |
+
+五条落地纪律：
+
+1. **控件画环一律判 `focusVisible`**，`focused` 留给行为。`Widget#focusVisible` = 持有焦点 ∧ 本次请求允许可见 ∧ 全局 `ring`。
+2. **`visualState` 不动**。鼠标点过的按钮仍然是 `focused` 状态（`#/states` 的 `st.*`、`#/gallery` 的焦点集合、`#/states` 的 §2.3 迁移矩阵都还成立）——"状态是 `focused` 但没画环"是**正常组合**，不是 bug。
+3. **变可见性 ≠ 变焦点**。`setFocusedInternal(value, focusVisible)` 只有可见性变化时重画、**不发** `widget:focus`/`widget:blur`（第 110 轮 V63 的教训：事件名承诺的是变化）。
+4. **销毁时两个标志一起清**（`_focused` 与 `_focusVisible`）。只清一个的话，路由/焦点管理器在下一帧的"再推一次 false"会被当成真变化，去重画已经释放的 `Graphics`——这正是 `_hovered`/`_pressed` 当初被一起清掉的原因。
+5. **皮肤自己画焦点配色的控件要一起折进来**。`textInputSkinStyles.focused` 的边框色**就是** `focusRing`，所以全局 `ring: false` 只压 `Graphics` 环的话，字段上还会留一圈同色边框（同一信息画两处）——`TextInputBase#skinState()` 在状态进入皮肤之前就把可见性折掉了。
+
+**判据一句话**：`focused` 管**焦点在谁身上**，`focusVisible` 管**要不要把它指出来**；任何一处把这两者混用，都会以"点过的按钮一直带框"或"键盘用户不知道焦点在哪"的形式还回来。
+
+**读数**：`#/states` 的 `#demo-state` 逐帧发 `ring.<name>=on|off`，`window.states.ring()` 读实时的 `{ focused, ringOn }`（[`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10）。真浏览器实测（真鼠标 / 真 `Tab` / 真点击文本框 / 运行期切 `ring`）：`{focused:true,ringOn:false}` → `{focused:true,ringOn:true}` → 文本域点击仍 `ringOn:true` → `ring:false` 后全场无一 `ringOn` 而焦点与光标都在，切回来立刻恢复；截图与像素两两对照见 ADR-0012 的「证据」节。
+
+**常驻门禁**（第 113 轮同轮补上）：`visual-check` 把 `#/states` 跑**两遍**——`states.pointer`（CDP 真鼠标点击）与 `states.tab`（CDP 真 `Tab`，按到目标持有焦点为止），采样同一个按钮的**最上一行**（`fy: 0`：环盖第 0/1 行，按钮自己的 1px 边框只盖第 0 行，所以这一行是两态唯一不同、且采样点错位就会红的行）与一个没被碰过的同款按钮：点过的那只必须与邻居**同色**，Tab 到的那只必须读环色（`#58a6ff` / 亮色 `#0969da`）。两条各带一条输入后断言（`{focused, ringOn}`）——没有它，"点击没落到按钮上"会读到边框色并恰好符合"没有环"的期望。阳性对照：把 `Button` 改回 `if (this.focused)` → `states.pointer` 明暗各红一条、`states.tab` 仍全过，见 [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10.1。

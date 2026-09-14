@@ -11,9 +11,13 @@
  * - `#demo-state`:
  *   - `st.<name>` — the widget's `visualState` (`normal`/`hover`/`pressed`/`disabled`/`focused`/`error`),
  *     published every frame while it changes;
+ *   - `ring.<name>` — `on`/`off`: whether that widget may paint its focus ring right now. It is **not**
+ *     the same reading as `st.<name> === 'focused'`: a pointer press focuses a control without lighting
+ *     it up (CSS `:focus-visible`), so `st.x=focused` with `ring.x=off` is the expected pair after a
+ *     mouse click, while a `Tab`/D-Pad walk produces `focused` + `on`;
  *   - `pt.<name>` — the widget's page coordinate, so a check can move/click/tap it;
  *   - `focus`, `clicks`, `toggled`, `field.*`, `scroll.*` — the behavioural readouts.
- * - `window.states`: `names()`, `state()`, `geometry()`, `focusables()`.
+ * - `window.states`: `names()`, `state()`, `geometry()`, `focusables()`, `ring()`, `point(name)`.
  *
  * Run the acceptance sweep with Playwright MCP (see `docs/ACCEPTANCE-states.md`).
  */
@@ -151,6 +155,19 @@ export class StatesScene extends Phaser.Scene {
 
     appendStatus('--- states · layout ---');
     reportWidget('page', page);
+    // The focus-ring A/B pair (`scripts/visual-check.mjs`): two buttons of the same size and variant,
+    // reported by name so the gate can sample their **top edge** — which is the row the focus ring is
+    // stroked on (`paintFocusRing`, inset by half the line width). The pointer run clicks `ring.target`
+    // and expects its edge to look exactly like the untouched `ring.neighbour`; the `Tab` run expects the
+    // ring colour there. Both widgets hold still under focus, so one post-layout report is enough.
+    const ringTarget = this.probes.get('button.default')?.widget;
+    const ringNeighbour = this.probes.get('button.toggle')?.widget;
+    if (ringTarget) {
+      reportWidget('ring.target', ringTarget);
+    }
+    if (ringNeighbour) {
+      reportWidget('ring.neighbour', ringNeighbour);
+    }
     reportCanvas(this.game);
     this.exposeGlobals();
   }
@@ -175,6 +192,11 @@ export class StatesScene extends Phaser.Scene {
     for (const [name, probe] of this.probes) {
       if (!probe.widget.isDestroyed) {
         this.publish(`st.${name}`, probe.widget.visualState);
+        // `focused` and `focusVisible` are two different readings on purpose: a control the mouse
+        // clicked is focused (the next `Tab` continues from it) but must not paint a ring, while a
+        // `Tab`/D-Pad walk must. Publishing both is what makes that rule checkable from a page instead
+        // of from a screenshot (round 113, `Widget#focusRingOnPointer`).
+        this.publish(`ring.${name}`, probe.widget.focusVisible ? 'on' : 'off');
       }
     }
     this.publish('clicks', this.clicks.value);
@@ -567,6 +589,20 @@ export class StatesScene extends Phaser.Scene {
       }),
       focusables: () => this.mvvm.focus.focusables.map((widget) => widget.name || 'unnamed'),
       /**
+       * Per probe: `focused` (does it hold focus) and `ringOn` (may it paint the ring right now).
+       *
+       * The pair is the assertion surface for the `:focus-visible` rule — after a real mouse click the
+       * first is `true` and the second `false`, after a real `Tab` both are `true` — and it reads the
+       * live widget rather than the last published `#demo-state` line, so a check needs no frame wait.
+       */
+      ring: () =>
+        Object.fromEntries(
+          [...this.probes].map(([name, probe]) => [
+            name,
+            { focused: probe.widget.focused, ringOn: probe.widget.focusVisible },
+          ]),
+        ),
+      /**
        * Everything the `WIDGET_EVENTS` listeners have seen, in order: activations with their
        * `ActivationSource` ("pointer" / "keyboard" / "gamepad"), state transitions, and the names of
        * the probes that gained and lost focus.
@@ -583,6 +619,25 @@ export class StatesScene extends Phaser.Scene {
         this.eventLog.states.length = 0;
         this.eventLog.focused.length = 0;
         this.eventLog.blurred.length = 0;
+      },
+      /**
+       * Page coordinates of a probe's **centre** — the point a real click should land on.
+       *
+       * `pt.<name>` in `#demo-state` is the widget's origin (layout coordinates), which is fine for a
+       * probe whose size is known but wrong for driving a pointer: a click a pixel outside the box hits
+       * the page panel instead. This is the same idea the other pages expose as `point(name)`.
+       */
+      point: (name: string): { x: number; y: number } => {
+        const probe = this.probes.get(name);
+        if (!probe) {
+          throw new Error(`states.point: unknown probe "${name}"`);
+        }
+        const origin = pagePoint(this.game, probe.widget);
+        const rect = probe.widget.appliedRect;
+        return {
+          x: Math.round(origin.x + rect.width / 2),
+          y: Math.round(origin.y + rect.height / 2),
+        };
       },
       /**
        * Scrolls every `ScrollView` above a probe so the probe is visible, then resolves.

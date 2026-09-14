@@ -63,7 +63,25 @@ const scenes = [
   // runs but never repaints its armed level fails here, and so does an "armed" flag that leaked onto the
   // leaf.
   'events',
+  // `#/states` appears **twice** on purpose (round 113): the focus-ring gate is an A/B where the only
+  // difference between the two captures is the input source. `SCENE_HASH` maps both names to the same
+  // hash, so the page, the widget, the theme and the geometry are identical — one run focuses the button
+  // with a real pointer press, the other with a real `Tab`. A ring that leaks onto pointer focus fails
+  // the first; a ring that stopped being painted for keyboard users fails the second.
+  'states.pointer',
+  'states.tab',
 ];
+
+/**
+ * Scene name → hash, for names that are not hashes themselves.
+ *
+ * The alias exists so one page can be captured in several states without teaching this script about a
+ * second routing scheme. Everything else (per-scene tables, logs, screenshots) is keyed by the alias.
+ */
+const SCENE_HASH = {
+  'states.pointer': 'states',
+  'states.tab': 'states',
+};
 
 /**
  * Optional per-scene preparation, evaluated in the page *before* the screenshot.
@@ -105,6 +123,44 @@ const SCENE_SETUP = {
   // (`docs/ACCEPTANCE-events.md` case C), and it says so by turning `danger`. The leaf is *not* armed, so
   // it must still read `primary`.
   events: 'window.chain.setIntercept("l2", true)',
+  // The focus-ring A/B pair. Both runs need the button on screen first: `reveal` scrolls every port
+  // above it, which is a no-op for the buttons row at the top of `#/states` but keeps the gate honest
+  // if that page ever grows.
+  'states.pointer': 'await window.states.reveal("button.default")',
+  'states.tab': 'await window.states.reveal("button.default")',
+};
+
+/**
+ * Scenes whose preparation needs **real input**, and what that input must have achieved.
+ *
+ * This is deliberately not folded into `SCENE_SETUP`: a synthetic `PointerEvent` dispatched from the page
+ * would enter Phaser's DOM listeners but not the browser's own input pipeline, and the whole point of the
+ * focus-ring gate is that a person's click and a person's `Tab` produce different pixels. Points come from
+ * the page (`pointer`, an expression evaluated with `returnByValue`), keys go through CDP (`keys`).
+ *
+ * `until` steers a bounded loop of real presses: `#/states` puts a scroll port ahead of the buttons in the
+ * focus order, so one `Tab` lands somewhere else — and a gate that assumed otherwise would fail for the
+ * wrong reason. `assert` is the check itself, run after the input: it is the non-pixel half of the A/B
+ * ("the input really did reach this control"), without which a sample that reads the *wrong* colour could
+ * pass simply because nothing happened at all.
+ */
+const SCENE_INPUT = {
+  'states.pointer': {
+    pointer: 'window.states.point("button.default")',
+    assert:
+      '(() => { const r = window.states.ring()["button.default"];' +
+      ' return r.focused === true && r.ringOn === false; })()',
+    note: 'a pointer press focuses the button and paints no ring',
+  },
+  'states.tab': {
+    keys: ['Tab'],
+    until: 'window.states.ring()["button.default"].focused === true',
+    maxKeys: 8,
+    assert:
+      '(() => { const r = window.states.ring()["button.default"];' +
+      ' return r.focused === true && r.ringOn === true; })()',
+    note: 'a real Tab walks to the same button and paints the ring',
+  },
 };
 
 /**
@@ -349,6 +405,64 @@ function axProperty(node, name) {
  *
  * @returns the list of problems; empty means the scene's tree is exactly as promised.
  */
+/**
+ * CDP key presses the gates use, by name.
+ *
+ * Spelled out rather than passed through, so the key that arrives is the key that was intended (a `Tab`
+ * that silently became something else would leave focus where it was and make a pixel gate read the wrong
+ * control).
+ */
+const CDP_KEYS = {
+  Tab: { windowsVirtualKeyCode: 9, key: 'Tab', code: 'Tab' },
+};
+
+/** One real key press through CDP — the same input a keyboard user produces. */
+async function pressKey(session, name) {
+  const spec = CDP_KEYS[name];
+  if (!spec) {
+    throw new Error(`pressKey: no CDP key spec for "${name}"`);
+  }
+  await session.send('Input.dispatchKeyEvent', { type: 'keyDown', ...spec });
+  await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...spec });
+  await sleep(250);
+}
+
+/**
+ * A real pointer press-and-release at a page point, then a move far away from it.
+ *
+ * `point` is normally read from the page (`SCENE_INPUT`), so the click lands on the control the scene
+ * named rather than on a coordinate copied into this file — the layout of a demo page moves, and a stale
+ * constant is how a pixel gate starts measuring the background and calling it a pass.
+ *
+ * The trailing move matters for the focus-ring gate: with the pointer still on the button, the button is
+ * in `hover` (which outranks `focused` in `resolveWidgetState`), so its edge colour would be the hover
+ * border rather than the at-rest one the expectation describes.
+ */
+async function clickAt(session, point, away) {
+  for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) {
+    await session.send('Input.dispatchMouseEvent', {
+      type,
+      x: point.x,
+      y: point.y,
+      button: 'left',
+      buttons: type === 'mouseReleased' ? 0 : 1,
+      clickCount: type === 'mouseMoved' ? 0 : 1,
+    });
+  }
+  await session.send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: away.x,
+    y: away.y,
+    buttons: 0,
+  });
+  // Two frames: the pointer state is polled per frame, and the repaint follows the state change.
+  await session.send('Runtime.evaluate', {
+    expression:
+      'new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))',
+    awaitPromise: true,
+  });
+}
+
 async function checkAxTree(session, scene) {
   const expected = AX_EXPECTATIONS[scene];
   if (!expected && !AX_STRUCTURE_EXPECTATIONS[scene]) {
@@ -359,19 +473,7 @@ async function checkAxTree(session, scene) {
     // One real `Tab`: focus must move in the framework *and* the computed tree must point at the node
     // that describes the control (the mirror node now takes DOM focus, which is how a screen reader
     // follows a canvas).
-    await session.send('Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      windowsVirtualKeyCode: 9,
-      key: 'Tab',
-      code: 'Tab',
-    });
-    await session.send('Input.dispatchKeyEvent', {
-      type: 'keyUp',
-      windowsVirtualKeyCode: 9,
-      key: 'Tab',
-      code: 'Tab',
-    });
-    await sleep(250);
+    await pressKey(session, 'Tab');
   }
 
   const { nodes } = await session.send('Accessibility.getFullAXTree');
@@ -608,6 +710,35 @@ const PIXEL_EXPECTATIONS = {
     'events.l2': { rgb: 0xf85149, fx: 0.05, fy: 0.5 },
     'events.leaf': { rgb: 0x2f6feb, fx: 0.04, fy: 0.5 },
   },
+  /**
+   * The focus-ring A/B (round 113, ADR-0012), sampled on the **top border row** of two buttons in
+   * `#/states`: `ring.target` is the button the run focused, `ring.neighbour` is an identical button
+   * nobody touched.
+   *
+   * The row is the whole point. `paintFocusRing` strokes a `focusRingWidth` (2) line inset by half of it,
+   * so the ring covers layout rows 0 and 1, while the button's own 1px border covers row 0 only. Row 0 is
+   * therefore the single pixel where the two states differ *and* where a mis-placed sample cannot hide: an
+   * off-by-one sample lands on the page background (`#161b22`) and fails, and so does landing on the fill.
+   *
+   * - `states.tab` — real `Tab` presses until the page reports that this control holds focus
+   *   (`SCENE_INPUT`, which also asserts it): the ring is painted, so its top row must be the ring colour
+   *   while the untouched neighbour stays the border colour.
+   * - `states.pointer` — a real pointer press on the *same* button (`SCENE_INPUT`, coordinates read from
+   *   the page): focus moves (round 68's fix, unchanged) but **no ring is painted**, so the clicked
+   *   button's top row must be indistinguishable from the neighbour's.
+   *
+   * The two runs are one page with one geometry, so a colour difference between them can only come from the
+   * input source. Reverting a paint site to `focused` fails `states.pointer`; dropping the ring for
+   * keyboard users fails `states.tab`.
+   */
+  'states.pointer': {
+    'ring.target': { rgb: 0x30363d, fy: 0 },
+    'ring.neighbour': { rgb: 0x30363d, fy: 0 },
+  },
+  'states.tab': {
+    'ring.target': { rgb: 0x58a6ff, fy: 0 },
+    'ring.neighbour': { rgb: 0x30363d, fy: 0 },
+  },
 };
 
 /**
@@ -711,6 +842,19 @@ const LIGHT_EXPECTATIONS = {
   events: {
     'events.l2': { rgb: 0xcf222e, fx: 0.05, fy: 0.5 },
     'events.leaf': { rgb: 0x0969da, fx: 0.04, fy: 0.5 },
+  },
+  /**
+   * The focus-ring A/B in the light theme: the ring token moves `#58a6ff → #0969da` and the button's
+   * border `#30363d → #d0d7de`, so a ring that is painted from a cached colour (rather than re-read from
+   * the theme) fails here even when the dark half passes.
+   */
+  'states.pointer': {
+    'ring.target': { rgb: 0xd0d7de, fy: 0 },
+    'ring.neighbour': { rgb: 0xd0d7de, fy: 0 },
+  },
+  'states.tab': {
+    'ring.target': { rgb: 0x0969da, fy: 0 },
+    'ring.neighbour': { rgb: 0xd0d7de, fy: 0 },
   },
 };
 
@@ -1060,7 +1204,8 @@ async function main() {
     for (const scene of scenes) {
       // A distinct query string forces a real document load per scene: navigating between two hashes
       // of the same document fires no load event and would hang the wait below.
-      const url = `${base}/?capture=1&scene=${scene}#/${scene}`;
+      const hash = SCENE_HASH[scene] ?? scene;
+      const url = `${base}/?capture=1&scene=${scene}#/${hash}`;
       const png = join(outDir, `${scene}.png`);
 
       const loaded = session.once('Page.loadEventFired');
@@ -1119,6 +1264,63 @@ async function main() {
       const status = parseStatus(result.value);
       writeFileSync(join(outDir, `${scene}.txt`), `${status ?? ''}\n`);
       console.log(`[visual-check] status for ${scene}:\n${status}\n`);
+
+      // Real input, last thing before the screenshot: a scene that declares `SCENE_INPUT` needs it to be
+      // *seen*, and the state it produces (focus, and the ring that may or may not follow) is what the
+      // pixel expectations below describe. Doing it after the `#status` read means the point came from a
+      // laid-out page rather than from a constant in this file.
+      const input = SCENE_INPUT[scene];
+      if (input?.pointer) {
+        const { result: point } = await session.send('Runtime.evaluate', {
+          expression: input.pointer,
+          returnByValue: true,
+        });
+        if (!point?.value || typeof point.value.x !== 'number') {
+          console.error(`[visual-check] ${scene}: SCENE_INPUT.pointer did not resolve to a point`);
+          failures += 1;
+          continue;
+        }
+        await clickAt(session, point.value, { x: viewWidth - 4, y: viewHeight - 4 });
+        console.log(
+          `[visual-check] pointer press at (${point.value.x}, ${point.value.y}) for ${scene}`,
+        );
+      }
+      if (input?.keys) {
+        const limit = input.maxKeys ?? input.keys.length;
+        let pressed = 0;
+        let reached = input.until === undefined;
+        while (!reached && pressed < limit) {
+          for (const key of input.keys) {
+            await pressKey(session, key);
+            pressed += 1;
+          }
+          const { result } = await session.send('Runtime.evaluate', {
+            expression: input.until,
+            returnByValue: true,
+          });
+          reached = result.value === true;
+        }
+        console.log(
+          `[visual-check] ${pressed} × ${input.keys.join('+')} for ${scene}` +
+            (input.until === undefined
+              ? ''
+              : reached
+                ? ' (target reached)'
+                : ' (target NOT reached)'),
+        );
+      }
+      if (input?.assert) {
+        const { result } = await session.send('Runtime.evaluate', {
+          expression: input.assert,
+          returnByValue: true,
+        });
+        if (result.value !== true) {
+          console.error(
+            `[visual-check] ${scene}: input assertion failed — expected ${input.note ?? 'the declared state'}`,
+          );
+          failures += 1;
+        }
+      }
 
       const shot = await session.send('Page.captureScreenshot', { format: 'png' });
       writeFileSync(png, Buffer.from(shot.data, 'base64'));

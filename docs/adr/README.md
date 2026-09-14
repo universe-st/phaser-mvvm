@@ -20,6 +20,7 @@
 | [ADR-0009](./0009-camera-pinned-ui-and-input.md)  | 相机钉住的 UI 与指针命中（整棵树钉 `scrollFactor` + 统一坐标空间） | Accepted | §4.3、§4.5                      |
 | [ADR-0010](./0010-pointer-event-chain.md)         | 指针事件链（传递 / 拦截 / 消费，Android 风格）                     | Accepted | §4.3                            |
 | [ADR-0011](./0011-public-api-freeze.md)           | 1.0 公开 API 冻结与版本号（快照门禁 + 五个入口点 817 个导出名）    | Accepted | §6（M10）                       |
+| [ADR-0012](./0012-focus-visible-ring.md)          | 焦点可见性（`:focus-visible`）与焦点环的真正开关                   | Accepted | §10.3、§4.3                     |
 
 ## 规则
 
@@ -42,3 +43,4 @@
 | [ADR-0009](./0009-camera-pinned-ui-and-input.md) | 相机钉住的 UI 与指针命中：整棵树钉 scrollFactor + 两套坐标一致                                            |
 | [ADR-0010](./0010-pointer-event-chain.md)        | 指针事件链：最深优先、逐级冒泡、`l2` 拦截后更深节点一次都不被问                                           |
 | [ADR-0011](./0011-public-api-freeze.md)          | 公开 API 冻结：`docs/API-SURFACE.json` 记录五个入口点的 817 个导出名，增删改必须显式重新冻结              |
+| [ADR-0012](./0012-focus-visible-ring.md)         | 焦点可见性：指针按下照样移动焦点但不画环（CSS `:focus-visible`），`focus.ring` 从只写不读变成真开关       |

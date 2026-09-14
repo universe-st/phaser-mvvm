@@ -542,9 +542,11 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     this.lastStructureVersion = root.structureVersion;
 
     this.inputRouter = new InputRouter({ root, ...this.options.input });
-    // Pointer presses move focus (the router only reports them; the manager owns the order).
+    // Pointer presses move focus (the router only reports them; the manager owns the order). The press
+    // is marked as such, so focus moves but the control is *not* lit up (CSS `:focus-visible`):
+    // `FocusManager#focus` explains the split, `Widget#focusRingOnPointer` the text-field exception.
     this.inputRouter.onPointerFocus = (widget) => {
-      this.focusManager?.focus(widget);
+      this.focusManager?.focus(widget, { pointer: true });
     };
     this.inputRouter.attach(root, scene);
 

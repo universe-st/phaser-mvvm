@@ -486,7 +486,7 @@ export class Slider extends Widget {
     graphics.lineStyle(theme.borderWidth * 2, disabled ? theme.colors.textDisabled : fillColor, 1);
     graphics.strokeCircle(knobX, centerY, knobRadius);
 
-    if (this.focused) {
+    if (this.focusVisible) {
       paintFocusRing(graphics, theme, width, height, Math.min(theme.radius.md, height / 2));
     }
   }

@@ -12,7 +12,7 @@
 
 - 每一行卡片放一类控件，每个控件注册为**探针**（`probe(name, widget, restState)`）；
 - 每帧把 `widget.visualState` 写进 `#demo-state` 的 `st.<name>`，页面坐标写进 `pt.<name>`；
-- 暴露 `window.states`：`names()`、`rest()`（各探针的静止状态）、`state()`、`focusables()`、`geometry()`、`value(name)`、`focusable(name)`、`reveal(name)`。
+- 暴露 `window.states`：`names()`、`rest()`（各探针的静止状态）、`state()`、`focusables()`、`geometry()`、`value(name)`、`focusable(name)`、`reveal(name)`、`ring()`（第 113 轮加的焦点可见性读数，见 §10）。
 
 | 探针                                           | 控件                                          | 静止状态 | 验证内容                                       |
 | ---------------------------------------------- | --------------------------------------------- | -------- | ---------------------------------------------- |
@@ -62,14 +62,14 @@
 
 ### 2.3 焦点与遍历（修复 P2 之后）
 
-| 操作                  | 修复前                                              | 修复后                                        |
-| --------------------- | --------------------------------------------------- | --------------------------------------------- |
-| 点击 `button.default` | `focusedWidget = null`，`#demo-state` 无 `focus` 键 | `focus = button.default` ✅                   |
-| 移开指针后的视觉状态  | `normal`（永远不会出现焦点环）                      | **`focused`** ✅                              |
-| 之后按 `Tab`          | `stage`（跳回第一个可聚焦控件）                     | **`button.toggle`**（从点击处继续）✅         |
-| 之后按 `→`            | 从集合头部进入                                      | **`button.loading`**（从当前焦点几何邻接）✅  |
-| 点击输入框 → 点击按钮 | 输入框保持聚焦                                      | 焦点从 `field.plain` 移到 `button.default` ✅ |
-| 点击纯展示 Label      | —                                                   | 焦点不变（不抢焦点）✅                        |
+| 操作                  | 修复前                                              | 修复后                                                                                    |
+| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| 点击 `button.default` | `focusedWidget = null`，`#demo-state` 无 `focus` 键 | `focus = button.default` ✅                                                               |
+| 移开指针后的视觉状态  | `normal`（永远不会出现焦点环）                      | **`focused`** ✅（第 113 轮起：状态仍是 `focused`，但**鼠标点来的焦点不再画环**，见 §10） |
+| 之后按 `Tab`          | `stage`（跳回第一个可聚焦控件）                     | **`button.toggle`**（从点击处继续）✅                                                     |
+| 之后按 `→`            | 从集合头部进入                                      | **`button.loading`**（从当前焦点几何邻接）✅                                              |
+| 点击输入框 → 点击按钮 | 输入框保持聚焦                                      | 焦点从 `field.plain` 移到 `button.default` ✅                                             |
+| 点击纯展示 Label      | —                                                   | 焦点不变（不抢焦点）✅                                                                    |
 
 ### 2.4 输入框状态
 
@@ -202,3 +202,60 @@ export const WIDGET_EVENTS = { ACTIVATE: 'widget:activate', STATE_CHANGE: 'widge
 两类驱动各一条：**指针按下**与**键盘 `Tab`** 都产生同一对事件（"谁要求焦点"不影响读数）。三件事**不发** `blur`，都是刻意的：重复设置同一个值（`setFocusedInternal` 早退）、`destroy()`（直接清标志位，此时已经没有听众，跑回调只会把半拆解的对象交给订阅者）、以及控件从未拿到过焦点。
 
 矩阵与这条事件的实现动机见 [`PITFALLS.md`](../PITFALLS.md) §8.35（无障碍镜像跟着可交互集合走）与指南 03 §1.3 的事件表；Node 侧由本轮新建的**假渲染器夹具**钉住（`packages/phaser/test/widget-events.test.ts`，4 条：成对发一次 / 重复不发 / 销毁不发 blur / 离开可聚焦集合要 blur），见 [`ACCEPTANCE-lifecycle.md`](./ACCEPTANCE-lifecycle.md) §6.1。
+
+---
+
+## 10. 第 113 轮追加：焦点可见性（`ring.<name>` / `window.states.ring()`）
+
+**起因是一句用户反馈**：「上一次点击的按钮会带框」。查下来不是渲染缺陷：焦点确实还在那个按钮上（§2.3 那张表就是证据——点击后 `focus = button.default`，`Tab` 从那里继续），而环也确实按设计画了。缺的是**"焦点可见性"这一维**：四个画环点判的都是 `focused`，而 `focus: { ring: false }` 是个只写不读的死选项。修法与权衡见 [ADR-0012](./adr/0012-focus-visible-ring.md) 与 [`PITFALLS.md`](./PITFALLS.md) §8.74（缺陷登记为 V81）。
+
+新增两个读数（`#/states`）：
+
+- `#demo-state`：逐帧发 `ring.<name>=on|off`（`Widget#focusVisible`）。它与 `st.<name>` **不是一回事**：`st.x=focused` 只说明焦点在它身上。
+- `window.states.ring()`：读**实时**的 `{ focused, ringOn }`，不受 `#demo-state` 的"只在变化时写"影响，所以检查不需要等帧。
+
+实测（Chromium 1408×677、dpr 2、`?capture=1`，真 `mouse` / 真 `keyboard`）：
+
+| 操作                                                      | `focused` | `ringOn`                         | 像素（截图对照）                  |
+| --------------------------------------------------------- | --------- | -------------------------------- | --------------------------------- |
+| 真鼠标点 `button.default`，指针移开到空白                 | `true`    | **`false`**                      | 无 `#58a6ff` 描边，与相邻按钮一致 |
+| 接着按真 `Tab`（焦点落在 `button.toggle`）                | `true`    | **`true`**                       | `button.toggle` 出现 `#58a6ff` 环 |
+| 真鼠标点 `field.plain`（文本域例外）                      | `true`    | **`true`**                       | 字段出现 `#58a6ff` 环             |
+| `mvvm.configure({ focus: { ring: false } })` 后再按 `Tab` | `true`    | `false`（**全场无一 `ringOn`**） | 环消失，光标仍在（焦点未丢）      |
+| `configure({ focus: { ring: true } })`                    | `true`    | `true`                           | 环恢复                            |
+
+第 2、4 行合起来是这条规则的核心：**鼠标点击不给按钮留框，键盘走查照旧给框，而且后者必须还在**——环是键盘/手柄玩家唯一的焦点指示（对比 `#/scroll` 的 V33：环画在裁剪区外时"屏幕上什么都看不到、`Enter` 却按得动"）。
+
+**`st.*` 的语义一个字没改**：上表第 1 行 `st.button.default` 仍是 `focused`（指针移开后 hover 让位给 focused），§2.3 的迁移矩阵仍然成立。`st.x=focused` 且 `ring.x=off` 是**正常组合**，不是状态错乱。
+
+**未验证**：真机触摸（`pointer.wasTouch`）同样走 `onPointerFocus`，本轮未在 Android 模拟器上复跑。
+
+---
+
+### 10.1 常驻像素门禁：`states.pointer` / `states.tab`（同轮补上）
+
+上面那张表是手工读数；能被 CI 与以后每一轮守住的是 `scripts/visual-check.mjs` 里的 A/B。做法是让 **`#/states` 跑两遍**（`SCENE_HASH` 让两个场景名指向同一个 hash），于是同一页、同一个按钮、同一次主题切换，**唯一的差别是输入来源**：
+
+| 场景             | 输入（全部是真的）                                                                                                                                    | 采样点                                     | 暗色期望              | 亮色期望              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | --------------------- | --------------------- |
+| `states.pointer` | CDP `Input.dispatchMouseEvent` 真点 `button.default` 的中心（坐标由 `window.states.point()` 从页面读出），随后把指针移开                              | `ring.target` 顶边 / `ring.neighbour` 顶边 | `#30363d` / `#30363d` | `#d0d7de` / `#d0d7de` |
+| `states.tab`     | CDP `Input.dispatchKeyEvent` 的**真 `Tab`**，按到 `window.states.ring()["button.default"].focused === true` 为止（实测 **2 次**——滚动口排在按钮前面） | 同上                                       | `#58a6ff` / `#30363d` | `#0969da` / `#d0d7de` |
+
+四点设计要点，缺一条这条门禁就会变成"照样绿但测不到东西"：
+
+1. **采样行是按钮的 `fy: 0`（最上一行）**：`paintFocusRing` 的描边宽 `focusRingWidth = 2`、内缩半个线宽，所以它盖住布局第 0/1 行，而按钮自己的 1px 边框只盖第 0 行。第 0 行因此是**唯一**同时满足"两态不同"与"采样点错位就会失败"的行——错到外面读到画面底色 `#161b22` 会红，错到填充也红。
+2. **`ring.neighbour` 是阳性对照的一半**：没人碰过的同款按钮，两态都必须读边框色。只断言 `ring.target` 的话，"采样点整体偏了一行"会看起来像通过。
+3. **输入之后有一条断言（`SCENE_INPUT.assert`）**：`states.pointer` 断言 `{focused: true, ringOn: false}`、`states.tab` 断言 `{focused: true, ringOn: true}`。没有它，一次"点击没落到按钮上"的运行会读到边框色并**恰好**符合"没有环"的期望——负向断言最危险的假通过正是这样来的。
+4. **输入走 CDP，不用页内合成事件**：`PointerEvent` 能进 Phaser 的 DOM 监听，但绕过了浏览器自己的输入管线；这条门禁的全部意义就是"人的点击"与"人的 `Tab`"产生不同像素。
+
+**阳性对照（实测）**：把 `packages/widgets/src/Button.ts` 的判据改回第 113 轮之前的 `if (this.focused)`，重新构建后跑一次，得到
+
+```
+MISMATCH ring.target: expected #30363d got #58a6ff at (71,166)   （states.pointer，暗色）
+MISMATCH ring.target: expected #d0d7de got #0969da at (71,166)   （states.pointer，亮色）
+2 check(s) failed
+```
+
+——正是用户报告的那圈框；而 `states.tab` 在同一轮**仍然全过**，说明两半确实在测两件不同的事（一半对"指针焦点漏画环"敏感，另一半对"环不再画"敏感）。还原代码后复跑：`[visual-check] ok`。
+
+整轮规模：场景名 13 → **15**（13 个页面，`#/states` 两个别名），像素检查 96 → **108**，另加 2 条输入断言。见 [`HANDOVER.md`](./HANDOVER.md) §1.1 与 `AGENTS.md` §6。

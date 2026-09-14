@@ -461,7 +461,7 @@ this.mvvm.mount(page);
 
 ---
 
-### 10.4 现状校正（第 110 轮；**上面的冻结正文不改**）
+### 10.4 现状校正（第 110 轮起，逐轮追加；**上面的冻结正文不改**）
 
 §10.1–§10.3 是 v1.1 评审时冻结的决策，正文保持原样（评审依据不能被事后改写）。下面是**落地后的事实**：只列与正文有出入、或正文没写全的条目；没列到的条目按原样成立（`dark`/`light` 双主题、焦点环用 `Graphics` 描边、DPR 感知取整、对象池预算、包名与目录、MIT、Phaser 依赖方式本身等）。
 
@@ -476,6 +476,7 @@ this.mvvm.mount(page);
 | §10.3 许可证 | 「MIT，`packages/*` 各自带 LICENSE 引用」 | MIT 成立，但**包内没有各自的 LICENSE 文件**：全文在仓库根 `LICENSE`，四个包的 `package.json` 声明 `"license": "MIT"` |
 | §10.3 输入桥与 a11y 层 | 「二者共用同一个 overlay DOM 容器，**由 `UIScene` 创建/销毁**」 | 共用一个容器成立，但容器是 **Phaser 的 `game.domContainer`**（`dom: { createContainer: true }` + `parent` 时才存在），由 `A11yBridge` 与 `DomInputBridge` 各自挂进去、各自销毁自己的节点；**`UIScene` 不参与**——所以用 `UIScene` 之外的方式建页（`ui()`/`render()`，或纯工厂）时无障碍镜像与输入桥同样可用 |
 | §10.3 i18n | 「Phase 1 只提供 formatter/validator 扩展点」 | 成立，实际入口是数据转换器 `BUILT_IN_CONVERTERS`/`applyConverter`（`@phaser-mvvm/core`）与字段的 `validate` 选项；没有内置多语言资源系统 |
+| §10.3 焦点可视 | 「用 `Graphics` 描边画焦点环（零资源依赖），九宫格贴图皮肤可选」 | 画法成立（`paintFocusRing`，宽度 `focusRingWidth`），**但"什么时候画"在正文里没有区分**：第 113 轮起采用 CSS `:focus-visible` 语义——指针按下**照样移动焦点但不画环**，键盘/手柄/程序化焦点才画；文本域是例外（`Widget#focusRingOnPointer`），全局开关是 `focus: { ring: false }`（`FocusManager#ring`，此前是个只写不读的死选项）。判据是 `Widget#focusVisible`，**不是** `focused`（后者语义不变）。常驻门禁：`visual-check` 的 `states.pointer` / `states.tab` 把同一页同一按钮分别用真鼠标与真 `Tab` 聚焦后比像素。见 [ADR-0012](./adr/0012-focus-visible-ring.md) 与 [`guide/07 §5`](./guide/07-input-focus-nav.md) |
 
 > 版本与冻结：四个包在第 110 轮由 `0.0.0` 升到 **`1.0.0`**，公开名字集合（5 个入口点、817 个导出名）冻结在 [`docs/API-SURFACE.json`](./API-SURFACE.json)，由 `pnpm api:check` 守住 —— 见 [ADR-0011](./adr/0011-public-api-freeze.md)。里程碑的交付状态见 §6 的「执行状态」与 [`HANDOVER.md`](./HANDOVER.md) §1.1。
 

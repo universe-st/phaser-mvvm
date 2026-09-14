@@ -60,6 +60,8 @@
 | 抬起（指针仍在上面） | `hover`                                 | 26/26 `hover`                                  |
 | 移开                 | `focused`（指针按下即把框架焦点交给它） | 26/26 `focused`，且 `state().focus` 正是该控件 |
 
+> 第 113 轮起：**状态是 `focused` 不等于画了焦点环**——鼠标点来的焦点不再画环（`Widget#focusVisible`，见 [ADR-0012](./adr/0012-focus-visible-ring.md) 与 [`PITFALLS.md`](./PITFALLS.md) §8.74）。上表读的是 `visualState`，语义未变，因此这一页的读数照旧成立。
+
 例：`buttons.toggle` → `normal/hover/pressed/hover/focused`（`focus=toggleButton`）、`inputs.area` → 同理（`focus=fieldArea`）、`focus.arrow6` → `focus=arrow.6`。开关的按钮文案与可访问名都是反应式的：`Toggle: off` → 点击后变成 `Toggle: on`。
 
 **例外（不是缺陷）**：`repeat.chips`（横向 chips 滚动口）悬停/按下都停在 `normal`。用框架自己的命中走查查过：那个点下面是一个 **88×44 的 chip 控件**（无名，是 chips 的行内容），所以路由正确地指向了 chip 而不是它的容器。**教训**：容器的 `st.*` 只在指针落在**容器自己**（而不是它的子控件）上时才会变——写检查时要按这条来读，别把"容器没高亮"当成缺陷。

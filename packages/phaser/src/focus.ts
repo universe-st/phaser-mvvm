@@ -260,8 +260,9 @@ export interface FocusManagerOptions {
   /** Called whenever the focused widget changes (`null` when focus is released). */
   onFocusChange?: (widget: Widget | null) => void;
   /**
-   * Advisory flag for hosts and skins: when `true` the focused widget may paint a focus ring. The
-   * manager itself never renders anything, so the flag changes no routing behaviour.
+   * Whether focus may be painted at all. `false` keeps focus working (traversal, activation, the
+   * accessibility mirror) and only stops the ring — for kiosk surfaces and canvas-only hosts. Read
+   * and written at runtime through {@link FocusManager.ring}.
    */
   ring?: boolean;
   /** Called when a navigation source reports `back` (Escape, gamepad B/○, …). */
@@ -315,8 +316,6 @@ const NO_WIDGETS: readonly Widget[] = [];
  * underneath keeps its state until the dialog closes.
  */
 export class FocusManager implements FocusTarget {
-  /** Advisory focus-ring flag, see `FocusManagerOptions.ring`. */
-  ring: boolean;
   /** Change callback, writable so hosts can swap it after construction. */
   onFocusChange: ((widget: Widget | null) => void) | null;
   /** `back` handler, writable for the same reason. */
@@ -325,17 +324,49 @@ export class FocusManager implements FocusTarget {
   private readonly scopes: FocusScope[] = [];
   private defaultWrap: boolean;
   private defaultTrap: boolean;
+  private _ring: boolean;
+  /**
+   * Whether the focus change in play asked for a visible ring, **before** the global {@link ring}
+   * gate. Kept so that flipping `ring` at runtime can re-apply the gate to the widget that is
+   * focused right now without inventing a ring for a press that never wanted one.
+   */
+  private requestVisible = true;
 
   constructor(options: FocusManagerOptions = {}) {
     this.defaultWrap = options.wrap ?? true;
     this.defaultTrap = options.trapFocus ?? false;
-    this.ring = options.ring ?? true;
+    this._ring = options.ring ?? true;
     this.onFocusChange = options.onFocusChange ?? null;
     this.onBack = options.onBack ?? null;
 
     if (options.root) {
       this.attach(options.root);
     }
+  }
+
+  /**
+   * Whether focus may be *shown* at all — the global half of the `:focus-visible` rule.
+   *
+   * `false` suppresses the focus ring on every widget while leaving focus itself intact: `Tab` still
+   * moves, `Enter` still activates, the accessibility mirror still reports what is focused. Hosts use
+   * it for kiosk/canvas-only surfaces where a frame around a button is not wanted.
+   *
+   * Writing it takes effect immediately on the widget that holds focus (the same expectation as
+   * {@link wrap}) — the flag used to be stored and then never read by anyone, so
+   * `configure({ focus: { ring: false } })` silently did nothing (DEFECT-BACKLOG V79).
+   */
+  get ring(): boolean {
+    return this._ring;
+  }
+
+  set ring(value: boolean) {
+    if (this._ring === value) {
+      return;
+    }
+    this._ring = value;
+    // Re-apply to the current holder: `setFocusedInternal` repaints for a visibility change without
+    // re-emitting `widget:focus` (focus itself did not change).
+    this.focusedWidget?.setFocusedInternal(true, this.requestVisible && value);
   }
 
   /**
@@ -489,8 +520,18 @@ export class FocusManager implements FocusTarget {
     this.collect(top);
   }
 
-  /** Moves focus to `widget`. Widgets outside the scope in play are ignored (see the trap rule). */
-  focus(widget: Widget): void {
+  /**
+   * Moves focus to `widget`. Widgets outside the scope in play are ignored (see the trap rule).
+   *
+   * `options.pointer` marks a focus change that came from a pointer press. It **moves focus exactly
+   * the same way** — that is the round-68 fix (DEFECT-BACKLOG P2): a mouse user must be able to focus
+   * a button, or the next `Tab` restarts from the first focusable instead of continuing from what was
+   * just clicked. What it changes is only whether the ring may be painted: a press asks for a plain
+   * focus, and the widget decides whether it wants to be lit up anyway
+   * (`Widget#focusRingOnPointer`, which text fields set). See {@link FocusManager.ring} for the
+   * global half of the same rule.
+   */
+  focus(widget: Widget, options: { pointer?: boolean } = {}): void {
     const scope = this.topScope();
     if (!scope) {
       return;
@@ -499,7 +540,7 @@ export class FocusManager implements FocusTarget {
     if (index === -1) {
       return;
     }
-    this.applyFocus(widget, index);
+    this.applyFocus(widget, index, options.pointer !== true || widget.focusRingOnPointer);
   }
 
   /** Releases focus from `widget` (only if it actually holds it, and only when not trapped). */
@@ -739,15 +780,16 @@ export class FocusManager implements FocusTarget {
     return this.applyFocus(widget, index);
   }
 
-  private applyFocus(widget: Widget, index: number): boolean {
+  private applyFocus(widget: Widget, index: number, visible = true): boolean {
     const scope = this.topScope();
     if (!scope || (scope.index === index && this.focusedWidget === widget)) {
       return false;
     }
 
+    this.requestVisible = visible;
     this.focusedWidget?.setFocusedInternal(false);
     scope.index = index;
-    widget.setFocusedInternal(true);
+    widget.setFocusedInternal(true, visible && this._ring);
     this.notify(widget);
     return true;
   }

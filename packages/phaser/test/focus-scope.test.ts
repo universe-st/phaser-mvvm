@@ -22,9 +22,13 @@ class FakeWidget {
   enabled = true;
   focusable = true;
   focusOrder = 0;
+  /** Mirrors `Widget#focusRingOnPointer`: a press asks for no ring unless the control opts in. */
+  focusRingOnPointer = false;
   focusManager: unknown = null;
   isDestroyed = false;
   focused = false;
+  /** Mirrors `Widget#focusVisible`: what the ring paints behind, as opposed to `focused`. */
+  focusVisible = false;
   appliedRect = { x: 0, y: 0, width: 100, height: 20 };
   x = 0;
   y = 0;
@@ -32,8 +36,9 @@ class FakeWidget {
 
   constructor(readonly name: string) {}
 
-  setFocusedInternal(value: boolean): void {
+  setFocusedInternal(value: boolean, focusVisible = true): void {
     this.focused = value;
+    this.focusVisible = value && focusVisible;
   }
 
   /** Adds a child that takes part in layout and focus collection. */
