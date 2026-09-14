@@ -25,7 +25,8 @@ Web 平台早就把这两个概念分开了：CSS 的 `:focus-visible`。它的�
 5. **可见性变化不算焦点变化**：`setFocusedInternal(value, focusVisible)` 在只有可见性变化时重画但**不发** `widget:focus`/`widget:blur`——事件承诺的是**变化**（第 110 轮 V63 的教训：`widget:state` 曾经一次点击发两次 `pressed`）。
 6. **不新增任何导出名**：`FocusManager#focus(widget, { pointer })` 用可选入参，`focusRingOnPointer`/`focusVisible` 是类成员，`docs/API-SURFACE.json` 的 817 个名字**不变**（ADR-0011 的冻结门禁因此保持绿色，`pnpm api:check` 不需要重新冻结）。
 7. **按下就降级，哪怕焦点没移动**（同一轮、在消费方项目里补的，V82）：`FocusManager#applyFocus` 原来在"焦点已经在这个控件上"时直接早退，于是**对话框打开时被自动聚焦的那个控件，用户再点它一下，环不会消失**——而这正是消费方（揭棋）第一次点音量滑杆时看到的画面。现在早退前先把新的可见性请求交给控件：只重画、不发事件（焦点确实没动），返回值仍然是 `false`（没有 _focus_ 移动）。这一条比浏览器的启发式更"干净"：Chrome 对"点击一个已由键盘聚焦的元素"会保留 `:focus-visible`，而这里按下总是降级——环是为不看鼠标的用户存在的，而他们不会去点。
-8. **画环的控件，其重绘缓存键必须包含 `focusVisible`**：`Slider` 是唯一把绘制结果缓存的控件（`styleKey`），而它的键里有 `visualState` 却没有可见性。于是 `focus: { ring: false }` 这条**只改可见性、不改状态**的路径不会触发重画，环会一直留在屏幕上，直到别的事情顺带重画（例如切主题）。修法是把 `focusVisible` 加进键——这正是 [`PITFALLS.md`](../PITFALLS.md) §8.59 那条"缓存键必须覆盖画的时候读到的每一个输入"，只是这次的输入是**第二个绘制判据**，不是几何量。
+8. **没有来源的焦点变化，跟随"最后一次输入"的模态**（同轮、用户第二次说"还是有框"之后补的，V83）：`Tab`/手柄那条路是显式的（`visible = true`），指针按下那条路也是显式的（`visible = widget.focusRingOnPointer`），但**大量焦点变化本来没有来源**——对话框 `focusFirst` 给第一个控件聚焦、页面栈 `pop` 后还原焦点、`widget.focus()`。它们照抄最后一次输入的模态：**上一次是触摸/鼠标 → 不画环；上一次是键盘/手柄 → 画环**，没有任何输入之前保守地画（默认不变）。这就是 `:focus-visible` 的启发式，也正是"触摸游戏点开音量对话框，第一个滑杆被自动聚焦并戴上一个框"的解药：那一下框是**上一次点击的后果**，而点击已经说明发生了什么。写入点是插件的两个输入漏斗（`InputRouter.onPointerFocus` 与 `dispatchAction`，后者覆盖键盘/手柄/App 注册的源），读法是 `FocusManager#noteInput` / `#lastInputSource`。
+9. **画环的控件，其重绘缓存键必须包含 `focusVisible`**：`Slider` 是唯一把绘制结果缓存的控件（`styleKey`），而它的键里有 `visualState` 却没有可见性。于是 `focus: { ring: false }` 这条**只改可见性、不改状态**的路径不会触发重画，环会一直留在屏幕上，直到别的事情顺带重画（例如切主题）。修法是把 `focusVisible` 加进键——这正是 [`PITFALLS.md`](../PITFALLS.md) §8.59 那条"缓存键必须覆盖画的时候读到的每一个输入"，只是这次的输入是**第二个绘制判据**，不是几何量。
 
 ## 后果
 
@@ -68,4 +69,5 @@ Web 平台早就把这两个概念分开了：CSS 的 `:focus-visible`。它的�
   2. `applyFocus` 改回"焦点没动就早退" → `states.pressFocused` 断言失败 **且**明暗两条像素都红（`got #58a6ff` / `got #0969da`），`states.ringGate` 仍全过。
   3. `Slider` 的 `styleKey` 抽掉 `focusVisible` → **只有** `states.ringGate` 的**暗色**半场红（`expected #161b22 got #58a6ff`），断言与亮色半场都过——因为亮色是在 `setTheme` 之后截的，主题切换顺带改了键、自己把陈旧画笔修好了。这条差异本身就是"陈旧重画"的签名，也是为什么像素采样不能只靠断言。
      每一条还原后复跑都是 `[visual-check] ok`。
+- **模态继承的读数**（消费方游戏内实测，见揭棋 `docs/ACCEPTANCE.md` §13）：同一个音量对话框，**点「音量设置」打开**时第一个滑杆没有框（上一次输入是这次点击），**键盘 `Tab` 走到它**时立刻有框；`#/states` 的四条臂与 1417 条单测在改动后全绿。
 - **未验证**：真机触摸（`pointer.wasTouch`）下无环这一条只做了逻辑推断——触摸同样走 `onPointerFocus`，但本轮没有在 Android 模拟器上复跑 `scripts/android-check.mjs`。

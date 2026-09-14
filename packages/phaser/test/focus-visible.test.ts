@@ -145,6 +145,87 @@ describe('a pointer press focuses without lighting the control up', () => {
   });
 });
 
+describe('a focus change with no source of its own follows the last input', () => {
+  it('does not ring right after a press — the tap-driven dialog case', () => {
+    const { root, manager } = stage();
+    const slider = leaf(root, 'slider');
+    manager.refresh();
+
+    // The user tapped a button, the app opened a dialog, the dialog focused its first control.
+    manager.noteInput('pointer');
+    manager.focus(slider);
+
+    expect(slider.focused).toBe(true);
+    expect(slider.focusVisible).toBe(false);
+    expect(manager.lastInputSource).toBe('pointer');
+  });
+
+  it('does ring right after a key press — the same dialog, opened from a gamepad', () => {
+    const { root, manager } = stage();
+    const slider = leaf(root, 'slider');
+    manager.refresh();
+
+    manager.noteInput('keyboard');
+    manager.focus(slider);
+
+    expect(slider.focused).toBe(true);
+    expect(slider.focusVisible).toBe(true);
+  });
+
+  it('treats touch like a pointer, and leaves text fields lit either way', () => {
+    const { root, manager } = stage();
+    const button = leaf(root, 'button');
+    const field = leaf(root, 'field');
+    field.focusRingOnPointer = true;
+    manager.refresh();
+
+    manager.noteInput('touch');
+    manager.focus(button);
+    expect(button.focusVisible).toBe(false);
+
+    manager.focus(field);
+    expect(field.focusVisible).toBe(true);
+  });
+
+  it('keeps traversal honest: `next()` inherits too', () => {
+    const { root, manager } = stage();
+    const first = leaf(root, 'first');
+    const second = leaf(root, 'second');
+    manager.refresh();
+
+    manager.noteInput('pointer');
+    manager.next();
+    expect([first.focused, first.focusVisible]).toEqual([true, false]);
+
+    manager.noteInput('keyboard');
+    manager.next();
+    expect([second.focused, second.focusVisible]).toEqual([true, true]);
+  });
+
+  it('is visible before any input arrived — the conservative default', () => {
+    const { root, manager } = stage();
+    const button = leaf(root, 'button');
+    manager.refresh();
+
+    manager.focus(button);
+
+    expect(manager.lastInputSource).toBeNull();
+    expect(button.focusVisible).toBe(true);
+  });
+
+  it('lets an explicit source win over the modality', () => {
+    const { root, manager } = stage();
+    const button = leaf(root, 'button');
+    manager.refresh();
+
+    // A press is a press even if the last thing that happened was a key press.
+    manager.noteInput('keyboard');
+    manager.focus(button, { pointer: true });
+
+    expect(button.focusVisible).toBe(false);
+  });
+});
+
 describe('the global ring gate', () => {
   it('suppresses the ring without touching focus', () => {
     const { root, manager } = stage();

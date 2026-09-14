@@ -546,6 +546,10 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
     // is marked as such, so focus moves but the control is *not* lit up (CSS `:focus-visible`):
     // `FocusManager#focus` explains the split, `Widget#focusRingOnPointer` the text-field exception.
     this.inputRouter.onPointerFocus = (widget) => {
+      // Note the modality *before* focusing: everything the press triggers from here on — a dialog's
+      // `focusFirst`, a page transition's restored focus — is a consequence of this tap and must not
+      // paint a ring (`FocusManager#noteInput`).
+      this.focusManager?.noteInput('pointer');
       this.focusManager?.focus(widget, { pointer: true });
     };
     this.inputRouter.attach(root, scene);
@@ -709,6 +713,9 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    * apart (V28) — and neither can a third device.
    */
   private dispatchAction(action: NavAction, source: ActivationSource): boolean {
+    // The other input funnel: whatever this action focuses next — and anything it opens — belongs to the
+    // device that produced it, so a gamepad-driven `Enter` keeps painting the ring (V83).
+    this.focusManager?.noteInput(source);
     const focused = this.focusManager?.focusedWidget ?? null;
     if (focused?.onAction?.(action, source) === true) {
       return true;

@@ -370,6 +370,50 @@ export class FocusManager implements FocusTarget {
   }
 
   /**
+   * Modality of the input that arrived last, or `null` before anything happened.
+   *
+   * Written with {@link noteInput}, read by the visibility rule below.
+   */
+  private lastInput: ActivationSource | null = null;
+
+  /**
+   * Records the modality of the input that just arrived, so that focus changes **without a source of
+   * their own** can follow it.
+   *
+   * This is the other half of CSS `:focus-visible`: the ring means "the keyboard is here", so a control
+   * that becomes focused *as a consequence of a tap* — a dialog's `focusFirst`, a page's restored focus —
+   * must not light up, while the same control focused as a consequence of `Enter` must. Without it a
+   * touch-only game opened its volume dialog with a ring around the first slider, which is the frame the
+   * user then kept asking about (DEFECT-BACKLOG V83).
+   */
+  noteInput(source: ActivationSource): void {
+    this.lastInput = source;
+  }
+
+  /** {@link noteInput}'s reading, for hosts and probes. `null` means "no input yet". */
+  get lastInputSource(): ActivationSource | null {
+    return this.lastInput;
+  }
+
+  /**
+   * Whether a focus change with the given source may paint the ring.
+   *
+   * `pointer: true` is a press — the widget decides (`Widget#focusRingOnPointer`); `pointer: false` is an
+   * explicit keyboard/gamepad/API focus and is always visible; **`undefined` inherits the last input's
+   * modality**, which is what makes a tap-driven dialog quiet and a gamepad-driven one lit.
+   */
+  private visibleFor(widget: Widget, pointer: boolean | undefined): boolean {
+    if (pointer === true) {
+      return widget.focusRingOnPointer;
+    }
+    if (pointer === false) {
+      return true;
+    }
+    const last = this.lastInput;
+    return last === 'pointer' || last === 'touch' ? widget.focusRingOnPointer : true;
+  }
+
+  /**
    * Whether traversal wraps at the ends of the scope in play.
    *
    * Writing it updates the live scope as well as the default for scopes pushed later — the field
@@ -540,7 +584,7 @@ export class FocusManager implements FocusTarget {
     if (index === -1) {
       return;
     }
-    this.applyFocus(widget, index, options.pointer !== true || widget.focusRingOnPointer);
+    this.applyFocus(widget, index, this.visibleFor(widget, options.pointer));
   }
 
   /** Releases focus from `widget` (only if it actually holds it, and only when not trapped). */
@@ -612,7 +656,7 @@ export class FocusManager implements FocusTarget {
     if (!widget) {
       return false;
     }
-    return this.applyFocus(widget, picked);
+    return this.applyFocus(widget, picked, this.visibleFor(widget, undefined));
   }
 
   /**
@@ -777,7 +821,7 @@ export class FocusManager implements FocusTarget {
     if (!widget) {
       return false;
     }
-    return this.applyFocus(widget, index);
+    return this.applyFocus(widget, index, this.visibleFor(widget, undefined));
   }
 
   private applyFocus(widget: Widget, index: number, visible = true): boolean {

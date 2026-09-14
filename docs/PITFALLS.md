@@ -691,6 +691,7 @@ camera.centerOn(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2); // 缺这一行 = 只看�
 
 1. **焦点没动 ≠ 可见性没变**。`FocusManager#applyFocus` 在"焦点已经在这个控件上"时本来直接早退，于是**对话框打开时被 `focusFirst` 聚焦的那个控件，用户再点它一下，环不会消失**——这正是消费方（揭棋）第一次点音量滑杆时看到的画面。早退之前必须把新的可见性请求交给控件（`setFocusedInternal` 只重画、不发事件，因为焦点确实没动）。
 2. **绘制缓存里要有它**。`Slider` 是唯一把绘制结果缓存的控件（`styleKey`），而它的键里有 `visualState` 却没有 `focusVisible`：`focus: { ring: false }` 只改可见性、不改状态 → 键不变 → 不重画 → 环留在屏幕上。陈旧画笔的**签名**很好认：切一次主题（或任何顺带重画的事）它自己就好了——实测亮色半场自愈、暗色半场还挂着。
-3. **皮肤自己画焦点配色的控件要一起折进来**（`textInputSkinStyles.focused` 的边框就是 `focusRing` 色），否则全局关掉环之后还剩一圈同色边框。
+3. **"没有来源"的焦点变化要跟随最后一次输入的模态**（V83）。`Tab`/手柄是显式来源，指针按下也是，但**对话框 `focusFirst`、页面栈 `pop` 还原、`widget.focus()` 都没有来源**——一律按"可见"处理的话，触摸游戏点开音量对话框就会看到第一个滑杆戴着一个框，而那个框是**上一次点击的后果**（点击已经说明发生了什么）。规则：写入点是插件的两个输入漏斗（`onPointerFocus` 与 `dispatchAction`），读法是 `FocusManager#noteInput`/`visibleFor()`——最后一次是触摸/鼠标就不画，是键盘/手柄就画，任何输入之前保守地画。
+4. **皮肤自己画焦点配色的控件要一起折进来**（`textInputSkinStyles.focused` 的边框就是 `focusRing` 色），否则全局关掉环之后还剩一圈同色边框。
 
 **读数 / 门禁**：`#/states` 的 `#demo-state` 逐帧发 `ring.<name>=on|off`，`window.states.ring()` 读实时的 `{ focused, ringOn }`（[`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10）。常驻门禁是 `visual-check` 里 `#/states` 的**四条臂**——`states.pointer`（真鼠标点按钮）、`states.tab`（真 `Tab`）、`states.pressFocused`（`Tab` 聚焦滑杆**再**点它）、`states.ringGate`（`Tab` 聚焦滑杆**再**切 `ring: false`）；点过的必须与没碰过的邻居同色、键盘聚焦的必须读环色、两条"之后"的必须回到卡片底色，明暗两套。三条阳性对照分别钉住三个判据（`Button` 判据、`applyFocus` 的降级、`Slider` 的缓存键），第二条会同时打红断言与两条像素，第三条只打红暗色半场——见 [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10.1。
