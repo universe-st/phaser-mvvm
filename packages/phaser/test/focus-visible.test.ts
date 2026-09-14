@@ -79,6 +79,46 @@ describe('a pointer press focuses without lighting the control up', () => {
     expect(field.focusVisible).toBe(true);
   });
 
+  it('demotes the ring when a press lands on a control that already holds focus', () => {
+    const { root, manager } = stage();
+    const slider = leaf(root, 'slider');
+    manager.refresh();
+
+    // The sequence a dialog produces: it focuses a control when it opens (visible — a keyboard user needs
+    // to see where `Enter` goes), and the user then *taps that very control*.
+    slider.focus();
+    expect(slider.focusVisible).toBe(true);
+
+    let focusEvents = 0;
+    slider.on(WIDGET_EVENTS.FOCUS, () => focusEvents++);
+
+    manager.focus(slider, { pointer: true });
+
+    // Focus did not move, so nothing is announced — but the ring has to go. Returning early here without
+    // passing the new request on was the bug the game found (DEFECT-BACKLOG V82): the frame stayed on
+    // screen until something else happened to take focus away.
+    expect(slider.focused).toBe(true);
+    expect(slider.focusVisible).toBe(false);
+    expect(focusEvents).toBe(0);
+    expect(manager.focusedWidget).toBe(slider);
+  });
+
+  it('remembers the demoted request when the global gate is flipped afterwards', () => {
+    const { root, manager } = stage();
+    const slider = leaf(root, 'slider');
+    manager.refresh();
+
+    slider.focus();
+    manager.focus(slider, { pointer: true });
+
+    manager.ring = false;
+    manager.ring = true;
+
+    // The last thing the user did to this control was a press, so switching the global gate back on must
+    // not resurrect the ring: the request it re-applies is the demoted one.
+    expect(slider.focusVisible).toBe(false);
+  });
+
   it('still lights up for a Tab walk and for programmatic focus', () => {
     const { root, manager } = stage();
     const first = leaf(root, 'first');

@@ -70,6 +70,8 @@ const scenes = [
   // the first; a ring that stopped being painted for keyboard users fails the second.
   'states.pointer',
   'states.tab',
+  'states.pressFocused',
+  'states.ringGate',
 ];
 
 /**
@@ -81,6 +83,8 @@ const scenes = [
 const SCENE_HASH = {
   'states.pointer': 'states',
   'states.tab': 'states',
+  'states.pressFocused': 'states',
+  'states.ringGate': 'states',
 };
 
 /**
@@ -128,6 +132,8 @@ const SCENE_SETUP = {
   // if that page ever grows.
   'states.pointer': 'await window.states.reveal("button.default")',
   'states.tab': 'await window.states.reveal("button.default")',
+  'states.pressFocused': 'await window.states.reveal("slider.volume")',
+  'states.ringGate': 'await window.states.reveal("slider.volume")',
 };
 
 /**
@@ -138,28 +144,78 @@ const SCENE_SETUP = {
  * focus-ring gate is that a person's click and a person's `Tab` produce different pixels. Points come from
  * the page (`pointer`, an expression evaluated with `returnByValue`), keys go through CDP (`keys`).
  *
- * `until` steers a bounded loop of real presses: `#/states` puts a scroll port ahead of the buttons in the
- * focus order, so one `Tab` lands somewhere else — and a gate that assumed otherwise would fail for the
- * wrong reason. `assert` is the check itself, run after the input: it is the non-pixel half of the A/B
- * ("the input really did reach this control"), without which a sample that reads the *wrong* colour could
- * pass simply because nothing happened at all.
+ * `steps` run in order, which is what the case a dialog produces needs: focus a control with the keyboard,
+ * *then* press that same control with a pointer. `until` steers a bounded loop of real presses — `#/states`
+ * puts scroll ports and buttons ahead of the sliders in the focus order, so one `Tab` lands somewhere else
+ * and a gate that assumed otherwise would fail for the wrong reason. `assert` is the check itself, run
+ * after the input: it is the non-pixel half of each A/B ("the input really did reach this control"),
+ * without which a sample that reads the *wrong* colour could pass because nothing happened at all.
  */
 const SCENE_INPUT = {
   'states.pointer': {
-    pointer: 'window.states.point("button.default")',
+    steps: [{ pointer: 'window.states.point("button.default")' }],
     assert:
       '(() => { const r = window.states.ring()["button.default"];' +
       ' return r.focused === true && r.ringOn === false; })()',
     note: 'a pointer press focuses the button and paints no ring',
   },
   'states.tab': {
-    keys: ['Tab'],
-    until: 'window.states.ring()["button.default"].focused === true',
-    maxKeys: 8,
+    steps: [
+      {
+        keys: ['Tab'],
+        until: 'window.states.ring()["button.default"].focused === true',
+        maxKeys: 8,
+      },
+    ],
     assert:
       '(() => { const r = window.states.ring()["button.default"];' +
       ' return r.focused === true && r.ringOn === true; })()',
     note: 'a real Tab walks to the same button and paints the ring',
+  },
+  // Keyboard first, pointer second, on one `Slider`: the ring the keyboard painted has to be gone after the
+  // press, and the slider — the only control whose paint is cached — has to actually repaint to show that.
+  // This is the arm that caught V82, where the frame stayed on screen because the paint was skipped.
+  //
+  // The `until` expression records the ring it *saw* while the keyboard held focus, so the assertion can
+  // require both halves ("it was painted, then a press took it away"). Without that, an implementation that
+  // never painted a ring for a slider would pass this arm by doing nothing at all.
+  'states.pressFocused': {
+    steps: [
+      {
+        keys: ['Tab'],
+        until:
+          '(() => { const r = window.states.ring()["slider.volume"];' +
+          ' if (r.focused) { window.__ringSeen = r.ringOn; return true; } return false; })()',
+        maxKeys: 12,
+      },
+      { pointer: 'window.states.point("slider.volume")' },
+    ],
+    assert:
+      '(() => { const r = window.states.ring()["slider.volume"];' +
+      ' return window.__ringSeen === true && r.focused === true && r.ringOn === false; })()',
+    note: 'a press on an already-focused slider demotes the ring the keyboard had painted',
+  },
+  // The global gate, on the same focused slider: `focus: { ring: false }` changes *only* the visibility,
+  // which is the one transition a paint cache keyed on `visualState` cannot see. This arm is what makes
+  // `Slider`'s cache key cover `focusVisible`; without it the slider keeps its ring until something else
+  // happens to repaint it (V82, the second half).
+  'states.ringGate': {
+    steps: [
+      {
+        keys: ['Tab'],
+        until:
+          '(() => { const r = window.states.ring()["slider.volume"];' +
+          ' if (r.focused) { window.__ringSeen = r.ringOn; return true; } return false; })()',
+        maxKeys: 12,
+      },
+      {
+        evaluate: 'window.game.scene.getScene("states").mvvm.configure({ focus: { ring: false } })',
+      },
+    ],
+    assert:
+      '(() => { const r = window.states.ring()["slider.volume"];' +
+      ' return window.__ringSeen === true && r.focused === true && r.ringOn === false; })()',
+    note: 'turning the global ring gate off repaints the focused slider without the ring',
   },
 };
 
@@ -739,6 +795,18 @@ const PIXEL_EXPECTATIONS = {
     'ring.target': { rgb: 0x58a6ff, fy: 0 },
     'ring.neighbour': { rgb: 0x30363d, fy: 0 },
   },
+  /**
+   * The third arm: a slider that the keyboard focused and a pointer then pressed. Its top row is the other
+   * kind of sample this page offers — a `Slider` paints **no background**, so row 0 is either the ring or
+   * the card behind it, i.e. the check reads "the ring is gone", not "the ring changed to another border
+   * colour". The assertion above already proved the ring *was* there before the press.
+   */
+  'states.pressFocused': {
+    'ring.slider': { rgb: 0x161b22, fy: 0 },
+  },
+  'states.ringGate': {
+    'ring.slider': { rgb: 0x161b22, fy: 0 },
+  },
 };
 
 /**
@@ -855,6 +923,12 @@ const LIGHT_EXPECTATIONS = {
   'states.tab': {
     'ring.target': { rgb: 0x0969da, fy: 0 },
     'ring.neighbour': { rgb: 0xd0d7de, fy: 0 },
+  },
+  'states.pressFocused': {
+    'ring.slider': { rgb: 0xffffff, fy: 0 },
+  },
+  'states.ringGate': {
+    'ring.slider': { rgb: 0xffffff, fy: 0 },
   },
 };
 
@@ -1268,46 +1342,57 @@ async function main() {
       // Real input, last thing before the screenshot: a scene that declares `SCENE_INPUT` needs it to be
       // *seen*, and the state it produces (focus, and the ring that may or may not follow) is what the
       // pixel expectations below describe. Doing it after the `#status` read means the point came from a
-      // laid-out page rather than from a constant in this file.
+      // laid-out page rather than from a constant in this file. Steps run in the order they are written —
+      // the keyboard-then-pointer arm depends on that order.
       const input = SCENE_INPUT[scene];
-      if (input?.pointer) {
-        const { result: point } = await session.send('Runtime.evaluate', {
-          expression: input.pointer,
-          returnByValue: true,
-        });
-        if (!point?.value || typeof point.value.x !== 'number') {
-          console.error(`[visual-check] ${scene}: SCENE_INPUT.pointer did not resolve to a point`);
-          failures += 1;
-          continue;
-        }
-        await clickAt(session, point.value, { x: viewWidth - 4, y: viewHeight - 4 });
-        console.log(
-          `[visual-check] pointer press at (${point.value.x}, ${point.value.y}) for ${scene}`,
-        );
-      }
-      if (input?.keys) {
-        const limit = input.maxKeys ?? input.keys.length;
-        let pressed = 0;
-        let reached = input.until === undefined;
-        while (!reached && pressed < limit) {
-          for (const key of input.keys) {
-            await pressKey(session, key);
-            pressed += 1;
-          }
-          const { result } = await session.send('Runtime.evaluate', {
-            expression: input.until,
+      for (const step of input?.steps ?? []) {
+        if (step.pointer) {
+          const { result: point } = await session.send('Runtime.evaluate', {
+            expression: step.pointer,
             returnByValue: true,
           });
-          reached = result.value === true;
+          if (!point?.value || typeof point.value.x !== 'number') {
+            console.error(`[visual-check] ${scene}: a pointer step did not resolve to a point`);
+            failures += 1;
+            continue;
+          }
+          await clickAt(session, point.value, { x: viewWidth - 4, y: viewHeight - 4 });
+          console.log(
+            `[visual-check] pointer press at (${point.value.x}, ${point.value.y}) for ${scene}`,
+          );
         }
-        console.log(
-          `[visual-check] ${pressed} × ${input.keys.join('+')} for ${scene}` +
-            (input.until === undefined
-              ? ''
-              : reached
-                ? ' (target reached)'
-                : ' (target NOT reached)'),
-        );
+        if (step.keys) {
+          const limit = step.maxKeys ?? step.keys.length;
+          let pressed = 0;
+          let reached = step.until === undefined;
+          while (!reached && pressed < limit) {
+            for (const key of step.keys) {
+              await pressKey(session, key);
+              pressed += 1;
+            }
+            const { result } = await session.send('Runtime.evaluate', {
+              expression: step.until,
+              returnByValue: true,
+            });
+            reached = result.value === true;
+          }
+          console.log(
+            `[visual-check] ${pressed} × ${step.keys.join('+')} for ${scene}` +
+              (step.until === undefined
+                ? ''
+                : reached
+                  ? ' (target reached)'
+                  : ' (target NOT reached)'),
+          );
+        }
+        if (step.evaluate) {
+          await session.send('Runtime.evaluate', {
+            expression: `(() => { ${step.evaluate}; return true; })()`,
+            returnByValue: true,
+          });
+          await sleep(150);
+          console.log(`[visual-check] ran a page step for ${scene}`);
+        }
       }
       if (input?.assert) {
         const { result } = await session.send('Runtime.evaluate', {

@@ -24,6 +24,8 @@ Web 平台早就把这两个概念分开了：CSS 的 `:focus-visible`。它的�
 4. **`FocusManager#ring` 变成真开关**（默认 `true`）：`false` 时只抑制环，不动焦点，并且**立即**作用于当前持有焦点的控件（与既有的 `wrap`/`trapFocus` 写入语义一致）。这是"整块画布都不要焦点框"的出口（kiosk / 纯 Canvas 宿主）。
 5. **可见性变化不算焦点变化**：`setFocusedInternal(value, focusVisible)` 在只有可见性变化时重画但**不发** `widget:focus`/`widget:blur`——事件承诺的是**变化**（第 110 轮 V63 的教训：`widget:state` 曾经一次点击发两次 `pressed`）。
 6. **不新增任何导出名**：`FocusManager#focus(widget, { pointer })` 用可选入参，`focusRingOnPointer`/`focusVisible` 是类成员，`docs/API-SURFACE.json` 的 817 个名字**不变**（ADR-0011 的冻结门禁因此保持绿色，`pnpm api:check` 不需要重新冻结）。
+7. **按下就降级，哪怕焦点没移动**（同一轮、在消费方项目里补的，V82）：`FocusManager#applyFocus` 原来在"焦点已经在这个控件上"时直接早退，于是**对话框打开时被自动聚焦的那个控件，用户再点它一下，环不会消失**——而这正是消费方（揭棋）第一次点音量滑杆时看到的画面。现在早退前先把新的可见性请求交给控件：只重画、不发事件（焦点确实没动），返回值仍然是 `false`（没有 _focus_ 移动）。这一条比浏览器的启发式更"干净"：Chrome 对"点击一个已由键盘聚焦的元素"会保留 `:focus-visible`，而这里按下总是降级——环是为不看鼠标的用户存在的，而他们不会去点。
+8. **画环的控件，其重绘缓存键必须包含 `focusVisible`**：`Slider` 是唯一把绘制结果缓存的控件（`styleKey`），而它的键里有 `visualState` 却没有可见性。于是 `focus: { ring: false }` 这条**只改可见性、不改状态**的路径不会触发重画，环会一直留在屏幕上，直到别的事情顺带重画（例如切主题）。修法是把 `focusVisible` 加进键——这正是 [`PITFALLS.md`](../PITFALLS.md) §8.59 那条"缓存键必须覆盖画的时候读到的每一个输入"，只是这次的输入是**第二个绘制判据**，不是几何量。
 
 ## 后果
 
@@ -53,6 +55,17 @@ Web 平台早就把这两个概念分开了：CSS 的 `:focus-visible`。它的�
   | `configure({ focus: { ring: false } })` 后再按 `Tab` | `true`    | `false`（全场无一 `ringOn`） | 环消失，光标仍在（焦点未丢）              |
   | `configure({ focus: { ring: true } })`               | `true`    | `true`                       | 环恢复                                    |
 
-- **常驻像素门禁**（`scripts/visual-check.mjs`，同轮补上）：`#/states` 以 `states.pointer` / `states.tab` 两个别名**跑两遍**——同一个 hash、同一个按钮（`button.default`）、同一次主题切换，唯一的差别是输入来源（CDP 真鼠标点击 vs CDP 真 `Tab`）。采样点是该按钮与一个没人碰过的同款按钮的**最上一行**（`fy: 0`，环的第 0 行、边框的唯一一行），明暗两套：`states.pointer` 两个点都必须读边框色（`#30363d` / `#d0d7de`，即点过的按钮与没碰过的**同色**），`states.tab` 的 `ring.target` 必须读环色（`#58a6ff` / `#0969da`）。两条各带一条输入后断言（`{focused, ringOn}`），防止"点击没落到按钮上"式的假通过。规模：场景名 13 → 15、像素检查 96 → 108。
-- **阳性对照**：把 `Button` 的判据改回 `if (this.focused)` 并重建后，`states.pointer` 在暗明两半各红一条（`expected #30363d got #58a6ff` / `expected #d0d7de got #0969da`），而 `states.tab` 仍然全过——两半确实在测两件不同的事。还原后复跑 `[visual-check] ok`。
+- **常驻像素门禁**（`scripts/visual-check.mjs`，同轮补上）：`#/states` 以别名**跑四遍**——同一个 hash、同一次主题切换，唯一差别是输入序列（CDP 真鼠标 / 真 `Tab`）：
+  - `states.pointer`：点 `button.default`。它和一个没人碰过的同款按钮必须**同色**。
+  - `states.tab`：真 `Tab` 到同一个按钮。`ring.target` 必须读环色，邻居仍是边框色。
+  - `states.pressFocused`（决策 7 的门禁）：先真 `Tab` 把焦点给 `slider.volume`（`until` 表达式顺手记下"此刻确实画着环"），再真鼠标按同一个滑杆——`ring.slider` 的顶边必须回到卡片底色。`Slider` 画**没有背景**，所以这一行要么是环、要么是背后的卡片，判别很干净。
+  - `states.ringGate`（决策 8 的门禁）：同样先键盘聚焦滑杆，然后 `configure({ focus: { ring: false } })`——这是**只改可见性、不改状态**的路径，只有重绘缓存键覆盖了 `focusVisible` 才画得掉。
+
+  采样行统一取控件的**最上一行**（`fy: 0`）：环宽 2 内缩 1 盖第 0/1 行，按钮自己的 1px 边框只盖第 0 行，所以这一行是"两态不同、且采样点错位就会红"的那一行。每条臂各带一条输入后断言（`{focused, ringOn}`），防止"输入没落到控件上"式的假通过。规模：场景名 13 → **17**、像素检查 96 → **116**。
+
+- **阳性对照（三个，分别钉住三条不同的代码路径）**：
+  1. `Button` 判据改回 `if (this.focused)` → `states.pointer` 明暗各红一条（`expected #30363d got #58a6ff` / `#d0d7de → #0969da`），`states.tab` 仍全过。
+  2. `applyFocus` 改回"焦点没动就早退" → `states.pressFocused` 断言失败 **且**明暗两条像素都红（`got #58a6ff` / `got #0969da`），`states.ringGate` 仍全过。
+  3. `Slider` 的 `styleKey` 抽掉 `focusVisible` → **只有** `states.ringGate` 的**暗色**半场红（`expected #161b22 got #58a6ff`），断言与亮色半场都过——因为亮色是在 `setTheme` 之后截的，主题切换顺带改了键、自己把陈旧画笔修好了。这条差异本身就是"陈旧重画"的签名，也是为什么像素采样不能只靠断言。
+     每一条还原后复跑都是 `[visual-check] ok`。
 - **未验证**：真机触摸（`pointer.wasTouch`）下无环这一条只做了逻辑推断——触摸同样走 `onPointerFocus`，但本轮没有在 Android 模拟器上复跑 `scripts/android-check.mjs`。

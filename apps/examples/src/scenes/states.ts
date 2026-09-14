@@ -168,6 +168,14 @@ export class StatesScene extends Phaser.Scene {
     if (ringNeighbour) {
       reportWidget('ring.neighbour', ringNeighbour);
     }
+    // The third arm of the same gate: a `Slider` is the control whose ring once stayed on screen after a
+    // pointer press (its paint cache did not cover the new visibility flag — V82), so it gets its own
+    // sample point. The slider draws **no background**, so its top row is either the ring or whatever the
+    // card behind it shows, which is exactly the discrimination the check needs.
+    const ringSlider = this.probes.get('slider.volume')?.widget;
+    if (ringSlider) {
+      reportWidget('ring.slider', ringSlider);
+    }
     reportCanvas(this.game);
     this.exposeGlobals();
   }

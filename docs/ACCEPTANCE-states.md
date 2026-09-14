@@ -248,7 +248,9 @@ export const WIDGET_EVENTS = { ACTIVATE: 'widget:activate', STATE_CHANGE: 'widge
 3. **输入之后有一条断言（`SCENE_INPUT.assert`）**：`states.pointer` 断言 `{focused: true, ringOn: false}`、`states.tab` 断言 `{focused: true, ringOn: true}`。没有它，一次"点击没落到按钮上"的运行会读到边框色并**恰好**符合"没有环"的期望——负向断言最危险的假通过正是这样来的。
 4. **输入走 CDP，不用页内合成事件**：`PointerEvent` 能进 Phaser 的 DOM 监听，但绕过了浏览器自己的输入管线；这条门禁的全部意义就是"人的点击"与"人的 `Tab`"产生不同像素。
 
-**阳性对照（实测）**：把 `packages/widgets/src/Button.ts` 的判据改回第 113 轮之前的 `if (this.focused)`，重新构建后跑一次，得到
+**阳性对照（实测，三条，分别钉住三个判据）**
+
+1. 把 `packages/widgets/src/Button.ts` 的判据改回第 113 轮之前的 `if (this.focused)`，重新构建后跑一次，得到
 
 ```
 MISMATCH ring.target: expected #30363d got #58a6ff at (71,166)   （states.pointer，暗色）
@@ -256,6 +258,24 @@ MISMATCH ring.target: expected #d0d7de got #0969da at (71,166)   （states.point
 2 check(s) failed
 ```
 
-——正是用户报告的那圈框；而 `states.tab` 在同一轮**仍然全过**，说明两半确实在测两件不同的事（一半对"指针焦点漏画环"敏感，另一半对"环不再画"敏感）。还原代码后复跑：`[visual-check] ok`。
+——正是用户报告的那圈框；而 `states.tab` 在同一轮**仍然全过**，说明两半确实在测两件不同的事（一半对"指针焦点漏画环"敏感，另一半对"环不再画"敏感）。
 
-整轮规模：场景名 13 → **15**（13 个页面，`#/states` 两个别名），像素检查 96 → **108**，另加 2 条输入断言。见 [`HANDOVER.md`](./HANDOVER.md) §1.1 与 `AGENTS.md` §6。
+2. 把 `FocusManager#applyFocus` 改回"焦点没动就早退"：`states.pressFocused` **断言失败，且明暗两条像素都红**（`MISMATCH ring.slider: expected #161b22 got #58a6ff` / `expected #ffffff got #0969da`），而 `states.ringGate` 仍全过。
+3. 抽掉 `Slider` 的 `styleKey` 里的 `focusVisible`：**只有** `states.ringGate` 的**暗色**半场红（`expected #161b22 got #58a6ff`），断言与亮色半场都过——亮色是在 `setTheme` 之后截的，主题切换顺带改了键，把陈旧画笔自己修好了。
+
+三条还原后复跑都是 `[visual-check] ok`。
+
+### 10.2 集成到消费方时又抓到两条（V82，同轮补上）
+
+把这一版 vendor 进**揭棋**（`/Users/kuangshensheng/codes/JieQi`，见它自己的 `docs/ACCEPTANCE.md` §13）做集成验证时，用户看着屏幕说了一句「我看这个滑杆还是带框啊」——于是有了下面两条，以及本节四条臂里的后两条：
+
+| #   | 现象                                                                                    | 根因                                                                                                            | 修法                                                                                    |
+| --- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| ①   | 对话框打开后（`focusFirst` 给了音量滑杆一个键盘可见的环），**用户点这个滑杆，环不消失** | `FocusManager#applyFocus` 在"焦点已经在这个控件上"时直接早退，指针按下连控件都没通知到                          | 早退前先把新的可见性请求交给控件（只重画、不发事件：焦点确实没动），返回值仍为 `false`  |
+| ②   | 键盘聚焦的滑杆上切 `focus: { ring: false }`，**环留在屏幕上**                           | `Slider` 的 `styleKey` 里有 `visualState` 却没有 `focusVisible`：这条路径只改可见性、不改状态 → 键不变 → 不重画 | 把 `focusVisible` 加进 `styleKey`（§8.59 的同族：缓存键要覆盖画的时候读到的每一个输入） |
+
+判别这两条时有个很好用的签名：**只把指针移开**（焦点不变，只触发一次无关重画）环照样在 → 控件自己就认为"焦点可见"，不是陈旧画笔；而**切一次主题**环就没了 → 那才是陈旧画笔（② 的亮色半场就是这么自愈的，暗色半场还挂着——这也是为什么 ② 的阳性对照只打红暗色半场）。
+
+两条新臂（`states.pressFocused` / `states.ringGate`）都按**输入序列**跑：先真 `Tab` 把焦点给 `slider.volume`（`until` 表达式顺手记下"此刻确实画着环"，存进 `window.__ringSeen`），再真鼠标点它 / 再切开关；断言要求 `__ringSeen === true && focused === true && ringOn === false`，采样点是滑杆的**最上一行**（滑杆**没有背景**，所以那一行要么是环、要么是背后的卡片）。
+
+整轮规模：场景名 13 → **17**（13 个页面，`#/states` 四个别名），像素检查 96 → **116**，另加 4 条输入断言。见 [`HANDOVER.md`](./HANDOVER.md) §1.1 与 `AGENTS.md` §6。

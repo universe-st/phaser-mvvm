@@ -782,14 +782,26 @@ export class FocusManager implements FocusTarget {
 
   private applyFocus(widget: Widget, index: number, visible = true): boolean {
     const scope = this.topScope();
-    if (!scope || (scope.index === index && this.focusedWidget === widget)) {
+    if (!scope) {
+      return false;
+    }
+    const shown = visible && this._ring;
+
+    if (scope.index === index && this.focusedWidget === widget) {
+      // Focus does not move — but the *request* may have changed, and this is the case a dialog hits on
+      // its first tap: the host focused a control when the dialog opened (visible), the user now presses
+      // it with a pointer, and the older code returned here without ever telling the widget, so the ring
+      // stayed on screen. `setFocusedInternal` repaints for a visibility-only change and emits nothing
+      // (focus itself did not change); returning `false` stays honest about *focus* not moving.
+      this.requestVisible = visible;
+      widget.setFocusedInternal(true, shown);
       return false;
     }
 
     this.requestVisible = visible;
     this.focusedWidget?.setFocusedInternal(false);
     scope.index = index;
-    widget.setFocusedInternal(true, visible && this._ring);
+    widget.setFocusedInternal(true, shown);
     this.notify(widget);
     return true;
   }

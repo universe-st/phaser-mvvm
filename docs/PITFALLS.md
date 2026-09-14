@@ -687,6 +687,10 @@ camera.centerOn(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2); // 缺这一行 = 只看�
 
 **判据一句话**：`focused` 管**焦点在谁身上**，`focusVisible` 管**要不要把它指出来**；任何一处把这两者混用，都会以"点过的按钮一直带框"或"键盘用户不知道焦点在哪"的形式还回来。
 
-**读数**：`#/states` 的 `#demo-state` 逐帧发 `ring.<name>=on|off`，`window.states.ring()` 读实时的 `{ focused, ringOn }`（[`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10）。真浏览器实测（真鼠标 / 真 `Tab` / 真点击文本框 / 运行期切 `ring`）：`{focused:true,ringOn:false}` → `{focused:true,ringOn:true}` → 文本域点击仍 `ringOn:true` → `ring:false` 后全场无一 `ringOn` 而焦点与光标都在，切回来立刻恢复；截图与像素两两对照见 ADR-0012 的「证据」节。
+**三个隐含条件（第 113 轮踩过，V82）**——把"画不画环"变成第二个判据之后，有三处早退/缓存会静默吃掉它：
 
-**常驻门禁**（第 113 轮同轮补上）：`visual-check` 把 `#/states` 跑**两遍**——`states.pointer`（CDP 真鼠标点击）与 `states.tab`（CDP 真 `Tab`，按到目标持有焦点为止），采样同一个按钮的**最上一行**（`fy: 0`：环盖第 0/1 行，按钮自己的 1px 边框只盖第 0 行，所以这一行是两态唯一不同、且采样点错位就会红的行）与一个没被碰过的同款按钮：点过的那只必须与邻居**同色**，Tab 到的那只必须读环色（`#58a6ff` / 亮色 `#0969da`）。两条各带一条输入后断言（`{focused, ringOn}`）——没有它，"点击没落到按钮上"会读到边框色并恰好符合"没有环"的期望。阳性对照：把 `Button` 改回 `if (this.focused)` → `states.pointer` 明暗各红一条、`states.tab` 仍全过，见 [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10.1。
+1. **焦点没动 ≠ 可见性没变**。`FocusManager#applyFocus` 在"焦点已经在这个控件上"时本来直接早退，于是**对话框打开时被 `focusFirst` 聚焦的那个控件，用户再点它一下，环不会消失**——这正是消费方（揭棋）第一次点音量滑杆时看到的画面。早退之前必须把新的可见性请求交给控件（`setFocusedInternal` 只重画、不发事件，因为焦点确实没动）。
+2. **绘制缓存里要有它**。`Slider` 是唯一把绘制结果缓存的控件（`styleKey`），而它的键里有 `visualState` 却没有 `focusVisible`：`focus: { ring: false }` 只改可见性、不改状态 → 键不变 → 不重画 → 环留在屏幕上。陈旧画笔的**签名**很好认：切一次主题（或任何顺带重画的事）它自己就好了——实测亮色半场自愈、暗色半场还挂着。
+3. **皮肤自己画焦点配色的控件要一起折进来**（`textInputSkinStyles.focused` 的边框就是 `focusRing` 色），否则全局关掉环之后还剩一圈同色边框。
+
+**读数 / 门禁**：`#/states` 的 `#demo-state` 逐帧发 `ring.<name>=on|off`，`window.states.ring()` 读实时的 `{ focused, ringOn }`（[`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10）。常驻门禁是 `visual-check` 里 `#/states` 的**四条臂**——`states.pointer`（真鼠标点按钮）、`states.tab`（真 `Tab`）、`states.pressFocused`（`Tab` 聚焦滑杆**再**点它）、`states.ringGate`（`Tab` 聚焦滑杆**再**切 `ring: false`）；点过的必须与没碰过的邻居同色、键盘聚焦的必须读环色、两条"之后"的必须回到卡片底色，明暗两套。三条阳性对照分别钉住三个判据（`Button` 判据、`applyFocus` 的降级、`Slider` 的缓存键），第二条会同时打红断言与两条像素，第三条只打红暗色半场——见 [`ACCEPTANCE-states.md`](./ACCEPTANCE-states.md) §10.1。
