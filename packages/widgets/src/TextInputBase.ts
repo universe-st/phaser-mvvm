@@ -1174,7 +1174,10 @@ export abstract class TextInputBase extends Widget {
   private applyTextStyle(): void {
     const theme = this.theme;
     const color = toCssColor(this.textColor(theme));
-    const key = `${theme.name}|${theme.fontFamily}|${theme.fontSize.md}|${color}`;
+    // The baking ratio is part of the key: a field's visible lines are baked textures too, so a display
+    // whose ratio changed has to re-bake them (see `Widget#textResolution`).
+    const resolution = this.textResolution;
+    const key = `${theme.name}|${theme.fontFamily}|${theme.fontSize.md}|${color}|${resolution}`;
     if (key === this.textStyleKey) {
       return;
     }
@@ -1186,6 +1189,7 @@ export abstract class TextInputBase extends Widget {
         fontFamily: theme.fontFamily,
         fontSize: theme.fontSize.md,
         color,
+        resolution,
       });
       // Text fields measure their own line boxes, so the same allowance has to be applied here: a
       // clipped descender in a field is as wrong as one in a label, and the caret geometry follows it.

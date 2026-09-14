@@ -68,6 +68,9 @@ export class LabelWidget extends Widget {
       fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
       fontSize: '16px',
       color: '#e6edf3',
+      // The display's own ratio, so the glyph texture is not upsampled again by the browser; a
+      // caller-supplied `style.resolution` still wins (it comes after this).
+      resolution: this.textResolution,
       ...style,
     });
     this.text.setOrigin(0, 0);

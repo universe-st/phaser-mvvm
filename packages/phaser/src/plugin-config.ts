@@ -14,6 +14,22 @@ import type { TransitionOptions } from './transition';
 import type { UIRootOptions } from './UIRoot';
 
 export interface MVVMPluginConfig extends UIRootOptions {
+  /**
+   * Resolution the widgets bake their **text textures** at, in device pixels per layout unit.
+   *
+   * Widgets create one canvas texture per label/button/field line (`Phaser.GameObjects.Text`), and that
+   * texture is rasterised at the font size in *layout units*. On a display denser than the drawing
+   * buffer the browser then upsamples it and every glyph goes soft — the one thing a camera transform
+   * or a bigger buffer cannot fix after the fact.
+   *
+   * Omitted (the default), each scene measures the ratio itself
+   * (`devicePixelRatio × canvas CSS width ÷ game size`), rounds it to a ½ step and caps it at 2: `1.5`
+   * for a 450×900 `FIT` design shown at 0.75 scale on a Retina display, `2` for a `RESIZE` game on any
+   * HiDPI screen. Text created **before** the option changed keeps its texture. `1` turns the extra
+   * resolution off — texture memory grows with the square of this number, so it is the knob for a tight
+   * mobile budget, and `3` on a high-DPI phone is the opposite trade.
+   */
+  textResolution?: number;
   /** Focus behaviour overrides (the root is supplied by the plugin). */
   focus?: Omit<FocusManagerOptions, 'root'>;
   /** Pointer routing overrides (the root is supplied by the plugin). */

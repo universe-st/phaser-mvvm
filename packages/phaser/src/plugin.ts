@@ -30,6 +30,7 @@ import { ModalHost } from './modal';
 import { planBack } from './back-plan';
 import { revealInViewports } from './reveal';
 import { PageHost } from './pages';
+import { detectRenderScale, quantizeTextResolution } from './render-scale';
 import { Router } from './router';
 import {
   mergePluginConfig,
@@ -186,6 +187,43 @@ export class MVVMPlugin extends Phaser.Plugins.ScenePlugin {
    */
   get config(): Readonly<MVVMPluginConfig> {
     return { ...this.options };
+  }
+
+  /**
+   * Device pixels one layout unit covers on this display: `devicePixelRatio × (canvas CSS width ÷ game
+   * size)`.
+   *
+   * It is `1` on a plain 1× display, `2` on a Retina one, and — the case that is easy to miss — `1.5`
+   * for a `FIT` game whose 450×900 design is scaled down to 338 CSS pixels and then upscaled to 677
+   * device pixels. Phaser does not size its drawing buffer by `devicePixelRatio`, so this is *not* the
+   * buffer's grid (see `UIRootOptions.dpr`) — it is how large the result is on the glass.
+   *
+   * Read it when baking your own art into a texture (a chip, a piece, a board), so the bake matches the
+   * pixels the display will actually show. The UI's own text already does this automatically.
+   */
+  get renderScale(): number {
+    // The root's own width, not the game size: a page rendering at device resolution lays out in design
+    // units while the game is `devicePixelRatio` times bigger, and every consumer of this number (glyph
+    // textures, the DOM input bridge, an app baking its own art) works in layout units. Falling back to
+    // the game size keeps the unmagnified case unchanged. `uiRoot` rather than `root`, because reading
+    // this must not *create* a root as a side effect.
+    return detectRenderScale(this.scene as Phaser.Scene | undefined, this.uiRoot?.layoutSize.width);
+  }
+
+  /**
+   * Resolution the widgets bake their text textures at — `MVVMPluginConfig.textResolution` when set,
+   * otherwise {@link renderScale} rounded to a ½ step and capped at 2.
+   *
+   * Widgets read it when they build their `Phaser.GameObjects.Text`, so it applies to the text they
+   * create *after* it changes (a theme switch or a rebuild picks up a new value; a resize that changes
+   * the fit zoom only affects text built afterwards).
+   */
+  get textResolution(): number {
+    const override = this.options.textResolution;
+    if (typeof override === 'number' && Number.isFinite(override) && override > 0) {
+      return override;
+    }
+    return quantizeTextResolution(this.renderScale);
   }
 
   /**

@@ -249,9 +249,12 @@ export class Label extends Widget {
     const theme = this.theme;
     const color = toCssColor(theme.colors[TONE_COLORS[this.tone]]);
     const fontSize = resolveLabelFontSize(this.size, theme.fontSize);
+    // The baking ratio belongs in the key: a display whose ratio changed (a resize under `Scale.FIT`)
+    // has to re-bake the glyph texture, and nothing else in this key would notice.
+    const resolution = this.textResolution;
     // The caller's style overrides participate in the key: two labels with the same theme style but a
     // different `userStyle` must not share cached measurements.
-    const styleKey = `${theme.name}|${theme.fontFamily}|${fontSize}|${color}|${this.align}|${this.userStyleKey}`;
+    const styleKey = `${theme.name}|${theme.fontFamily}|${fontSize}|${color}|${this.align}|${resolution}|${this.userStyleKey}`;
     if (styleKey === this.styleKey) {
       return;
     }
@@ -261,6 +264,7 @@ export class Label extends Widget {
       fontSize,
       color,
       align: this.align,
+      resolution,
       ...this.userStyle,
     });
     this.applyGlyphPadding();

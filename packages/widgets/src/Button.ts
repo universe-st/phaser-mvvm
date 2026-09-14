@@ -440,7 +440,10 @@ export class Button extends Widget {
       value: this.value,
     });
     const color = toCssColor(buttonTextColor(theme, this.variant, state));
-    const styleKey = `${theme.fontFamily}|${theme.fontSize.md}|${color}`;
+    // Same reasoning as `Label`: the baking ratio is part of the style key, so a display whose ratio
+    // changed re-bakes the glyph texture instead of keeping the soft one.
+    const resolution = this.textResolution;
+    const styleKey = `${theme.fontFamily}|${theme.fontSize.md}|${color}|${resolution}`;
     if (styleKey !== this.styleKey) {
       this.styleKey = styleKey;
       this.label.setStyle({
@@ -448,6 +451,7 @@ export class Button extends Widget {
         fontSize: theme.fontSize.md,
         color,
         align: 'center',
+        resolution,
       });
       // Same allowance as `Label`: without it a button's descender is clipped by the text canvas.
       const pad = glyphPadding(theme.fontSize.md);

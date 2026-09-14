@@ -486,17 +486,36 @@ export class DomInputBridge {
   }
 
   /**
-   * Canvas CSS size ÷ Phaser's logical game size.
+   * Canvas CSS size ÷ the size the widget rects are expressed in.
    *
    * A `Scale.FIT` canvas is displayed smaller (or larger) than the game's coordinate space, so a
-   * design-pixel rect has to be scaled before it becomes a CSS pixel. `1` is used when the scale
-   * manager is not reachable, which is the common `Scale.RESIZE` case.
+   * design-pixel rect has to be scaled before it becomes a CSS pixel — and that coordinate space is the
+   * *layout* space, which is not the game size when the page renders at device resolution (a camera
+   * zoomed by `devicePixelRatio` over a game that many times bigger; see
+   * `UIRootOptions.designResolution`).
+   *
+   * The plugin already resolves exactly that ratio in physical pixels per layout unit, so this is it
+   * divided by the device pixel ratio — one formula, one place. Falls back to canvas ÷ game size when
+   * there is no plugin (an unmagnified game, where the two agree anyway).
    */
   private displayScale(canvasSize: number, axis: 'width' | 'height'): number {
     const gameSize = this.scene?.scale?.gameSize;
     const logical = axis === 'width' ? gameSize?.width : gameSize?.height;
     if (!logical || !Number.isFinite(logical) || logical <= 0 || !Number.isFinite(canvasSize)) {
       return 1;
+    }
+    const device = (globalThis as { devicePixelRatio?: number }).devicePixelRatio;
+    const physical = (this.scene as { mvvm?: { renderScale?: number } } | undefined)?.mvvm
+      ?.renderScale;
+    if (
+      typeof physical === 'number' &&
+      Number.isFinite(physical) &&
+      physical > 0 &&
+      typeof device === 'number' &&
+      Number.isFinite(device) &&
+      device > 0
+    ) {
+      return physical / device;
     }
     return canvasSize / logical;
   }

@@ -1,8 +1,9 @@
 /**
  * `UIRoot` — the layout root of a UI page.
  *
- * It owns the `LayoutEngine`, is sized to the camera/game size (updated on `scale` resize), and
- * drives one layout pass on demand. Everything else in the UI hangs below it; widgets find the
+ * It owns the `LayoutEngine`, is sized to the layout space — the game size, or the authored design
+ * resolution when the game renders at device resolution (`UIRootOptions.designResolution`) — keeps that
+ * size up to date on `scale` resize, and drives one layout pass on demand. Everything else in the UI hangs below it; widgets find the
  * engine through the tree, so a single root per UI scene is all that is needed.
  *
  * Default container is a `stack` with `align: 'center'`, which is what a single full-screen page
@@ -10,7 +11,7 @@
  */
 
 import type Phaser from 'phaser';
-import { devLog, isDevMode } from '@phaser-mvvm/core';
+import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { LayoutEngine, tight } from '@phaser-mvvm/layout';
 import type { ContainerLayout, Size } from '@phaser-mvvm/layout';
 import { Widget, type WidgetOptions } from './Widget';
@@ -34,7 +35,50 @@ export interface UIRootOptions extends WidgetOptions {
   align?: 'start' | 'center' | 'end';
   /** Render depth of the UI layer. Defaults to 1000. */
   depth?: number;
-  /** Device pixel ratio used for snapping. Defaults to `window.devicePixelRatio`. */
+  /**
+   * The size the page's layout is **authored** for, when the game itself is bigger than that.
+   *
+   * A game that renders at device resolution sizes its game at `design × devicePixelRatio` and zooms
+   * its camera by the same factor, so that one design pixel covers several buffer pixels instead of
+   * being upsampled by the browser afterwards. The page's own coordinates do not change — but three
+   * things the framework derives from "the game size" would then be wrong, and this option is how the
+   * root is told which size the layout, the snapping and the DOM overlay actually belong to:
+   *
+   * - the root lays out (and reserves the safe area) for this size, not for the game size;
+   * - the snap grid defaults to the magnification it implies (`game size ÷ this size`), which is the
+   *   buffer's real grid under a zoomed camera rather than the 1 of an unmagnified one;
+   * - `devicePixelRatio × canvas CSS width ÷ this width` is what the widgets bake their glyphs at and
+   *   what positions the DOM input bridge, both of which are expressed in layout units.
+   *
+   * Leave it unset (the default) and every one of those falls back to the game size, which is right for
+   * the ordinary unmagnified game.
+   *
+   * ```ts
+   * const dpr = window.devicePixelRatio;
+   * MVVMPlugin.configure({ designResolution: { width: 450, height: 900 } });
+   * new Phaser.Game({
+   *   scale: { mode: Phaser.Scale.FIT, width: 450 * dpr, height: 900 * dpr },
+   *   // …and in each scene: `this.cameras.main.setZoom(dpr)`.
+   * });
+   * ```
+   */
+  designResolution?: { width: number; height: number };
+  /**
+   * Pixels of the **drawing buffer** per layout unit, used for snapping.
+   *
+   * Defaults to the magnification implied by {@link UIRootOptions.designResolution} — `1` for an
+   * ordinary game, and `devicePixelRatio` for one rendering at device resolution — because that is the
+   * grid the buffer can actually represent.
+   *
+   * Deliberately **not** `window.devicePixelRatio` on its own: Phaser keeps the canvas backing store at
+   * `gameSize` (it scales the canvas in *CSS* pixels), so an unmagnified game has exactly one buffer
+   * pixel per layout unit however dense the display is. Snapping to a finer grid than the buffer can
+   * represent does not buy sharpness — it puts every edge on a half pixel, which the rasteriser draws as
+   * two half-lit pixels, and borders and text boxes visibly soften (V79).
+   *
+   * Set it by hand when the magnification is not uniform or does not come from a camera zoom (a
+   * container scaled by 2, say).
+   */
   dpr?: number;
   /** Snapping mode. Defaults to `'round'`. */
   snapMode?: 'none' | 'round' | 'floor' | 'ceil';
@@ -64,6 +108,12 @@ export class UIRoot extends Widget {
   private structureCounter = 0;
   private insets: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
   private deviceInsets: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 };
+  /** The size the layout is authored for, or `null` to follow the game size (the default). */
+  private readonly design: { width: number; height: number } | null;
+  /** The numeric size of the last layout, so readers never have to resolve a `LengthUnit`. */
+  private laidOutSize: Size = { width: 0, height: 0 };
+  /** The caller's explicit snap grid, or `null` to keep tracking the magnification. */
+  private readonly snapGrid: number | null;
 
   constructor(scene: Phaser.Scene, options: UIRootOptions = {}) {
     super(scene, { layout: { width: 0, height: 0, ...options.layout }, name: options.name });
@@ -77,8 +127,20 @@ export class UIRoot extends Widget {
       this.structureCounter++;
     };
 
+    const design = options.designResolution;
+    this.design =
+      design && design.width > 0 && design.height > 0
+        ? { width: design.width, height: design.height }
+        : null;
+    if (design && !this.design && isDevMode()) {
+      warn('UIRoot: designResolution needs positive width and height; ignoring it');
+    }
+    this.warnOnSkewedDesign();
+
+    this.snapGrid = typeof options.dpr === 'number' && options.dpr > 0 ? options.dpr : null;
     this.layoutEngine = new LayoutEngine({
-      dpr: options.dpr ?? defaultDpr(),
+      // The buffer's own grid, unless the caller knows better: see `UIRootOptions.dpr`.
+      dpr: this.snapGrid ?? this.layoutScale,
       snapMode: options.snapMode ?? 'round',
     });
     this.setEngineRecursive(this.layoutEngine);
@@ -89,6 +151,23 @@ export class UIRoot extends Widget {
     scene.scale.on('resize', this.handleResize, this);
 
     this.resize();
+  }
+
+  /**
+   * Game (and therefore buffer) units per layout unit.
+   *
+   * `1` unless {@link UIRootOptions.designResolution} is set, in which case it is whatever
+   * magnification separates the two — the camera zoom a device-resolution game renders with. It is the
+   * number the snap grid and the text-baking ratio are built from, so a page can read it to bake its
+   * own art at the same density.
+   */
+  get layoutScale(): number {
+    if (!this.design) {
+      return 1;
+    }
+    const game = this.scene?.scale?.gameSize;
+    const scale = game && game.width > 0 ? game.width / this.design.width : 1;
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
   }
 
   /**
@@ -107,14 +186,70 @@ export class UIRoot extends Widget {
 
   /** Re-reads the game size, marks the root dirty and lays out immediately. */
   resize(): void {
-    const gameSize = this.scene.scale.gameSize;
-    this.resizeTo(gameSize.width, gameSize.height);
+    const size = this.authoredSize();
+    this.resizeTo(size.width, size.height);
+  }
+
+  /**
+   * The size the layout works in: the authored design resolution when there is one, else the game size.
+   *
+   * Every other size the root derives — the snap grid, the safe-area reservation — is expressed in these
+   * units, so this is the one place that decides what "a layout unit" means for this page.
+   */
+  private authoredSize(): { width: number; height: number } {
+    const gameSize = this.scene?.scale?.gameSize;
+    if (this.design) {
+      return this.design;
+    }
+    return { width: gameSize?.width ?? 0, height: gameSize?.height ?? 0 };
+  }
+
+  /**
+   * Warns when the design resolution does not share the game's aspect ratio.
+   *
+   * A camera zoom can only turn one design pixel into `n` buffer pixels if both axes are magnified by
+   * the same factor; when they are not, the page is stretched and every layout length means something
+   * different horizontally and vertically — a silent, very confusing kind of wrong.
+   */
+  private warnOnSkewedDesign(): void {
+    if (!this.design || !isDevMode()) {
+      return;
+    }
+    const game = this.scene?.scale?.gameSize;
+    if (!game || !(game.width > 0) || !(game.height > 0)) {
+      return;
+    }
+    const scaleX = game.width / this.design.width;
+    const scaleY = game.height / this.design.height;
+    if (Math.abs(scaleX - scaleY) > scaleX * 0.01) {
+      warn(
+        `UIRoot: designResolution ${this.design.width}x${this.design.height} does not have the game's ` +
+          `aspect ratio (${game.width}x${game.height}): the page will be stretched ` +
+          `(${scaleX.toFixed(3)}x horizontally, ${scaleY.toFixed(3)}x vertically)`,
+      );
+    }
+  }
+
+  /**
+   * The numeric size the root is laid out in: the authored design resolution when there is one, else the
+   * live game size (`0x0` before the first layout). Read by the plugin to resolve how many device pixels
+   * a layout unit covers, and by anything else that has to convert layout units to screen ones.
+   */
+  get layoutSize(): Size {
+    return { width: this.laidOutSize.width, height: this.laidOutSize.height };
   }
 
   /** Sizes the root to an explicit size (design-resolution overrides, tests, embedded UI). */
   resizeTo(width: number, height: number): void {
     const w = Math.max(1, Math.round(width));
     const h = Math.max(1, Math.round(height));
+    this.laidOutSize = { width: w, height: h };
+    // The magnification can move under a live root — a device-pixel-ratio change, or an app that
+    // re-sizes its game from the window — and the snap grid has to follow it, or the rects would keep
+    // landing on a grid that no longer matches the buffer.
+    if (this.snapGrid === null) {
+      this.layoutEngine.dpr = this.layoutScale;
+    }
     this.layoutParams.width = w;
     this.layoutParams.height = h;
     this.applySafeArea({ width: w, height: h });
@@ -167,14 +302,15 @@ export class UIRoot extends Widget {
    * coincide in the responsive mode the examples default to, and differ by the display scale in
    * `Scale.FIT` — where reserving the raw CSS number would leave the UI under the cutout.
    */
-  private cssToDesignFactor(): number {
-    const scale = this.scene?.scale;
-    const display = scale?.displaySize;
-    const game = scale?.gameSize;
-    if (!display || !game || !(display.width > 0) || !(game.width > 0)) {
+  private cssToDesignFactor(layoutWidth: number): number {
+    const display = this.scene?.scale?.displaySize;
+    // The layout width, not the game width: with a camera zoomed over a bigger game, one CSS pixel
+    // covers fewer *design* units than `gameSize / displaySize` would claim, and the insets the caller
+    // measures are in design units.
+    if (!display || !(display.width > 0) || !(layoutWidth > 0)) {
       return 1;
     }
-    return game.width / display.width;
+    return layoutWidth / display.width;
   }
 
   /**
@@ -197,7 +333,7 @@ export class UIRoot extends Widget {
             // The insets belong to the viewport; only the part the canvas sits under concerns the UI
             // (`Scale.FIT` letterboxes the canvas away from the cutout — see `insetsInsideCanvas`).
             insetsInsideCanvas(this.deviceInsets, this.canvasBox(), this.viewportSize()),
-            this.cssToDesignFactor(),
+            this.cssToDesignFactor(size.width),
           ),
           size,
         )
@@ -272,9 +408,4 @@ export class UIRoot extends Widget {
   private handleResize(): void {
     this.resize();
   }
-}
-
-function defaultDpr(): number {
-  const dpr = (globalThis as { devicePixelRatio?: number }).devicePixelRatio;
-  return typeof dpr === 'number' && dpr > 0 ? dpr : 1;
 }

@@ -27,6 +27,7 @@ import {
 } from '@phaser-mvvm/layout';
 import { effectScope, type EffectScope } from '@phaser-mvvm/core';
 import { getTheme, onThemeChange, type Theme } from './theme';
+import { detectRenderScale, quantizeTextResolution } from './render-scale';
 import type { NavAction } from './nav';
 import { devLog, isDevMode, warn } from '@phaser-mvvm/core';
 import { inFlowOf } from '@phaser-mvvm/layout';
@@ -332,6 +333,28 @@ export class Widget extends Phaser.GameObjects.Container implements LayoutNode {
   /** Theme currently in use; widgets repaint themselves when it changes. */
   get theme(): Theme {
     return getTheme();
+  }
+
+  /**
+   * Resolution a text texture this widget bakes should use, in device pixels per layout unit.
+   *
+   * Widgets own `Phaser.GameObjects.Text` objects, whose glyphs are rasterised **now**, into a canvas
+   * texture, at the font size in layout units — the camera and the drawing buffer never see the
+   * original glyphs. On a display denser than that buffer the texture is then upsampled and the text
+   * goes soft, so widgets bake at the display's own ratio instead (`Text.style.resolution` keeps the
+   * object's size in layout units, which is why a measurement taken off this text does not move).
+   *
+   * Comes from the scene's plugin (`MVVMPlugin#textResolution`, itself
+   * `MVVMPluginConfig.textResolution` or the measured ratio capped at 2), and falls back to the measured
+   * ratio when the scene has no plugin — a bare widget in a unit test must still work.
+   */
+  protected get textResolution(): number {
+    const hosted = (this.scene as { mvvm?: { textResolution?: number } } | undefined)?.mvvm
+      ?.textResolution;
+    if (typeof hosted === 'number' && Number.isFinite(hosted) && hosted > 0) {
+      return hosted;
+    }
+    return quantizeTextResolution(detectRenderScale(this.scene));
   }
 
   setEnabled(value: boolean): this {

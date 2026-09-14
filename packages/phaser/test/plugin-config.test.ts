@@ -24,6 +24,14 @@ describe('mergePluginConfig', () => {
     expect(merged.themeBackground).toBe(true);
   });
 
+  it('carries the text-baking resolution like any other flat option', () => {
+    // `MVVMPlugin#textResolution` reads this one from the merged bag (never through its own resolved
+    // getter, which would recurse), so a patch has to land and a silent patch has to survive.
+    const merged = mergePluginConfig({ textResolution: 1.5 }, { textResolution: 1 });
+    expect(merged.textResolution).toBe(1);
+    expect(mergePluginConfig({ textResolution: 2 }, { navigation: false }).textResolution).toBe(2);
+  });
+
   it('merges every sub-option bag instead of replacing it', () => {
     const base: MVVMPluginConfig = {
       input: { dragThreshold: 12 },

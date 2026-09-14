@@ -363,14 +363,82 @@ Stack({ width: 240, height: 140, align: 'center' }, () => {
 - `UIRoot` 的两个选项控制它：
 
 ```ts
-new UIRoot(scene, { dpr: window.devicePixelRatio, snapMode: 'round' }); // 默认 dpr=devicePixelRatio, snapMode='round'
+new UIRoot(scene, { dpr: 1, snapMode: 'round' }); // 默认 dpr=1, snapMode='round'
 ```
+
+`dpr` 的含义是**绘制缓冲的像素 / 布局单位**，不是 `window.devicePixelRatio`：Phaser 把画布后备缓冲固定成 `gameSize`（它只在 CSS 像素上缩放画布），所以一个布局单位永远是一个缓冲像素，屏幕多密都一样。**把网格设得比缓冲更细不会变清晰**，只会让每条边的坐标落在半像素上、被光栅化成两个半亮的像素 —— 边框和文字框会因此发虚（V79，见 [`PITFALLS.md`](../PITFALLS.md) §8.72）。
+
+什么时候**才**该设成 2：当你把内容渲染得**比布局空间更大**时（相机 `setZoom(2)`，或把一个容器 `setScale(2)`）—— 那时一个布局单位覆盖两个缓冲像素，`dpr: 2` 才是对的。
 
 | `snapMode`           | 效果                               |
 | -------------------- | ---------------------------------- |
-| `'round'`（默认）    | 四舍五入到设备像素格               |
+| `'round'`（默认）    | 四舍五入到缓冲像素格               |
 | `'none'`             | 保留亚像素（动画更顺，字可能发虚） |
 | `'floor'` / `'ceil'` | 向下/向上取整                      |
+
+### 12.1 文字清晰度：字形是按显示倍率烘焙的
+
+`Phaser.GameObjects.Text` 的字形**只光栅化一次**：构造时按布局单位下的字号画进一张画布纹理。所以画布后备缓冲比屏幕稀时（`Scale.FIT` 把 450×900 的设计缩到 338.5 CSS 像素，浏览器再放大到 677 物理像素），屏幕上的字只能是对那张纹理的**放大**，相机和大缓冲都救不回来。
+
+框架因此按**显示倍率**烘焙字形（`Widget#textResolution` → `MVVMPlugin#textResolution`，值为 `devicePixelRatio × 画布 CSS 宽 ÷ gameSize`，取整到 ½ 档、上限 2）：
+
+- `1.5`：450×900 的 `FIT` 设计在 2× 屏上按 0.75 缩放显示（就是上面那组数字）；
+- `2`：`RESIZE` 游戏在任何 HiDPI 屏上；
+- 想按自己的内存预算调（纹理面积是倍率的平方）：
+
+```ts
+MVVMPlugin.configure({ textResolution: 1 }); // 关掉加密（低端机内存紧）
+MVVMPlugin.configure({ textResolution: 3 }); // 高 DPI 手机上换更锐的字（显式值不受上限 2 与 ½ 档约束）
+```
+
+`Phaser.GameObjects.Text` 的显示尺寸仍按布局单位算（渲染时除以 `source.resolution`），所以**测量、布局、命中测试都不动**；改动只影响**之后**创建的文本。要自己烘焙美术资源（棋子、筹码、棋盘）时读同一个倍率：
+
+```ts
+const scale = this.mvvm.renderScale; // 1.504，用它决定烘焙尺寸
+```
+
+### 12.2 连矢量线条一起变锐：设备分辨率渲染（`designResolution`）
+
+12.1 只救得了**烘焙**出来的像素。面板描边、棋盘格线、任何每帧画的 `Graphics` 是在相机变换**之后**按**绘制缓冲**光栅化的，而缓冲永远等于 `gameSize` —— 用 450×900 的设计跑 `Scale.FIT`，在 2× 屏上就是一张 450×900 的位图铺在 780×1560 个物理像素上，整幅画面被放大 1.73 倍，`1px` 的线变成一条 3 设备像素的糊线。
+
+要让它们也锐，就得把**游戏本身**做成设备分辨率，再用相机把设计空间放大回来：
+
+```ts
+const dpr = Math.min(window.devicePixelRatio, 3);
+
+// ① UI 层知道"页面是按 450×900 排的，游戏比它大 dpr 倍"
+MVVMPlugin.configure({ designResolution: { width: 450, height: 900 } });
+
+// ② 游戏尺寸 = 设计 × dpr（画布 CSS 尺寸不变，变的只是后备缓冲）
+const game = new Phaser.Game({
+  scale: { mode: Phaser.Scale.FIT, width: 450 * dpr, height: 900 * dpr },
+  // …
+});
+
+// ③ 每个场景：相机缩放 dpr，并且**对准设计框中心**
+const camera = this.cameras.main;
+camera.setZoom(dpr);
+camera.centerOn(225, 450); // 少了这一行只会看到设计框的四分之一
+```
+
+第 ③ 步的两个操作缺一不可：Phaser 的 `worldView = midPoint ± (gameSize ÷ zoom)/2`，而 `midPoint = scroll + gameSize/2` —— **zoom 只决定看多大范围，不决定看哪一块**。所以缩放了却不居中，画面会偏到设计框的一角，而且命中测试会整体错位（实测症状：画面"看着还行"，但点击全部落空）。
+
+`designResolution` 一次回答四个问题：
+
+| 派生量                          | 公式                                  | 不设会怎样                                 |
+| ------------------------------- | ------------------------------------- | ------------------------------------------ |
+| 根的布局尺寸                    | `designResolution`（否则 `gameSize`） | 页面在 900×1800 里排版，整体缩小一半       |
+| 吸附网格 `layoutEngine.dpr`     | `gameSize.width ÷ 设计宽`             | 回到 §12 的半像素问题                      |
+| 字形烘焙倍率 `mvvm.renderScale` | `dpr × 画布 CSS 宽 ÷ 布局宽`          | 用 gameSize 当分母会少算一个倍率（字变糊） |
+| 隐藏输入框的摆放（DOM 桥）      | `renderScale ÷ dpr`                   | 位置错一倍，IME 候选框飘走                 |
+
+**相机放大不了细节，只能放大已有的像素**，所以凡是"烘焙过一次"的东西都要自己按倍率重做，否则开了设备分辨率反而更糊：
+
+- `Graphics.generateTexture` 的贴图：在 `generateTexture` 之前 `graphics.setScale(倍率)` 即可，绘制代码一行都不用改（它内部走 `SetTransform`，会应用 `Graphics` 自己的变换）；
+- `Phaser.Text`：只有 `style.resolution` 一个入口（Phaser 4 缺省强制成 1，没有 Game Config 通道），而且它**与 `setScale` 相乘**——`fontSize: 52` 又 `setScale(1.8)` 的标题需要 `resolution: 倍率 × 1.8`；
+- **只给"消费者一定会 `setDisplaySize`"的贴图加密**：按原始尺寸显示的粒子会直接变大，而不是变清楚。
+
+实测（揭棋，dpr 2 / 390×844）：后备缓冲 450×900 → **900×1800**（画布 CSS 不变），棋盘格线剖面从 `109,87,74,77,88,131`（没有实心像素）变成 `102,72,72,72,84,148`（有实心核），强边缘像素 3308 → **15281**，最锐梯度 86.2 → **121.7**。完整踩坑记录见 [`PITFALLS.md`](../PITFALLS.md) §8.73。
 
 ---
 
